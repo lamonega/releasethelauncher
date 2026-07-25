@@ -164,15 +164,19 @@ impl Theme {
         ctx.set_visuals(visuals);
         ctx.set_style(style);
 
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::variants::Variant::Regular);
+        ctx.set_fonts(fonts);
+
         theme
     }
 }
 
 pub mod icons {
-    pub const LAUNCH: &str = "\u{25B6}";
-    pub const DELETE: &str = "\u{2715}";
-    pub const BACK: &str = "\u{2190}";
-    pub const FOLDER: &str = "\u{25A1}";
-    pub const ADD: &str = "+";
-    pub const SEARCH: &str = "?";
+    pub const LAUNCH: &str = egui_phosphor::regular::PLAY;
+    pub const DELETE: &str = egui_phosphor::regular::TRASH;
+    pub const BACK: &str = egui_phosphor::regular::ARROW_LEFT;
+    pub const FOLDER: &str = egui_phosphor::regular::FOLDER;
+    pub const ADD: &str = egui_phosphor::regular::PLUS;
+    pub const SEARCH: &str = egui_phosphor::regular::MAGNIFYING_GLASS;
 }
