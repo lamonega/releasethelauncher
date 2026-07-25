@@ -75,6 +75,14 @@ impl DependencyResolver {
         })
     }
 
+    /// Returns all known version IDs from the manifest, if fetched.
+    #[must_use]
+    pub fn available_versions(&self) -> Vec<String> {
+        self.manifest.as_ref().map_or_else(Vec::new, |m| {
+            m.versions.iter().map(|v| v.id.clone()).collect()
+        })
+    }
+
     /// # Errors
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn fetch_version_metadata(&self, url: &str) -> Result<VersionFile, LaunchError> {

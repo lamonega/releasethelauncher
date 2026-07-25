@@ -26,22 +26,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                     state.installing_modpack_id = None;
                 }
             },
+            crate::UiMessage::VersionListResult(result) => match result {
+                Ok(versions) => {
+                    if let Some(latest) = versions.first() {
+                        state.mc_version = latest.clone();
+                    }
+                    state.available_versions = versions;
+                    state.version_list_loaded = true;
+                }
+                Err(e) => {
+                    state.modrinth_status = format!("Failed to load versions: {e}");
+                }
+            },
             _ => {}
         }
+    }
+
+    // Trigger version list fetch on first open if not yet loaded
+    if !state.version_list_loaded && !state.version_list_loading {
+        state.version_list_loading = true;
+        app.fetch_versions_list();
     }
 
     ui.horizontal(|ui| {
         ui.heading("New Instance");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Back").clicked() {
+            if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
                 app.current_view = View::InstanceList;
             }
         });
     });
 
+    ui.add_space(app.theme.spacing.sm);
+
     ui.horizontal(|ui| {
         let manual_style = if state.tab == InstanceTab::Manual {
-            egui::Button::new("Manual").fill(egui::Color32::from_rgb(60, 60, 80))
+            egui::Button::new("Manual").fill(app.theme.accent)
         } else {
             egui::Button::new("Manual")
         };
@@ -50,7 +70,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         }
 
         let modrinth_style = if state.tab == InstanceTab::Modrinth {
-            egui::Button::new("From Modrinth").fill(egui::Color32::from_rgb(60, 60, 80))
+            egui::Button::new("From Modrinth").fill(app.theme.accent)
         } else {
             egui::Button::new("From Modrinth")
         };
@@ -59,7 +79,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         }
     });
 
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
     match state.tab {
         InstanceTab::Manual => show_manual(app, ui, state),
@@ -71,8 +93,30 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Name:");
     ui.text_edit_singleline(&mut state.name);
 
+    ui.add_space(app.theme.spacing.sm);
+
     ui.label("Minecraft Version:");
-    ui.text_edit_singleline(&mut state.mc_version);
+    if state.available_versions.is_empty() {
+        if state.version_list_loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Loading versions...");
+            });
+        } else {
+            ui.text_edit_singleline(&mut state.mc_version);
+        }
+    } else {
+        egui::ComboBox::from_label("Minecraft Version")
+            .selected_text(&state.mc_version)
+            .width(200.0)
+            .show_ui(ui, |ui| {
+                for version in &state.available_versions {
+                    ui.selectable_value(&mut state.mc_version, version.clone(), version);
+                }
+            });
+    }
+
+    ui.add_space(app.theme.spacing.sm);
 
     ui.label("Loader:");
     egui::ComboBox::from_label("Mod Loader")
@@ -85,13 +129,21 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         });
 
     if state.loader_type != LoaderType::Vanilla {
+        ui.add_space(app.theme.spacing.sm);
         ui.label("Loader Version:");
         ui.text_edit_singleline(&mut state.loader_version);
     }
 
+    ui.add_space(app.theme.spacing.md);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
-    if ui.button("Create Instance").clicked()
+    if ui
+        .add(
+            egui::Button::new(format!(" {} Create Instance", crate::icons::ADD))
+                .fill(app.theme.accent),
+        )
+        .clicked()
         && !state.name.is_empty()
         && !state.mc_version.is_empty()
     {
@@ -137,10 +189,14 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
 fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Search for modpacks on Modrinth:");
 
+    ui.add_space(app.theme.spacing.sm);
+
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.text_edit_singleline(&mut state.modrinth_query);
     });
+
+    ui.add_space(app.theme.spacing.sm);
 
     ui.horizontal(|ui| {
         ui.label("MC Version:");
@@ -156,7 +212,13 @@ fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState)
             });
     });
 
-    if ui.button("Search").clicked() && !state.modrinth_query.is_empty() {
+    ui.add_space(app.theme.spacing.sm);
+
+    if ui
+        .button(format!(" {} Search", crate::icons::SEARCH))
+        .clicked()
+        && !state.modrinth_query.is_empty()
+    {
         state.modrinth_status = "Searching...".to_string();
         state.modrinth_results = Vec::new();
         let loader = match state.loader_filter {
@@ -172,14 +234,16 @@ fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState)
         );
     }
 
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
     if !state.modrinth_status.is_empty() {
         ui.label(&state.modrinth_status);
     }
 
     if state.modrinth_results.is_empty() && state.modrinth_status.is_empty() {
-        ui.label("Search for modpacks to install.");
+        ui.colored_label(app.theme.text_secondary, "Search for modpacks to install.");
     } else {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -196,7 +260,10 @@ fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState)
 
                         if state.installing_modpack_id == Some(result.id.clone()) {
                             ui.label(&state.modrinth_status);
-                        } else if ui.button("Install as New Instance").clicked() {
+                        } else if ui
+                            .button(format!(" {} Install as New Instance", crate::icons::ADD))
+                            .clicked()
+                        {
                             state.installing_modpack_id = Some(result.id.clone());
                             state.modrinth_status = format!("Installing {}...", result.name);
                         }
@@ -219,6 +286,9 @@ pub struct NewInstanceState {
     pub modrinth_status: String,
     pub modrinth_results: Vec<ProjectSummary>,
     pub installing_modpack_id: Option<String>,
+    pub available_versions: Vec<String>,
+    pub version_list_loaded: bool,
+    pub version_list_loading: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
