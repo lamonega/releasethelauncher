@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Release The Launcher
+Comment=A minimal Minecraft launcher
+Exec=release-the-launcher
+Icon=release-the-launcher
+Type=Application
+Categories=Game;
+Terminal=false
+StartupWMClass=release-the-launcher

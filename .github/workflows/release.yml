@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  APP_NAME: release-the-launcher
+
+permissions:
+  contents: write
+
+jobs:
+  release-linux:
+    name: Release Linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libatk1.0-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libxcb1-dev libasound2-dev pkg-config file
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Prepare AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/share/applications
+          cp target/release/${{ env.APP_NAME }} AppDir/usr/bin/
+          cp packaging/linux/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/${{ env.APP_NAME }}.png
+          cp packaging/linux/${{ env.APP_NAME }}.desktop AppDir/usr/share/applications/
+          # Also copy into root for linuxdeploy
+          cp packaging/linux/${{ env.APP_NAME }}.desktop AppDir/
+          cp packaging/linux/icon.png AppDir/${{ env.APP_NAME }}.png
+
+      - name: Create AppImage
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          chmod +x linuxdeploy
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ./linuxdeploy --appdir AppDir --desktop-file AppDir/${{ env.APP_NAME }}.desktop --icon-file AppDir/${{ env.APP_NAME }}.png --output appimage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: ${{ env.APP_NAME }}-*.AppImage
+
+  release-macos:
+    name: Release macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Create .app bundle
+        run: |
+          APP_DIR="Release The Launcher.app"
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          mkdir -p "$APP_DIR/Contents/Resources"
+          cp target/release/${{ env.APP_NAME }} "$APP_DIR/Contents/MacOS/"
+          cp packaging/macos/Info.plist "$APP_DIR/Contents/"
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "Release The Launcher" -srcfolder "Release The Launcher.app" -ov -format UDZO "Release The Launcher.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: Release The Launcher.dmg
+
+  release-windows:
+    name: Release Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Create zip
+        run: Compress-Archive -Path "target/release/${{ env.APP_NAME }}.exe" -DestinationPath "${{ env.APP_NAME }}-windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: ${{ env.APP_NAME }}-windows.zip
+
+  publish:
+    name: Publish Release
+    needs: [release-linux, release-macos, release-windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*
