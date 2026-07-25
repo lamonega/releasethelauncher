@@ -116,14 +116,11 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Create zip
-        run: Compress-Archive -Path "target/release/${{ env.APP_NAME }}.exe" -DestinationPath "${{ env.APP_NAME }}-windows.zip"
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: ${{ env.APP_NAME }}-windows.zip
+          name: windows-exe
+          path: target/release/${{ env.APP_NAME }}.exe
 
   publish:
     name: Publish Release
