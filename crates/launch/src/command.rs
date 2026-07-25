@@ -4,6 +4,12 @@ use crate::LaunchError;
 use std::path::Path;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone)]
 pub struct PlayerAuth {
     pub name: String,
@@ -108,6 +114,9 @@ fn build_classpath(profile: &LaunchProfile) -> Vec<String> {
 /// # Errors
 /// Returns an error if the process fails to spawn or wait.
 pub async fn launch_game(command: &mut Command) -> Result<std::process::ExitStatus, LaunchError> {
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+
     command
         .spawn()
         .map_err(|e| LaunchError::Launch(e.to_string()))?

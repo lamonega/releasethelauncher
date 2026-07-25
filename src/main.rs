@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use release_the_launcher_ui::theme::{self, Theme};
 use release_the_launcher_ui::views::account_login::{show as show_account_login, LoginState};
 use release_the_launcher_ui::views::instance_detail::{
@@ -62,9 +64,13 @@ fn drain_ui_messages(state: &mut LauncherApp) {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = format!("Download error: {err}");
             }
-            UiMessage::ModrinthSearchResult(_)
+            view_msg @ (UiMessage::ModrinthSearchResult(_)
             | UiMessage::ModrinthInstallResult(_)
-            | UiMessage::VersionListResult(_) => {}
+            | UiMessage::VersionListResult(_)) => {
+                if let Ok(mut q) = state.app.ui_queue.lock() {
+                    q.push(view_msg);
+                }
+            }
             UiMessage::MsDeviceCode {
                 user_code,
                 verification_uri,
@@ -118,8 +124,12 @@ fn show_toolbar(
                 }
             });
         });
-        let response = inner.response;
-        if response.drag_started_by(egui::PointerButton::Primary) {
+        let title_bar_response = ui.interact(
+            inner.response.rect,
+            egui::Id::new("title_bar"),
+            egui::Sense::click_and_drag(),
+        );
+        if title_bar_response.drag_started_by(egui::PointerButton::Primary) {
             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
     });
