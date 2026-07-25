@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use log::{LogBuffer, LogEntry, LogLevel};
 use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::{InstanceManager, ModLoader};
+use release_the_launcher_core::settings::GlobalSettings;
 use release_the_launcher_launch::assets::AssetManager;
 use release_the_launcher_launch::{
     assemble_launch_profile, build_command, launch_game, AssetIndex, DependencyResolver,
@@ -39,6 +40,8 @@ pub struct App {
     pub theme: Theme,
     pub tokio_handle: Option<tokio::runtime::Handle>,
     pub ctx: Option<egui::Context>,
+    pub global_settings: GlobalSettings,
+    pub settings_path: std::path::PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,7 @@ pub enum View {
     AccountLogin,
     NewInstance,
     ModBrowser { instance_id: String },
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +122,7 @@ impl App {
 
         let instances_dir = config_dir.join("instances");
         let accounts_path = config_dir.join("accounts.json");
+        let settings_path = config_dir.join("settings.toml");
 
         std::fs::create_dir_all(&config_dir).ok();
         std::fs::create_dir_all(&instances_dir).ok();
@@ -128,6 +133,7 @@ impl App {
         });
 
         let account_list = AccountList::load(&accounts_path);
+        let global_settings = GlobalSettings::load(&settings_path);
 
         let theme = Theme::default();
 
@@ -142,6 +148,8 @@ impl App {
             theme,
             tokio_handle: None,
             ctx: None,
+            global_settings,
+            settings_path,
         }
     }
 
@@ -149,6 +157,15 @@ impl App {
         if let Ok(mut queue) = self.ui_queue.lock() {
             queue.push(msg);
         }
+    }
+
+    /// Saves global settings to the settings file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization or file writing fails.
+    pub fn save_global_settings(&self) -> Result<(), std::io::Error> {
+        self.global_settings.save(&self.settings_path)
     }
 
     pub fn log(&self, level: LogLevel, message: &str) {
@@ -249,21 +266,28 @@ impl App {
 
         let account_data = extract_account_data(&self.account_list);
         let inst = if let Some(inst) = self.instance_manager.get(&instance_id.to_string()) {
+            let gs = &self.global_settings;
+            let pre = if inst.settings.pre_launch_command.is_empty() {
+                gs.pre_launch_command.clone()
+            } else {
+                inst.settings.pre_launch_command.clone()
+            };
+            let post = if inst.settings.post_launch_command.is_empty() {
+                gs.post_launch_command.clone()
+            } else {
+                inst.settings.post_launch_command.clone()
+            };
+            let close = inst.settings.close_after_launch || gs.close_after_launch;
             (
                 inst.root.clone(),
                 inst.settings.minecraft_version.clone(),
                 inst.settings.loader.clone(),
-                inst.settings.java.path.clone(),
-                inst.settings
-                    .java
-                    .memory_min
-                    .clone()
-                    .unwrap_or_else(|| "1G".to_string()),
-                inst.settings
-                    .java
-                    .memory_max
-                    .clone()
-                    .unwrap_or_else(|| "2G".to_string()),
+                gs.java_path_for(inst.settings.java.path.as_deref()),
+                gs.memory_min_for(&inst.settings.java.memory_min),
+                gs.memory_max_for(&inst.settings.java.memory_max),
+                pre,
+                post,
+                close,
             )
         } else {
             send_msg(
@@ -273,76 +297,34 @@ impl App {
             );
             return;
         };
-        let (instance_root, mc_version, loader, java_path_override, memory_min, memory_max) = inst;
+        let (
+            instance_root,
+            mc_version,
+            loader,
+            java_path_override,
+            memory_min,
+            memory_max,
+            pre_launch_command,
+            post_launch_command,
+            close_after_launch,
+        ) = inst;
 
         handle.spawn(async move {
-            let send = |msg: UiMessage| send_msg(&queue, &ctx, msg);
-
-            let Some((player_name, player_uuid, access_token)) = account_data else {
-                send(UiMessage::DownloadError(
-                    "No active account. Add an account before launching.".to_string(),
-                ));
-                return;
-            };
-
-            let Ok(components) = resolve_components(&queue, &ctx, &loader, &mc_version).await
-            else {
-                return;
-            };
-
-            let profile = match assemble_launch_profile(&components) {
-                Ok(p) => p,
-                Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to assemble profile: {e}"
-                    )));
-                    return;
-                }
-            };
-
-            let asset_index = profile.asset_index.clone();
-
-            download_game_files(&queue, &ctx, &instance_root, &profile).await;
-            extract_natives_files(&queue, &ctx, &instance_root, &profile);
-            download_assets(&queue, &ctx, &instance_root, &asset_index).await;
-
-            let Some(java_path) = resolve_java_path(
-                &queue,
-                &ctx,
-                java_path_override.as_deref(),
-                &profile.compatible_java_majors,
-            ) else {
-                return;
-            };
-
-            let mut cmd = build_command(
-                &profile,
-                &instance_root,
-                &java_path,
-                &PlayerAuth {
-                    name: player_name,
-                    uuid: player_uuid,
-                    access_token,
-                },
-                &memory_min,
-                &memory_max,
-            );
-
-            send(UiMessage::Status("Launching game...".to_string()));
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-            match launch_game(&mut cmd).await {
-                Ok(status) => {
-                    send(UiMessage::DownloadComplete(format!(
-                        "Game exited with status: {status}"
-                    )));
-                }
-                Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to launch game: {e}"
-                    )));
-                }
-            }
+            do_launch(LaunchParams {
+                queue,
+                ctx,
+                account_data,
+                instance_root,
+                mc_version,
+                loader,
+                java_path_override,
+                memory_min,
+                memory_max,
+                pre_launch_command,
+                post_launch_command,
+                close_after_launch,
+            })
+            .await;
         });
     }
 
@@ -366,6 +348,125 @@ impl App {
             };
             send_msg(&queue, &ctx, UiMessage::VersionListResult(result));
         });
+    }
+}
+
+struct LaunchParams {
+    queue: Queue,
+    ctx: egui::Context,
+    account_data: Option<(String, String, String)>,
+    instance_root: std::path::PathBuf,
+    mc_version: String,
+    loader: ModLoader,
+    java_path_override: Option<String>,
+    memory_min: String,
+    memory_max: String,
+    pre_launch_command: String,
+    post_launch_command: String,
+    close_after_launch: bool,
+}
+
+async fn do_launch(params: LaunchParams) {
+    let send = |msg: UiMessage| send_msg(&params.queue, &params.ctx, msg);
+
+    let Some((player_name, player_uuid, access_token)) = params.account_data else {
+        send(UiMessage::DownloadError(
+            "No active account. Add an account before launching.".to_string(),
+        ));
+        return;
+    };
+
+    if !params.pre_launch_command.is_empty() {
+        send(UiMessage::Status("Running pre-launch command...".to_string()));
+        if let Err(e) = release_the_launcher_launch::run_pre_launch_command(
+            &params.pre_launch_command,
+            &params.instance_root,
+        )
+        .await
+        {
+            send(UiMessage::DownloadError(format!(
+                "Pre-launch command failed: {e}"
+            )));
+            return;
+        }
+    }
+
+    let Ok(components) =
+        resolve_components(&params.queue, &params.ctx, &params.loader, &params.mc_version).await
+    else {
+        return;
+    };
+
+    let profile = match assemble_launch_profile(&components) {
+        Ok(p) => p,
+        Err(e) => {
+            send(UiMessage::DownloadError(format!(
+                "Failed to assemble profile: {e}"
+            )));
+            return;
+        }
+    };
+
+    let asset_index = profile.asset_index.clone();
+
+    download_game_files(&params.queue, &params.ctx, &params.instance_root, &profile).await;
+    extract_natives_files(&params.queue, &params.ctx, &params.instance_root, &profile);
+    download_assets(&params.queue, &params.ctx, &params.instance_root, &asset_index).await;
+
+    let Some(java_path) = resolve_java_path(
+        &params.queue,
+        &params.ctx,
+        params.java_path_override.as_deref(),
+        &profile.compatible_java_majors,
+    ) else {
+        return;
+    };
+
+    let mut cmd = build_command(
+        &profile,
+        &params.instance_root,
+        &java_path,
+        &PlayerAuth {
+            name: player_name,
+            uuid: player_uuid,
+            access_token,
+        },
+        &params.memory_min,
+        &params.memory_max,
+    );
+
+    send(UiMessage::Status("Launching game...".to_string()));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    match launch_game(&mut cmd).await {
+        Ok(status) => {
+            send(UiMessage::DownloadComplete(format!(
+                "Game exited with status: {status}"
+            )));
+        }
+        Err(e) => {
+            send(UiMessage::DownloadError(format!(
+                "Failed to launch game: {e}"
+            )));
+        }
+    }
+
+    if !params.post_launch_command.is_empty() {
+        send(UiMessage::Status("Running post-launch command...".to_string()));
+        if let Err(e) = release_the_launcher_launch::run_post_launch_command(
+            &params.post_launch_command,
+            &params.instance_root,
+        )
+        .await
+        {
+            send(UiMessage::DownloadError(format!(
+                "Post-launch command failed: {e}"
+            )));
+        }
+    }
+
+    if params.close_after_launch {
+        params.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }
 

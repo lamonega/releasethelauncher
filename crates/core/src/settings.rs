@@ -27,7 +27,7 @@ pub struct InstanceSettings {
     pub close_after_launch: bool,
 }
 
-fn default_close_after_launch() -> bool {
+const fn default_close_after_launch() -> bool {
     false
 }
 
@@ -123,6 +123,7 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
+    #[must_use]
     pub fn load(path: &Path) -> Self {
         let content = fs::read_to_string(path).unwrap_or_default();
         toml::from_str(&content).unwrap_or_default()

@@ -39,6 +39,7 @@ pub fn set_game_env(cmd: &mut tokio::process::Command, instance_root: &Path, mc_
     cmd.env("NO_COLOR", "1");
 }
 
+#[must_use]
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,

@@ -79,40 +79,8 @@ pub fn resolve_java(
     }
 
     {
-        let mc_runtimes = if cfg!(windows) {
-            let local = dirs::data_local_dir().unwrap_or_default();
-            vec![
-                local.join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/runtime"),
-                dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
-            ]
-        } else if cfg!(target_os = "macos") {
-            vec![
-                dirs::home_dir().unwrap_or_default().join("Library/Application Support/minecraft/runtime"),
-            ]
-        } else {
-            vec![
-                dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
-            ]
-        };
-
-        for runtime_dir in &mc_runtimes {
-            if runtime_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(runtime_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        let exe = if cfg!(windows) {
-                            path.join("bin/javaw.exe")
-                        } else {
-                            path.join("bin/java")
-                        };
-                        if exe.exists() {
-                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
-                                return Ok(validated);
-                            }
-                        }
-                    }
-                }
-            }
+        if let Some(path) = find_bundled_java(compatible_java_majors) {
+            return Ok(path);
         }
     }
 
@@ -162,6 +130,45 @@ const fn java_executable_name() -> &'static str {
     } else {
         "java"
     }
+}
+
+fn find_bundled_java(compatible_java_majors: &[u32]) -> Option<PathBuf> {
+    let mc_runtimes = if cfg!(windows) {
+        let local = dirs::data_local_dir().unwrap_or_default();
+        vec![
+            local.join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/runtime"),
+            dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
+        ]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            dirs::home_dir().unwrap_or_default().join("Library/Application Support/minecraft/runtime"),
+        ]
+    } else {
+        vec![
+            dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
+        ]
+    };
+
+    for runtime_dir in &mc_runtimes {
+        if runtime_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(runtime_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let exe = if cfg!(windows) {
+                        path.join("bin/javaw.exe")
+                    } else {
+                        path.join("bin/java")
+                    };
+                    if exe.exists() {
+                        if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
+                            return Some(validated);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn quiet_command(program: &str, args: &[&str]) -> Result<std::process::Output, std::io::Error> {

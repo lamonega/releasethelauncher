@@ -1,10 +1,6 @@
 use crate::App;
 use crate::View;
 
-/// Placeholder client ID. A real registered Microsoft OAuth application client ID
-/// must be configured here before Microsoft login will work.
-const MSA_CLIENT_ID: &str = "REPLACE_WITH_YOUR_MICROSOFT_OAUTH_CLIENT_ID";
-
 pub fn show(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -103,7 +99,7 @@ fn start_ms_login(app: &App) {
     };
 
     handle.spawn(async move {
-        let flow = release_the_launcher_auth::MsAuthFlow::new(MSA_CLIENT_ID.to_string());
+        let flow = release_the_launcher_auth::MsAuthFlow::new_default();
 
         match flow.request_device_code().await {
             Ok(code_resp) => {

@@ -7,6 +7,7 @@ use release_the_launcher_ui::views::instance_detail::{
 };
 use release_the_launcher_ui::views::mod_browser::{show as show_mod_browser, ModBrowserState};
 use release_the_launcher_ui::views::new_instance::{show as show_new_instance, NewInstanceState};
+use release_the_launcher_ui::views::settings_view;
 use release_the_launcher_ui::App;
 use release_the_launcher_ui::{DetailTab, DownloadPhase, DownloadState, UiMessage, View};
 
@@ -121,6 +122,12 @@ fn show_toolbar(
                 ui.separator();
                 if ui.button("Accounts").clicked() {
                     *navigate_to = Some(View::AccountList);
+                }
+                if ui
+                    .button(format!(" {}", theme::icons::SETTINGS))
+                    .clicked()
+                {
+                    *navigate_to = Some(View::Settings);
                 }
             });
         });
@@ -290,6 +297,9 @@ fn show_central(
         View::ModBrowser { instance_id } => {
             let id = instance_id.clone();
             show_mod_browser(&mut state.app, ui, &id, &mut state.mod_browser_state);
+        }
+        View::Settings => {
+            settings_view::show(&mut state.app, ui);
         }
     });
 }

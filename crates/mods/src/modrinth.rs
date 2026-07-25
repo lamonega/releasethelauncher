@@ -225,7 +225,7 @@ impl ModrinthProvider {
     }
 
     /// Download a modpack and extract it to create a new instance.
-    /// Returns (instance_name, mc_version, loader_from_manifest).
+    /// Returns (`instance_name`, `mc_version`, `loader_from_manifest`).
     ///
     /// # Errors
     ///
@@ -305,17 +305,6 @@ impl ModrinthProvider {
 
             let mc_dir = instance_dir.join(".minecraft");
             fs::create_dir_all(&mc_dir)?;
-
-            for entry in fs::read_dir(&instance_dir)? {
-                let entry = entry?;
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name == "modrinth.index.json" || name.ends_with(".mrpack") {
-                    continue;
-                }
-                if name == "overrides" || name == "client-overrides" {
-                    continue;
-                }
-            }
 
             (mc_ver, loader)
         } else {

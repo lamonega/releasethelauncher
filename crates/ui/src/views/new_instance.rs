@@ -126,6 +126,7 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             ui.selectable_value(&mut state.loader_type, LoaderType::Fabric, "Fabric");
             ui.selectable_value(&mut state.loader_type, LoaderType::Forge, "Forge");
             ui.selectable_value(&mut state.loader_type, LoaderType::NeoForge, "NeoForge");
+            ui.selectable_value(&mut state.loader_type, LoaderType::Quilt, "Quilt");
         });
 
     if state.loader_type != LoaderType::Vanilla {
@@ -156,6 +157,9 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                 loader_version: state.loader_version.clone(),
             },
             LoaderType::NeoForge => ModLoader::NeoForge {
+                loader_version: state.loader_version.clone(),
+            },
+            LoaderType::Quilt => ModLoader::Quilt {
                 loader_version: state.loader_version.clone(),
             },
         };
@@ -209,6 +213,7 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                 ui.selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric");
                 ui.selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge");
                 ui.selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge");
+                ui.selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt");
             });
     });
 
@@ -226,6 +231,7 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             LoaderFilter::Fabric => "fabric".to_string(),
             LoaderFilter::Forge => "forge".to_string(),
             LoaderFilter::NeoForge => "neoforge".to_string(),
+            LoaderFilter::Quilt => "quilt".to_string(),
         };
         app.search_modrinth_modpacks(
             state.modrinth_query.clone(),
@@ -305,6 +311,7 @@ pub enum LoaderType {
     Fabric,
     Forge,
     NeoForge,
+    Quilt,
 }
 
 impl LoaderType {
@@ -315,6 +322,7 @@ impl LoaderType {
             Self::Fabric => "Fabric",
             Self::Forge => "Forge",
             Self::NeoForge => "NeoForge",
+            Self::Quilt => "Quilt",
         }
     }
 }
@@ -326,6 +334,7 @@ pub enum LoaderFilter {
     Fabric,
     Forge,
     NeoForge,
+    Quilt,
 }
 
 impl LoaderFilter {
@@ -336,6 +345,7 @@ impl LoaderFilter {
             Self::Fabric => "Fabric",
             Self::Forge => "Forge",
             Self::NeoForge => "NeoForge",
+            Self::Quilt => "Quilt",
         }
     }
 }

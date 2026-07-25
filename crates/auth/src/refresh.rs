@@ -113,6 +113,10 @@ pub async fn refresh_account(
 
 /// Try to refresh the account if tokens are about to expire.
 /// Returns true if refresh was performed.
+///
+/// # Errors
+///
+/// Returns an error if the HTTP request or token exchange fails.
 pub async fn try_refresh_if_needed(
     client_id: &str,
     http: &Client,
