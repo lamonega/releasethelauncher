@@ -1,0 +1,33 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/auth",
+    "crates/net",
+    "crates/mods",
+    "crates/launch",
+    "crates/ui",
+]
+resolver = "2"
+
+[package]
+name = "release-the-launcher"
+version = "0.1.0"
+edition = "2021"
+description = "A minimal Minecraft launcher"
+license = "MIT"
+
+[[bin]]
+name = "release-the-launcher"
+path = "src/main.rs"
+
+[dependencies]
+release-the-launcher-core = { path = "crates/core" }
+release-the-launcher-auth = { path = "crates/auth" }
+release-the-launcher-net = { path = "crates/net" }
+release-the-launcher-mods = { path = "crates/mods" }
+release-the-launcher-launch = { path = "crates/launch" }
+release-the-launcher-ui = { path = "crates/ui" }
+egui = "0.27"
+eframe = "0.27"
+egui_extras = "0.27"
+tokio = { version = "1", features = ["full"] }
