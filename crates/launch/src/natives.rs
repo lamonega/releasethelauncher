@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use zip::ZipArchive;
 
-use crate::{Library, LaunchError};
+use crate::{LaunchError, Library};
 
 /// # Errors
 /// Returns an error if file system operations fail.

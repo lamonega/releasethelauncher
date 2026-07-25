@@ -1,9 +1,9 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::Token;
-use crate::AuthError;
 use crate::msa::now_unix;
+use crate::AuthError;
+use crate::Token;
 
 #[derive(Debug, Deserialize)]
 struct XblAuthResponse {
@@ -74,7 +74,10 @@ const XSTS_AUTH_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 ///
 /// Returns an error if the HTTP request fails, JSON deserialization fails,
 /// or the Xbox Live / XSTS authentication returns an error.
-pub async fn get_xbox_tokens(http: &Client, msa_access_token: &str) -> Result<XboxTokens, AuthError> {
+pub async fn get_xbox_tokens(
+    http: &Client,
+    msa_access_token: &str,
+) -> Result<XboxTokens, AuthError> {
     let xbl_body = serde_json::json!({
         "Properties": {
             "AuthMethod": "RPS",
@@ -117,11 +120,7 @@ pub async fn get_xbox_tokens(http: &Client, msa_access_token: &str) -> Result<Xb
         "TokenType": "JWT"
     });
 
-    let xsts_resp = http
-        .post(XSTS_AUTH_URL)
-        .json(&xsts_body)
-        .send()
-        .await?;
+    let xsts_resp = http.post(XSTS_AUTH_URL).json(&xsts_body).send().await?;
 
     let status = xsts_resp.status();
     let body_text = xsts_resp.text().await?;
@@ -131,17 +130,43 @@ pub async fn get_xbox_tokens(http: &Client, msa_access_token: &str) -> Result<Xb
             let code = err_resp.xerr.unwrap_or(0);
             let msg = err_resp.message.unwrap_or_default();
             match code {
-                2_148_916_233 => return Err(AuthError::Flow("No Xbox Live profile found. Please create one at xbox.com".into())),
-                2_148_916_235 => return Err(AuthError::Flow("This account is blocked in your region".into())),
-                2_148_916_238 => return Err(AuthError::Flow("This account is under age and cannot sign in".into())),
-                2_148_916_236 => return Err(AuthError::Flow("This account requires age proof".into())),
-                2_148_916_227 => return Err(AuthError::Flow("This account has been banned".into())),
-                2_148_916_229 => return Err(AuthError::Flow("This account is restricted by a guardian".into())),
-                2_148_916_234 => return Err(AuthError::Flow("You must accept the Xbox Terms of Service".into())),
+                2_148_916_233 => {
+                    return Err(AuthError::Flow(
+                        "No Xbox Live profile found. Please create one at xbox.com".into(),
+                    ))
+                }
+                2_148_916_235 => {
+                    return Err(AuthError::Flow(
+                        "This account is blocked in your region".into(),
+                    ))
+                }
+                2_148_916_238 => {
+                    return Err(AuthError::Flow(
+                        "This account is under age and cannot sign in".into(),
+                    ))
+                }
+                2_148_916_236 => {
+                    return Err(AuthError::Flow("This account requires age proof".into()))
+                }
+                2_148_916_227 => {
+                    return Err(AuthError::Flow("This account has been banned".into()))
+                }
+                2_148_916_229 => {
+                    return Err(AuthError::Flow(
+                        "This account is restricted by a guardian".into(),
+                    ))
+                }
+                2_148_916_234 => {
+                    return Err(AuthError::Flow(
+                        "You must accept the Xbox Terms of Service".into(),
+                    ))
+                }
                 _ => return Err(AuthError::Flow(format!("XSTS error {code}: {msg}"))),
             }
         }
-        return Err(AuthError::Flow(format!("XSTS auth failed with status {status}")));
+        return Err(AuthError::Flow(format!(
+            "XSTS auth failed with status {status}"
+        )));
     }
 
     let xsts: XstsAuthResponse = serde_json::from_str(&body_text)?;

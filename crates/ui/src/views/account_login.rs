@@ -1,7 +1,12 @@
 use crate::App;
 use crate::View;
 
-pub fn show(app: &mut App, ui: &mut egui::Ui, username_input: &mut String, login_state: &mut LoginState) {
+pub fn show(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    username_input: &mut String,
+    login_state: &mut LoginState,
+) {
     if ui.button("Back").clicked() {
         app.current_view = View::AccountList;
         *login_state = LoginState::Idle;
@@ -15,9 +20,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, username_input: &mut String, login
             ui.label("Enter a username for offline play:");
             ui.text_edit_singleline(username_input);
 
-            if ui.button("Add Offline Account").clicked()
-                && !username_input.is_empty()
-            {
+            if ui.button("Add Offline Account").clicked() && !username_input.is_empty() {
                 let account = release_the_launcher_auth::AccountData::offline(username_input);
                 app.account_list.add(account);
                 let _ = app.account_list.save();
@@ -30,7 +33,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, username_input: &mut String, login
             ui.label("Or sign in with Microsoft:");
             if ui.button("Microsoft Login").clicked() {
                 *login_state = LoginState::MicrosoftPending;
-                app.status_message = "Microsoft login requires a browser. Use the device code flow.".to_string();
+                app.status_message =
+                    "Microsoft login requires a browser. Use the device code flow.".to_string();
             }
         }
         LoginState::MicrosoftPending => {

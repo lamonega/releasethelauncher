@@ -1,13 +1,13 @@
 use reqwest::Client;
 use std::fmt::Write;
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
+use super::modrinth_types::{ModrinthProject, ModrinthVersion, SearchResponse};
 use crate::{
-    ModsError, ModProvider, SearchArgs, SearchResults, ModVersion, ProjectInfo,
-    InstalledMod, ModUpdate, SortOrder, Side, ReleaseType, ProjectSummary,
+    InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo, ProjectSummary,
+    ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
 };
-use super::modrinth_types::{SearchResponse, ModrinthVersion, ModrinthProject};
 
 const BASE_URL: &str = "https://api.modrinth.com/v2";
 
@@ -26,9 +26,7 @@ impl ModrinthProvider {
     }
 
     fn build_headers(&self) -> Vec<(&str, &str)> {
-        let headers = vec![
-            ("User-Agent", "release-the-launcher/0.1.0"),
-        ];
+        let headers = vec![("User-Agent", "release-the-launcher/0.1.0")];
         if let Some(ref _token) = self.api_token {
             // headers.push(("Authorization", _token.as_str()));
         }
@@ -57,14 +55,18 @@ impl ModrinthProvider {
         let mut facets: Vec<Vec<String>> = Vec::new();
 
         if !args.loaders.is_empty() {
-            let loader_facets: Vec<String> = args.loaders.iter()
+            let loader_facets: Vec<String> = args
+                .loaders
+                .iter()
                 .map(|l| format!("\"categories:{l}\""))
                 .collect();
             facets.push(loader_facets);
         }
 
         if !args.mc_versions.is_empty() {
-            let version_facets: Vec<String> = args.mc_versions.iter()
+            let version_facets: Vec<String> = args
+                .mc_versions
+                .iter()
                 .map(|v| format!("\"versions:{v}\""))
                 .collect();
             facets.push(version_facets);
@@ -90,16 +92,20 @@ impl ModProvider for ModrinthProvider {
         }
         let resp: SearchResponse = req.send().await?.json().await?;
 
-        let hits = resp.hits.into_iter().map(|h| ProjectSummary {
-            id: h.project_id,
-            name: h.title,
-            slug: h.slug,
-            description: h.description,
-            author: h.author,
-            icon_url: h.icon_url,
-            downloads: h.downloads,
-            side: Side::Universal,
-        }).collect();
+        let hits = resp
+            .hits
+            .into_iter()
+            .map(|h| ProjectSummary {
+                id: h.project_id,
+                name: h.title,
+                slug: h.slug,
+                description: h.description,
+                author: h.author,
+                icon_url: h.icon_url,
+                downloads: h.downloads,
+                side: Side::Universal,
+            })
+            .collect();
 
         Ok(SearchResults {
             hits,
@@ -120,7 +126,9 @@ impl ModProvider for ModrinthProvider {
         }
         if !loaders.is_empty() {
             let loaders_json = serde_json::to_string(loaders).unwrap_or_default();
-            if url.contains('?') { url.push('&'); }
+            if url.contains('?') {
+                url.push('&');
+            }
             let _ = write!(url, "loaders={}", urlencoding::encode(&loaders_json));
         }
 
@@ -130,50 +138,49 @@ impl ModProvider for ModrinthProvider {
         }
         let resp: Vec<ModrinthVersion> = req.send().await?.json().await?;
 
-        let versions = resp.into_iter().map(|v| {
-            let (hash, hash_type): (Option<String>, Option<String>) = v.files.first()
-                .and_then(|f| {
-                    if let Some((algo, h)) = f.hashes.iter().next() {
-                        Some((Some(h.clone()), Some(algo.clone())))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or((None, None));
+        let versions = resp
+            .into_iter()
+            .map(|v| {
+                let (hash, hash_type): (Option<String>, Option<String>) = v
+                    .files
+                    .first()
+                    .and_then(|f| {
+                        if let Some((algo, h)) = f.hashes.iter().next() {
+                            Some((Some(h.clone()), Some(algo.clone())))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or((None, None));
 
-            let primary_file = v.files.iter()
-                .find(|f| f.primary)
-                .or(v.files.first());
+                let primary_file = v.files.iter().find(|f| f.primary).or(v.files.first());
 
-            let filename = primary_file
-                .map(|f| f.filename.clone())
-                .unwrap_or_default();
+                let filename = primary_file.map(|f| f.filename.clone()).unwrap_or_default();
 
-            let download_url = primary_file
-                .and_then(|f| f.url.clone());
+                let download_url = primary_file.and_then(|f| f.url.clone());
 
-            let file_size = primary_file
-                .map_or(0, |f| f.size);
+                let file_size = primary_file.map_or(0, |f| f.size);
 
-            ModVersion {
-                id: v.id,
-                project_id: v.project_id,
-                name: v.name,
-                version_number: v.version_number,
-                release_type: match v.version_type.as_str() {
-                    "beta" => ReleaseType::Beta,
-                    "alpha" => ReleaseType::Alpha,
-                    _ => ReleaseType::Release,
-                },
-                mc_versions: v.game_versions,
-                loaders: v.loaders,
-                download_url,
-                filename,
-                hash,
-                hash_type,
-                file_size,
-            }
-        }).collect();
+                ModVersion {
+                    id: v.id,
+                    project_id: v.project_id,
+                    name: v.name,
+                    version_number: v.version_number,
+                    release_type: match v.version_type.as_str() {
+                        "beta" => ReleaseType::Beta,
+                        "alpha" => ReleaseType::Alpha,
+                        _ => ReleaseType::Release,
+                    },
+                    mc_versions: v.game_versions,
+                    loaders: v.loaders,
+                    download_url,
+                    filename,
+                    hash,
+                    hash_type,
+                    file_size,
+                }
+            })
+            .collect();
 
         Ok(versions)
     }
@@ -208,7 +215,11 @@ impl ModProvider for ModrinthProvider {
         let mut updates = Vec::new();
 
         for installed_mod in installed {
-            let algorithm = if installed_mod.hash_type == "sha512" { "sha512" } else { "sha1" };
+            let algorithm = if installed_mod.hash_type == "sha512" {
+                "sha512"
+            } else {
+                "sha1"
+            };
             let url = format!(
                 "{}/version_file/{}/update?algorithm={}",
                 BASE_URL, installed_mod.hash, algorithm
@@ -219,8 +230,7 @@ impl ModProvider for ModrinthProvider {
                 "game_versions": mc_versions,
             });
 
-            let mut req = self.http.post(&url)
-                .json(&body);
+            let mut req = self.http.post(&url).json(&body);
             for (k, v) in self.build_headers() {
                 req = req.header(k, v);
             }
@@ -228,11 +238,15 @@ impl ModProvider for ModrinthProvider {
             if let Ok(resp) = req.send().await {
                 if resp.status().is_success() {
                     if let Ok(version) = resp.json::<ModrinthVersion>().await {
-                        let (hash, hash_type): (Option<String>, Option<String>) = version.files.first()
+                        let (hash, hash_type): (Option<String>, Option<String>) = version
+                            .files
+                            .first()
                             .and_then(|f| f.hashes.iter().next())
                             .map_or((None, None), |(a, h)| (Some(h.clone()), Some(a.clone())));
 
-                        let primary = version.files.iter()
+                        let primary = version
+                            .files
+                            .iter()
                             .find(|f| f.primary)
                             .or(version.files.first());
 
@@ -274,7 +288,9 @@ impl ModProvider for ModrinthProvider {
         version: &ModVersion,
         target_dir: &Path,
     ) -> Result<std::path::PathBuf, ModsError> {
-        let url = version.download_url.as_ref()
+        let url = version
+            .download_url
+            .as_ref()
             .ok_or_else(|| ModsError::Provider("No download URL".into()))?;
 
         let mut req = self.http.get(url);

@@ -74,9 +74,8 @@ pub fn save_packwiz_metadata(
 ) -> Result<(), std::io::Error> {
     let filename = format!("{}.pw.toml", mod_name.to_lowercase().replace(' ', "-"));
     let path = index_dir.join(&filename);
-    let content = toml::to_string_pretty(metadata).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-    })?;
+    let content = toml::to_string_pretty(metadata)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     fs::write(path, content)
 }
 
@@ -90,7 +89,8 @@ pub fn load_packwiz_metadata(index_dir: &Path) -> Vec<(String, PackwizMod)> {
             if path.extension().and_then(|e| e.to_str()) == Some("toml") {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(mod_data) = toml::from_str::<PackwizMod>(&content) {
-                        let name = path.file_stem()
+                        let name = path
+                            .file_stem()
                             .unwrap_or_default()
                             .to_string_lossy()
                             .to_string();

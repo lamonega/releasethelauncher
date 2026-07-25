@@ -1,16 +1,16 @@
-pub mod resolve;
-pub mod profile;
-pub mod command;
-pub mod natives;
 pub mod assets;
+pub mod command;
 pub mod download;
+pub mod natives;
+pub mod profile;
+pub mod resolve;
 
 use thiserror::Error;
 
-pub use resolve::DependencyResolver;
-pub use profile::{LaunchProfile, AssetIndex, assemble_launch_profile};
 pub use command::{build_command, launch_game};
 pub use download::DownloadManager;
+pub use profile::{assemble_launch_profile, AssetIndex, LaunchProfile};
+pub use resolve::DependencyResolver;
 
 #[derive(Debug, Clone)]
 pub struct Component {

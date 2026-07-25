@@ -25,7 +25,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         for (i, account) in app.account_list.accounts.iter().enumerate() {
             let label = format!(
                 "[{}] {} ({})",
-                if Some(i) == app.account_list.active_index { "*" } else { " " },
+                if Some(i) == app.account_list.active_index {
+                    "*"
+                } else {
+                    " "
+                },
                 account.display_name(),
                 match account.account_type {
                     release_the_launcher_auth::AccountType::Offline => "Offline",

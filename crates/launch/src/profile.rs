@@ -1,4 +1,4 @@
-use crate::{Component, Library, LaunchError};
+use crate::{Component, LaunchError, Library};
 
 #[derive(Debug, Clone)]
 pub struct LaunchProfile {
@@ -43,11 +43,18 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
             main_class.clone_from(&component.version_file.main_class);
         }
         if component.version_file.minecraft_args.is_some() && game_args_template.is_empty() {
-            game_args_template = component.version_file.minecraft_args.clone().unwrap_or_default();
+            game_args_template = component
+                .version_file
+                .minecraft_args
+                .clone()
+                .unwrap_or_default();
         }
         for lib in &component.version_file.libraries {
             if lib.is_native {
-                if !native_libraries.iter().any(|e: &Library| e.name == lib.name) {
+                if !native_libraries
+                    .iter()
+                    .any(|e: &Library| e.name == lib.name)
+                {
                     native_libraries.push(lib.clone());
                 }
             } else if !libraries.iter().any(|e: &Library| e.name == lib.name) {
@@ -55,17 +62,25 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
             }
         }
         for arg in &component.version_file.jvm_args {
-            if !jvm_args.contains(arg) { jvm_args.push(arg.clone()); }
+            if !jvm_args.contains(arg) {
+                jvm_args.push(arg.clone());
+            }
         }
         for t in &component.version_file.traits {
-            if !all_traits.contains(t) { all_traits.push(t.clone()); }
+            if !all_traits.contains(t) {
+                all_traits.push(t.clone());
+            }
         }
         for j in &component.version_file.compatible_java_majors {
-            if !compatible_java_majors.contains(j) { compatible_java_majors.push(*j); }
+            if !compatible_java_majors.contains(j) {
+                compatible_java_majors.push(*j);
+            }
         }
     }
 
-    if compatible_java_majors.is_empty() { compatible_java_majors = vec![17, 21]; }
+    if compatible_java_majors.is_empty() {
+        compatible_java_majors = vec![17, 21];
+    }
 
     Ok(LaunchProfile {
         mc_version,

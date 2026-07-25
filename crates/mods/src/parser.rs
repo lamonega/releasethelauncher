@@ -81,27 +81,32 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsErro
 fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> {
     let value: serde_json::Value = serde_json::from_str(content)?;
 
-    let mod_id = value.get("id")
+    let mod_id = value
+        .get("id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let name = value.get("name")
+    let name = value
+        .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or(&mod_id)
         .to_string();
 
-    let version = value.get("version")
+    let version = value
+        .get("version")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let description = value.get("description")
+    let description = value
+        .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
-    let authors = value.get("authors")
+    let authors = value
+        .get("authors")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -109,7 +114,9 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
                     if let Some(s) = a.as_str() {
                         Some(s.to_string())
                     } else if let Some(obj) = a.as_object() {
-                        obj.get("name").and_then(|n| n.as_str()).map(ToString::to_string)
+                        obj.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(ToString::to_string)
                     } else {
                         None
                     }
@@ -118,7 +125,8 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
         })
         .unwrap_or_default();
 
-    let mc_version = value.get("depends")
+    let mc_version = value
+        .get("depends")
         .and_then(|v| v.get("minecraft"))
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
@@ -136,13 +144,15 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
 fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
     let value: toml::Value = content.parse()?;
 
-    let mod_id = value.get("mods")
+    let mod_id = value
+        .get("mods")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.get("modId"))
         .and_then(|v| v.as_str())
         .or_else(|| {
-            value.get("modLoader")
+            value
+                .get("modLoader")
                 .and_then(|v| v.as_array())
                 .and_then(|a| a.first())
                 .and_then(|v| v.get("modId"))
@@ -151,7 +161,8 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         .unwrap_or("unknown")
         .to_string();
 
-    let name = value.get("mods")
+    let name = value
+        .get("mods")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.get("displayName"))
@@ -159,7 +170,8 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         .unwrap_or(&mod_id)
         .to_string();
 
-    let version = value.get("mods")
+    let version = value
+        .get("mods")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.get("version"))
@@ -167,7 +179,8 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         .unwrap_or("unknown")
         .to_string();
 
-    let description = value.get("mods")
+    let description = value
+        .get("mods")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.get("description"))
@@ -175,7 +188,8 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         .unwrap_or("")
         .to_string();
 
-    let authors = value.get("mods")
+    let authors = value
+        .get("mods")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.get("authors"))
@@ -196,8 +210,7 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
 fn parse_quilt_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> {
     let value: serde_json::Value = serde_json::from_str(content)?;
 
-    let quilt_loader = value.get("quilt_loader")
-        .and_then(|v| v.as_object());
+    let quilt_loader = value.get("quilt_loader").and_then(|v| v.as_object());
 
     let mod_id = quilt_loader
         .and_then(|v| v.get("id"))
@@ -246,32 +259,38 @@ fn parse_quilt_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> {
 fn parse_mcmod_info(content: &str) -> Result<ModDetails, crate::ModsError> {
     let value: serde_json::Value = serde_json::from_str(content)?;
 
-    let first = value.as_array()
+    let first = value
+        .as_array()
         .and_then(|a| a.first())
         .cloned()
         .unwrap_or_default();
 
-    let mod_id = first.get("modid")
+    let mod_id = first
+        .get("modid")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let name = first.get("name")
+    let name = first
+        .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or(&mod_id)
         .to_string();
 
-    let version = first.get("version")
+    let version = first
+        .get("version")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let description = first.get("description")
+    let description = first
+        .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
-    let mc_version = first.get("mcversion")
+    let mc_version = first
+        .get("mcversion")
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
 

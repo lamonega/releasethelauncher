@@ -1,8 +1,8 @@
 use std::fs;
 use std::io;
 use std::path::Path;
-use zip::read::ZipArchive;
 use thiserror::Error;
+use zip::read::ZipArchive;
 
 #[derive(Error, Debug)]
 pub enum ArchiveError {
@@ -32,17 +32,13 @@ pub fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), Arch
             None => continue,
         };
 
-        let canonical_entry = outpath
-            .canonicalize()
-            .unwrap_or_else(|_| outpath.clone());
+        let canonical_entry = outpath.canonicalize().unwrap_or_else(|_| outpath.clone());
         let canonical_target = target_dir
             .canonicalize()
             .unwrap_or_else(|_| target_dir.to_path_buf());
 
         if !canonical_entry.starts_with(&canonical_target) {
-            return Err(ArchiveError::PathTraversal(
-                entry.name().to_string(),
-            ));
+            return Err(ArchiveError::PathTraversal(entry.name().to_string()));
         }
 
         if entry.is_dir() {

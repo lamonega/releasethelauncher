@@ -18,7 +18,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     ui.separator();
 
-    let instances: Vec<String> = app.instance_manager.list()
+    let instances: Vec<String> = app
+        .instance_manager
+        .list()
         .iter()
         .map(|i| i.id.clone())
         .collect();
@@ -46,7 +48,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.separator();
         ui.label(format!("Downloads: {done}/{total}"));
         #[allow(clippy::cast_precision_loss)] // Download progress values are small enough for f64
-        let progress = if *total > 0 { *done as f64 / *total as f64 } else { 0.0 };
+        let progress = if *total > 0 {
+            *done as f64 / *total as f64
+        } else {
+            0.0
+        };
         #[allow(clippy::cast_possible_truncation)] // Progress is always in [0.0, 1.0]
         ui.add(egui::ProgressBar::new(progress as f32));
     }

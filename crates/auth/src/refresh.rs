@@ -1,10 +1,10 @@
 use reqwest::Client;
 
-use crate::{AccountData, AccountType};
-use crate::AuthError;
-use crate::msa::{MsaTokens, token_from_msa_tokens, now_unix};
-use crate::xbox::get_xbox_tokens;
 use crate::minecraft::complete_microsoft_auth;
+use crate::msa::{now_unix, token_from_msa_tokens, MsaTokens};
+use crate::xbox::get_xbox_tokens;
+use crate::AuthError;
+use crate::{AccountData, AccountType};
 
 const TOKEN_EXPIRY_BUFFER: u64 = 43_200; // 12 hours
 
@@ -72,7 +72,9 @@ pub async fn refresh_account(
             .get("error_description")
             .and_then(|d| d.as_str())
             .unwrap_or("Unknown error");
-        return Err(AuthError::Flow(format!("Token refresh failed: {err}: {desc}")));
+        return Err(AuthError::Flow(format!(
+            "Token refresh failed: {err}: {desc}"
+        )));
     }
 
     let access_token = body

@@ -1,5 +1,5 @@
-use sha2::{Digest, Sha256};
 use sha1::Sha1;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Error, Debug)]

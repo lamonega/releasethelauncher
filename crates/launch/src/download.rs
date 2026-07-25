@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
 use reqwest::Client;
-use sha1::{Sha1};
 use sha1::Digest;
+use sha1::Sha1;
+use std::path::{Path, PathBuf};
 
-use crate::{Library, LaunchError};
+use crate::{LaunchError, Library};
 
 const MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
 const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
@@ -58,7 +58,9 @@ impl DownloadManager {
         } else if lib.name.contains("net.neoforged") {
             Some(format!("{NEOFORGE_MAVEN}/{path}"))
         } else {
-            lib.url.as_ref().map(|u| format!("{}/{path}", u.trim_end_matches('/')))
+            lib.url
+                .as_ref()
+                .map(|u| format!("{}/{path}", u.trim_end_matches('/')))
                 .or(Some(format!("{MAVEN_CENTRAL}/{path}")))
         }
     }
@@ -80,10 +82,12 @@ impl DownloadManager {
             format!("{artifact}-{version}.jar")
         };
 
-        Some(PathBuf::from(&group)
-            .join(artifact)
-            .join(version)
-            .join(filename))
+        Some(
+            PathBuf::from(&group)
+                .join(artifact)
+                .join(version)
+                .join(filename),
+        )
     }
 
     /// # Errors
@@ -101,14 +105,18 @@ impl DownloadManager {
                 continue;
             }
 
-            let local_path = Self::local_path_for_library(lib)
-                .ok_or_else(|| LaunchError::Launch(format!("Invalid library coordinates: {}", lib.name)))?;
+            let local_path = Self::local_path_for_library(lib).ok_or_else(|| {
+                LaunchError::Launch(format!("Invalid library coordinates: {}", lib.name))
+            })?;
 
             let full_local_path = self.libraries_dir.join(&local_path);
 
             if !full_local_path.exists() {
                 if let Some(url) = Self::maven_url_for_library(lib) {
-                    match self.download_file(&url, &full_local_path, lib.sha1.as_deref()).await {
+                    match self
+                        .download_file(&url, &full_local_path, lib.sha1.as_deref())
+                        .await
+                    {
                         Ok(()) => {}
                         Err(e) => {
                             eprintln!("Warning: Failed to download {}: {}", lib.name, e);

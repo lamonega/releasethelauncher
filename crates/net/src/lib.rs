@@ -2,7 +2,7 @@ pub mod cache;
 pub mod validator;
 
 pub use cache::{CacheEntry, HttpMetaCache};
-pub use validator::{ChecksumValidator, Sha256Validator, Sha1Validator};
+pub use validator::{ChecksumValidator, Sha1Validator, Sha256Validator};
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -31,10 +31,7 @@ pub enum NetError {
 }
 
 pub enum Sink {
-    File {
-        path: PathBuf,
-        atomic: bool,
-    },
+    File { path: PathBuf, atomic: bool },
     Bytes(Arc<Mutex<Vec<u8>>>),
 }
 
@@ -93,9 +90,7 @@ impl DownloadJob {
             while self.doing.len() < self.max_concurrent {
                 if let Some(task) = self.downloads.pop_front() {
                     let client = client.clone();
-                    let handle = tokio::spawn(async move {
-                        execute_download(client, task).await
-                    });
+                    let handle = tokio::spawn(async move { execute_download(client, task).await });
                     self.doing.push(handle);
                 } else {
                     break;
@@ -117,7 +112,10 @@ impl DownloadJob {
     }
 }
 
-async fn execute_download(client: reqwest::Client, task: DownloadTask) -> Result<PathBuf, NetError> {
+async fn execute_download(
+    client: reqwest::Client,
+    task: DownloadTask,
+) -> Result<PathBuf, NetError> {
     let mut request = client.get(task.url.clone());
 
     for (key, value) in &task.headers {

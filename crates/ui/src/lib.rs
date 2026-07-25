@@ -1,7 +1,7 @@
 pub mod views;
 
-use release_the_launcher_core::InstanceManager;
 use release_the_launcher_auth::AccountList;
+use release_the_launcher_core::InstanceManager;
 
 pub struct App {
     pub instance_manager: InstanceManager,

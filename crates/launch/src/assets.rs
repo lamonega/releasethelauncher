@@ -1,9 +1,9 @@
+use serde::Deserialize;
+use sha1::Digest;
+use sha1::Sha1;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use serde::Deserialize;
-use sha1::{Sha1};
-use sha1::Digest;
 
 use crate::LaunchError;
 

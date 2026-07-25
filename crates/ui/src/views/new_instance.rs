@@ -39,9 +39,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     {
         let loader = match state.loader_type {
             LoaderType::Vanilla => ModLoader::Vanilla,
-            LoaderType::Fabric => ModLoader::Fabric { loader_version: state.loader_version.clone() },
-            LoaderType::Forge => ModLoader::Forge { loader_version: state.loader_version.clone() },
-            LoaderType::NeoForge => ModLoader::NeoForge { loader_version: state.loader_version.clone() },
+            LoaderType::Fabric => ModLoader::Fabric {
+                loader_version: state.loader_version.clone(),
+            },
+            LoaderType::Forge => ModLoader::Forge {
+                loader_version: state.loader_version.clone(),
+            },
+            LoaderType::NeoForge => ModLoader::NeoForge {
+                loader_version: state.loader_version.clone(),
+            },
         };
 
         let settings = release_the_launcher_core::InstanceSettings::new(

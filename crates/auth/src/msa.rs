@@ -69,11 +69,13 @@ impl MsAuthFlow {
     ///
     /// Returns an error if the HTTP request or JSON deserialization fails.
     pub async fn request_device_code(&self) -> Result<DeviceCodeResponse, AuthError> {
-        let params = [
-            ("client_id", self.client_id.as_str()),
-            ("scope", MS_SCOPES),
-        ];
-        let resp = self.http.post(MS_DEVICE_CODE_URL).form(&params).send().await?;
+        let params = [("client_id", self.client_id.as_str()), ("scope", MS_SCOPES)];
+        let resp = self
+            .http
+            .post(MS_DEVICE_CODE_URL)
+            .form(&params)
+            .send()
+            .await?;
         let body = resp.json::<DeviceCodeResponse>().await?;
         Ok(body)
     }
@@ -113,8 +115,7 @@ impl MsAuthFlow {
                     }
                     _ => {
                         return Err(AuthError::Flow(
-                            body.error_description
-                                .unwrap_or_else(|| err.to_string()),
+                            body.error_description.unwrap_or_else(|| err.to_string()),
                         ));
                     }
                 }
@@ -127,7 +128,9 @@ impl MsAuthFlow {
                 });
             }
 
-            return Err(AuthError::Flow("Unexpected response from token endpoint".into()));
+            return Err(AuthError::Flow(
+                "Unexpected response from token endpoint".into(),
+            ));
         }
     }
 

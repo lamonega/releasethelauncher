@@ -1,7 +1,7 @@
 pub mod modrinth;
 pub mod modrinth_types;
-pub mod parser;
 pub mod packwiz;
+pub mod parser;
 
 pub use modrinth::ModrinthProvider;
 

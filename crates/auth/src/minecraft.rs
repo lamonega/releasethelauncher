@@ -1,10 +1,10 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
-use crate::AuthError;
 use crate::msa::now_unix;
 use crate::xbox::XboxTokens;
+use crate::AuthError;
+use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 
 #[derive(Debug, Deserialize)]
 struct LauncherLoginResponse {
@@ -69,11 +69,7 @@ pub async fn launcher_login(
         "platform": "PC_LAUNCHER"
     });
 
-    let resp = http
-        .post(LAUNCHER_LOGIN_URL)
-        .json(&body)
-        .send()
-        .await?;
+    let resp = http.post(LAUNCHER_LOGIN_URL).json(&body).send().await?;
 
     let status = resp.status();
     let login_resp: LauncherLoginResponse = resp.json().await?;
@@ -103,7 +99,10 @@ pub async fn launcher_login(
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails or the response cannot be deserialized.
-pub async fn fetch_profile(http: &Client, mc_token: &str) -> Result<Option<MinecraftProfile>, AuthError> {
+pub async fn fetch_profile(
+    http: &Client,
+    mc_token: &str,
+) -> Result<Option<MinecraftProfile>, AuthError> {
     let resp = http
         .get(MC_PROFILE_URL)
         .bearer_auth(mc_token)
@@ -116,18 +115,14 @@ pub async fn fetch_profile(http: &Client, mc_token: &str) -> Result<Option<Minec
 
     let profile: ProfileResponse = resp.json().await?;
 
-    let skin_url = profile
-        .skins
-        .as_ref()
-        .and_then(|s| s.first())
-        .map(|s| {
-            let url = s.url.clone();
-            if url.starts_with("http://textures.minecraft.net") {
-                url.replacen("http://", "https://", 1)
-            } else {
-                url
-            }
-        });
+    let skin_url = profile.skins.as_ref().and_then(|s| s.first()).map(|s| {
+        let url = s.url.clone();
+        if url.starts_with("http://textures.minecraft.net") {
+            url.replacen("http://", "https://", 1)
+        } else {
+            url
+        }
+    });
 
     let cape_url = profile
         .capes
@@ -153,9 +148,10 @@ pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlem
         .send()
         .await?;
 
-    let entitlement_resp: EntitlementResponse = resp.json().await.unwrap_or(EntitlementResponse {
-        items: None,
-    });
+    let entitlement_resp: EntitlementResponse = resp
+        .json()
+        .await
+        .unwrap_or(EntitlementResponse { items: None });
 
     let items = entitlement_resp.items.unwrap_or_default();
     let owns = items.iter().any(|i| i.name == "game_minecraft");
@@ -180,9 +176,10 @@ pub async fn complete_microsoft_auth(
     let profile = fetch_profile(http, &access_token).await?;
     let entitlement = fetch_entitlement(http, &access_token).await?;
 
-    let internal_id = profile
-        .as_ref()
-        .map_or_else(|| uuid::Uuid::new_v4().to_string().replace('-', ""), |p| p.id.clone());
+    let internal_id = profile.as_ref().map_or_else(
+        || uuid::Uuid::new_v4().to_string().replace('-', ""),
+        |p| p.id.clone(),
+    );
 
     Ok(AccountData {
         account_type: AccountType::Microsoft,

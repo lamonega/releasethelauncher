@@ -1,11 +1,11 @@
 pub mod account_list;
-pub mod msa;
-pub mod xbox;
 pub mod minecraft;
+pub mod msa;
 pub mod refresh;
+pub mod xbox;
 
 pub use account_list::AccountList;
-pub use msa::{MsAuthFlow, AuthError};
+pub use msa::{AuthError, MsAuthFlow};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -91,9 +91,7 @@ impl AccountData {
 
     #[must_use]
     pub fn display_name(&self) -> &str {
-        self.profile
-            .as_ref()
-            .map_or("Unknown", |p| p.name.as_str())
+        self.profile.as_ref().map_or("Unknown", |p| p.name.as_str())
     }
 }
 

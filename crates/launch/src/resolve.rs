@@ -1,7 +1,8 @@
-use crate::{Component, Requirement, LaunchError, Library, Rule, RuleOs, Extract, VersionFile};
+use crate::{Component, Extract, LaunchError, Library, Requirement, Rule, RuleOs, VersionFile};
 use reqwest::Client;
 
-const VERSION_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
+const VERSION_MANIFEST_URL: &str =
+    "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const FABRIC_META_URL: &str = "https://meta.fabricmc.net/v2";
 const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
 const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
@@ -40,16 +41,16 @@ impl DependencyResolver {
     /// # Errors
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn fetch_manifest(&mut self) -> Result<(), LaunchError> {
-        let resp: serde_json::Value = self.http
+        let resp: serde_json::Value = self
+            .http
             .get(VERSION_MANIFEST_URL)
             .send()
             .await?
             .json()
             .await?;
 
-        let versions: Vec<VersionManifestEntry> = resp["versions"]
-            .as_array()
-            .map_or(vec![], |arr| {
+        let versions: Vec<VersionManifestEntry> =
+            resp["versions"].as_array().map_or(vec![], |arr| {
                 arr.iter()
                     .filter_map(|v| {
                         Some(VersionManifestEntry {
@@ -67,7 +68,8 @@ impl DependencyResolver {
     #[must_use]
     pub fn get_version_url(&self, version_id: &str) -> Option<String> {
         self.manifest.as_ref().and_then(|m| {
-            m.versions.iter()
+            m.versions
+                .iter()
                 .find(|v| v.id == version_id)
                 .map(|v| v.url.clone())
         })
@@ -82,8 +84,12 @@ impl DependencyResolver {
 
     /// # Errors
     /// Returns an error if the version is not found or the request fails.
-    pub async fn fetch_vanilla_component(&self, version_id: &str) -> Result<Component, LaunchError> {
-        let url = self.get_version_url(version_id)
+    pub async fn fetch_vanilla_component(
+        &self,
+        version_id: &str,
+    ) -> Result<Component, LaunchError> {
+        let url = self
+            .get_version_url(version_id)
             .ok_or_else(|| LaunchError::VersionNotFound(version_id.to_string()))?;
         let version_file = self.fetch_version_metadata(&url).await?;
         Ok(Component {
@@ -106,15 +112,18 @@ impl DependencyResolver {
         let loader_url = if let Some(lv) = loader_version {
             format!("{FABRIC_META_URL}/versions/loader/{mc_version}/{lv}/profile/json")
         } else {
-            let versions: Vec<serde_json::Value> = self.http
+            let versions: Vec<serde_json::Value> = self
+                .http
                 .get(format!("{FABRIC_META_URL}/versions/loader/{mc_version}"))
                 .send()
                 .await?
                 .json()
                 .await?;
-            let latest = versions.last()
-                .ok_or_else(|| LaunchError::VersionNotFound("No Fabric loader version found".into()))?;
-            let loader_ver = latest.get("loader")
+            let latest = versions.last().ok_or_else(|| {
+                LaunchError::VersionNotFound("No Fabric loader version found".into())
+            })?;
+            let loader_ver = latest
+                .get("loader")
                 .and_then(|v| v.get("version"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("0.16.9");
@@ -141,10 +150,22 @@ impl DependencyResolver {
             version: loader_ver.to_string(),
             is_locked: true,
             dependencies: vec![
-                Requirement { uid: "net.minecraft".to_string(), suggests: Some(mc_version.to_string()), equals: Some(mc_version.to_string()) },
-                Requirement { uid: "net.fabricmc.intermediary".to_string(), suggests: Some(mc_version.to_string()), equals: None },
+                Requirement {
+                    uid: "net.minecraft".to_string(),
+                    suggests: Some(mc_version.to_string()),
+                    equals: Some(mc_version.to_string()),
+                },
+                Requirement {
+                    uid: "net.fabricmc.intermediary".to_string(),
+                    suggests: Some(mc_version.to_string()),
+                    equals: None,
+                },
             ],
-            conflicts: vec!["net.neoforged".into(), "net.minecraftforge".into(), "org.quiltmc".into()],
+            conflicts: vec![
+                "net.neoforged".into(),
+                "net.minecraftforge".into(),
+                "org.quiltmc".into(),
+            ],
             version_file: VersionFile {
                 main_class,
                 libraries,
@@ -168,13 +189,20 @@ impl DependencyResolver {
         let mut main_class = None;
 
         if let Some(data) = resp.get("data") {
-            if let Some(mc_main) = data.get("MINECRAFT_MAIN_CLASS").and_then(|v| v.get("client")) {
+            if let Some(mc_main) = data
+                .get("MINECRAFT_MAIN_CLASS")
+                .and_then(|v| v.get("client"))
+            {
                 if let Some(s) = mc_main.as_str() {
                     main_class = Some(s.to_string());
                 }
             }
         }
-        if let Some(libs) = resp.get("versionInfo").and_then(|v| v.get("libraries")).and_then(|v| v.as_array()) {
+        if let Some(libs) = resp
+            .get("versionInfo")
+            .and_then(|v| v.get("libraries"))
+            .and_then(|v| v.as_array())
+        {
             for lib in libs {
                 libraries.push(parse_library(lib));
             }
@@ -184,10 +212,16 @@ impl DependencyResolver {
             uid: "net.minecraftforge".to_string(),
             version: forge_version.to_string(),
             is_locked: true,
-            dependencies: vec![
-                Requirement { uid: "net.minecraft".to_string(), suggests: Some(mc_version.to_string()), equals: Some(mc_version.to_string()) },
+            dependencies: vec![Requirement {
+                uid: "net.minecraft".to_string(),
+                suggests: Some(mc_version.to_string()),
+                equals: Some(mc_version.to_string()),
+            }],
+            conflicts: vec![
+                "net.neoforged".into(),
+                "net.fabricmc.fabric-loader".into(),
+                "org.quiltmc".into(),
             ],
-            conflicts: vec!["net.neoforged".into(), "net.fabricmc.fabric-loader".into(), "org.quiltmc".into()],
             version_file: VersionFile {
                 main_class,
                 libraries,
@@ -212,13 +246,20 @@ impl DependencyResolver {
         let mut main_class = None;
 
         if let Some(data) = resp.get("data") {
-            if let Some(mc_main) = data.get("MINECRAFT_MAIN_CLASS").and_then(|v| v.get("client")) {
+            if let Some(mc_main) = data
+                .get("MINECRAFT_MAIN_CLASS")
+                .and_then(|v| v.get("client"))
+            {
                 if let Some(s) = mc_main.as_str() {
                     main_class = Some(s.to_string());
                 }
             }
         }
-        if let Some(libs) = resp.get("versionInfo").and_then(|v| v.get("libraries")).and_then(|v| v.as_array()) {
+        if let Some(libs) = resp
+            .get("versionInfo")
+            .and_then(|v| v.get("libraries"))
+            .and_then(|v| v.as_array())
+        {
             for lib in libs {
                 libraries.push(parse_library(lib));
             }
@@ -228,10 +269,16 @@ impl DependencyResolver {
             uid: "net.neoforged".to_string(),
             version: neoforge_version.to_string(),
             is_locked: true,
-            dependencies: vec![
-                Requirement { uid: "net.minecraft".to_string(), suggests: Some(mc_version.to_string()), equals: Some(mc_version.to_string()) },
+            dependencies: vec![Requirement {
+                uid: "net.minecraft".to_string(),
+                suggests: Some(mc_version.to_string()),
+                equals: Some(mc_version.to_string()),
+            }],
+            conflicts: vec![
+                "net.minecraftforge".into(),
+                "net.fabricmc.fabric-loader".into(),
+                "org.quiltmc".into(),
             ],
-            conflicts: vec!["net.minecraftforge".into(), "net.fabricmc.fabric-loader".into(), "org.quiltmc".into()],
             version_file: VersionFile {
                 main_class,
                 libraries,
@@ -247,14 +294,16 @@ pub async fn resolve_dependencies(
     resolver: &mut DependencyResolver,
     mut components: Vec<Component>,
 ) -> Result<Vec<Component>, LaunchError> {
-    let mut resolved_deps: std::collections::HashMap<String, Component> = std::collections::HashMap::new();
+    let mut resolved_deps: std::collections::HashMap<String, Component> =
+        std::collections::HashMap::new();
 
     for component in components.drain(..) {
         resolved_deps.insert(component.uid.clone(), component);
     }
 
     for _ in 0..50 {
-        let new_reqs: Vec<Requirement> = resolved_deps.values()
+        let new_reqs: Vec<Requirement> = resolved_deps
+            .values()
             .flat_map(|c| c.dependencies.clone())
             .filter(|req| !resolved_deps.contains_key(&req.uid))
             .collect();
@@ -268,25 +317,33 @@ pub async fn resolve_dependencies(
                 continue;
             }
 
-            let version = req.equals.clone().or_else(|| req.suggests.clone()).unwrap_or_default();
+            let version = req
+                .equals
+                .clone()
+                .or_else(|| req.suggests.clone())
+                .unwrap_or_default();
 
             if req.uid == "net.fabricmc.intermediary" {
                 let url = format!("{FABRIC_META_URL}/versions/intermediary/{version}");
                 if let Ok(resp) = resolver.http.get(&url).send().await {
                     if let Ok(versions) = resp.json::<Vec<serde_json::Value>>().await {
                         if let Some(latest) = versions.first() {
-                            let loader_version = latest.get("version")
+                            let loader_version = latest
+                                .get("version")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or(&version)
                                 .to_string();
-                            resolved_deps.insert(req.uid.clone(), Component {
-                                uid: req.uid.clone(),
-                                version: loader_version,
-                                is_locked: false,
-                                dependencies: Vec::new(),
-                                conflicts: Vec::new(),
-                                version_file: VersionFile::default(),
-                            });
+                            resolved_deps.insert(
+                                req.uid.clone(),
+                                Component {
+                                    uid: req.uid.clone(),
+                                    version: loader_version,
+                                    is_locked: false,
+                                    dependencies: Vec::new(),
+                                    conflicts: Vec::new(),
+                                    version_file: VersionFile::default(),
+                                },
+                            );
                         }
                     }
                 }
@@ -311,18 +368,32 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         }
     }
 
-    let main_class = value.get("mainClass").and_then(|v| v.as_str()).map(ToString::to_string);
-    let minecraft_args = value.get("minecraftArguments")
+    let main_class = value
+        .get("mainClass")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    let minecraft_args = value
+        .get("minecraftArguments")
         .and_then(|v| v.as_str())
         .map(ToString::to_string)
         .or_else(|| {
-            value.get("arguments")
+            value
+                .get("arguments")
                 .and_then(|v| v.get("game"))
                 .and_then(|v| v.as_array())
-                .map(|args| args.iter().filter_map(|a| a.as_str()).collect::<Vec<_>>().join(" "))
+                .map(|args| {
+                    args.iter()
+                        .filter_map(|a| a.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
         });
 
-    if let Some(jvm) = value.get("arguments").and_then(|v| v.get("jvm")).and_then(|v| v.as_array()) {
+    if let Some(jvm) = value
+        .get("arguments")
+        .and_then(|v| v.get("jvm"))
+        .and_then(|v| v.as_array())
+    {
         for arg in jvm {
             if let Some(s) = arg.as_str() {
                 jvm_args.push(s.to_string());
@@ -341,35 +412,70 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
 }
 
 fn parse_library(lib: &serde_json::Value) -> Library {
-    let name = lib.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let url = lib.get("url").and_then(|v| v.as_str()).map(ToString::to_string);
-    let sha1 = lib.get("sha1").and_then(|v| v.as_str()).map(ToString::to_string);
+    let name = lib
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let url = lib
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    let sha1 = lib
+        .get("sha1")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
     let size = lib.get("size").and_then(serde_json::Value::as_u64);
     let is_native = lib.get("natives").is_some();
 
-    let rules: Vec<Rule> = lib.get("rules")
+    let rules: Vec<Rule> = lib
+        .get("rules")
         .and_then(|v| v.as_array())
         .map(|arr| {
-            arr.iter().map(|r| {
-                Rule {
-                    action: r.get("action").and_then(|v| v.as_str()).unwrap_or("allow").to_string(),
+            arr.iter()
+                .map(|r| Rule {
+                    action: r
+                        .get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("allow")
+                        .to_string(),
                     os: r.get("os").and_then(|v| v.as_object()).map(|o| RuleOs {
-                        name: o.get("name").and_then(|v| v.as_str()).map(ToString::to_string),
-                        arch: o.get("arch").and_then(|v| v.as_str()).map(ToString::to_string),
+                        name: o
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
+                        arch: o
+                            .get("arch")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
                     }),
-                }
-            }).collect()
+                })
+                .collect()
         })
         .unwrap_or_default();
 
-    let extract = lib.get("extract").and_then(|v| v.as_object()).map(|e| {
-        Extract {
-            exclude: e.get("exclude")
+    let extract = lib
+        .get("extract")
+        .and_then(|v| v.as_object())
+        .map(|e| Extract {
+            exclude: e
+                .get("exclude")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(ToString::to_string)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(ToString::to_string))
+                        .collect()
+                })
                 .unwrap_or_default(),
-        }
-    });
+        });
 
-    Library { name, url, sha1, size, is_native, rules, extract }
+    Library {
+        name,
+        url,
+        sha1,
+        size,
+        is_native,
+        rules,
+        extract,
+    }
 }

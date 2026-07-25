@@ -5,18 +5,10 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModLoader {
     Vanilla,
-    Fabric {
-        loader_version: String,
-    },
-    Quilt {
-        loader_version: String,
-    },
-    Forge {
-        loader_version: String,
-    },
-    NeoForge {
-        loader_version: String,
-    },
+    Fabric { loader_version: String },
+    Quilt { loader_version: String },
+    Forge { loader_version: String },
+    NeoForge { loader_version: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
