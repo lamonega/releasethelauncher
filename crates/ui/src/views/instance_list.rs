@@ -4,8 +4,15 @@ use crate::View;
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Instances");
 
+    ui.add_space(app.theme.spacing.sm);
     ui.horizontal(|ui| {
-        if ui.button("New Instance").clicked() {
+        if ui
+            .add(
+                egui::Button::new(format!(" {} New Instance", crate::icons::ADD))
+                    .fill(app.theme.accent),
+            )
+            .clicked()
+        {
             app.current_view = View::NewInstance;
         }
         if ui.button("Accounts").clicked() {
@@ -13,7 +20,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
     let instances: Vec<String> = app
         .instance_manager
@@ -23,28 +32,44 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .collect();
 
     if instances.is_empty() {
-        ui.label("No instances. Create one to get started.");
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.colored_label(app.theme.text_secondary, "No instances.");
+            ui.colored_label(app.theme.text_secondary, "Create one to get started.");
+        });
     } else {
         for id in &instances {
             if let Some(instance) = app.instance_manager.get(id) {
-                let label = format!(
-                    "{} - {} ({})",
-                    instance.settings.name,
-                    instance.settings.minecraft_version,
-                    instance.settings.loader_name()
-                );
-                if ui.button(&label).clicked() {
-                    app.current_view = View::InstanceDetail {
-                        id: id.clone(),
-                        tab: crate::DetailTab::Info,
-                    };
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!(
+                            "{}  {}",
+                            crate::icons::FOLDER,
+                            instance.settings.name,
+                        ))
+                        .clicked()
+                    {
+                        app.current_view = View::InstanceDetail {
+                            id: id.clone(),
+                            tab: crate::DetailTab::Info,
+                        };
+                    }
+                    ui.colored_label(
+                        app.theme.text_secondary,
+                        format!(
+                            "{} / {}",
+                            instance.settings.minecraft_version,
+                            instance.settings.loader_name()
+                        ),
+                    );
+                });
             }
         }
     }
 
     if !app.status_message.is_empty() {
+        ui.add_space(app.theme.spacing.sm);
         ui.separator();
-        ui.label(&app.status_message);
+        ui.add_space(app.theme.spacing.sm);
+        ui.colored_label(app.theme.text_secondary, &app.status_message);
     }
 }

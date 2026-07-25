@@ -16,7 +16,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
     process_messages(app, state);
     show_header(app, ui, &id);
     show_search(app, ui, state);
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
     show_results(app, ui, state, &id);
 }
 
@@ -52,7 +54,7 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str) {
     ui.horizontal(|ui| {
         ui.heading("Mod Browser (Modrinth)");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Back").clicked() {
+            if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
                 app.current_view = View::InstanceDetail {
                     id: id.to_string(),
                     tab: crate::DetailTab::Mods,
@@ -63,10 +65,15 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str) {
 }
 
 fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
+    ui.add_space(app.theme.spacing.sm);
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.text_edit_singleline(&mut state.query);
-        if ui.button("Search").clicked() && !state.query.is_empty() {
+        if ui
+            .button(format!(" {} Search", crate::icons::SEARCH))
+            .clicked()
+            && !state.query.is_empty()
+        {
             state.status = "Searching...".to_string();
             state.results = Vec::new();
             let query = state.query.clone();
@@ -99,11 +106,14 @@ fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
 
 fn show_results(app: &mut App, ui: &mut egui::Ui, state: &mut ModBrowserState, id: &str) {
     if !state.status.is_empty() {
-        ui.label(&state.status);
+        ui.colored_label(app.theme.text_secondary, &state.status);
+        ui.add_space(app.theme.spacing.sm);
     }
 
     if state.results.is_empty() && state.status.is_empty() {
-        ui.label("Search for mods to install.");
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.colored_label(app.theme.text_secondary, "Search for mods to install.");
+        });
         return;
     }
 
@@ -115,12 +125,16 @@ fn show_results(app: &mut App, ui: &mut egui::Ui, state: &mut ModBrowserState, i
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(&result.name);
-                        ui.label(format!("by {}", result.author));
-                        ui.label(format!("({} downloads)", result.downloads));
+                        ui.colored_label(app.theme.text_secondary, format!("by {}", result.author));
+                        ui.colored_label(
+                            app.theme.text_secondary,
+                            format!("({} downloads)", result.downloads),
+                        );
                     });
                     ui.label(&result.description);
+                    ui.add_space(app.theme.spacing.sm);
                     if state.installing_mod_id == Some(result.id.clone()) {
-                        ui.label(&state.install_status);
+                        ui.colored_label(app.theme.text_secondary, &state.install_status);
                     } else if ui.button("Install").clicked() {
                         let project_id = result.id.clone();
                         state.installing_mod_id = Some(project_id.clone());

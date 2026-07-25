@@ -31,20 +31,35 @@ pub fn show(
         return;
     };
 
-    ui.horizontal(|ui| {
-        ui.heading(&name);
-        ui.label(format!("| {mc_version} | {loader_name}"));
-    });
+    ui.heading(&name);
+    ui.colored_label(
+        app.theme.text_secondary,
+        format!("{mc_version} | {loader_name}"),
+    );
+
+    ui.add_space(app.theme.spacing.sm);
 
     let mut action = None;
     ui.horizontal(|ui| {
-        if ui.button("Launch").clicked() {
+        if ui
+            .add(
+                egui::Button::new(format!(" {} Launch", crate::icons::LAUNCH))
+                    .fill(app.theme.accent),
+            )
+            .clicked()
+        {
             action = Some("launch");
         }
-        if ui.button("Open Folder").clicked() {
+        if ui
+            .button(format!(" {} Open Folder", crate::icons::FOLDER))
+            .clicked()
+        {
             action = Some("open_folder");
         }
-        if ui.button("Delete").clicked() {
+        if ui
+            .button(format!(" {} Delete", crate::icons::DELETE))
+            .clicked()
+        {
             action = Some("delete");
         }
     });
@@ -56,6 +71,7 @@ pub fn show(
                 &format!("Launching instance: {name}"),
             );
             app.status_message = format!("Launching {name}...");
+            app.launch_instance(&id);
         }
         Some("open_folder") => {
             let _ = open::that(&root_path);
@@ -68,14 +84,17 @@ pub fn show(
         _ => {}
     }
 
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
     show_tabs(app, ui, &id, tab);
     ui.separator();
+    ui.add_space(app.theme.spacing.sm);
 
     match tab {
         DetailTab::Info => {
-            show_info(ui, &root_display, &loader_name, &mc_version);
+            show_info(app, ui, &root_display, &loader_name, &mc_version);
         }
         DetailTab::Logs => {
             show_logs(app, ui);
@@ -94,7 +113,7 @@ fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab) {
             ("Mods", DetailTab::Mods),
         ] {
             let style = if tab == target_tab {
-                egui::Button::new(label).fill(egui::Color32::from_rgb(60, 60, 80))
+                egui::Button::new(label).fill(app.theme.accent)
             } else {
                 egui::Button::new(label)
             };
@@ -108,11 +127,17 @@ fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab) {
     });
 }
 
-fn show_info(ui: &mut egui::Ui, root_display: &str, loader_name: &str, mc_version: &str) {
-    ui.label("Instance folder:");
+fn show_info(
+    app: &App,
+    ui: &mut egui::Ui,
+    root_display: &str,
+    loader_name: &str,
+    mc_version: &str,
+) {
+    ui.colored_label(app.theme.text_secondary, "Instance folder:");
     ui.monospace(root_display);
-    ui.label(format!("Loader: {loader_name}"));
-    ui.label(format!("Minecraft: {mc_version}"));
+    ui.colored_label(app.theme.text_secondary, format!("Loader: {loader_name}"));
+    ui.colored_label(app.theme.text_secondary, format!("Minecraft: {mc_version}"));
 }
 
 fn show_logs(app: &App, ui: &mut egui::Ui) {
@@ -124,11 +149,11 @@ fn show_logs(app: &App, ui: &mut egui::Ui) {
             ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
             for entry in &entries {
                 let color = match entry.level {
-                    crate::log::LogLevel::Error => egui::Color32::RED,
-                    crate::log::LogLevel::Warn => egui::Color32::YELLOW,
-                    crate::log::LogLevel::Info => egui::Color32::LIGHT_GRAY,
-                    crate::log::LogLevel::Debug => egui::Color32::GRAY,
-                    crate::log::LogLevel::Trace => egui::Color32::DARK_GRAY,
+                    crate::log::LogLevel::Error => app.theme.log_colors.error,
+                    crate::log::LogLevel::Warn => app.theme.log_colors.warn,
+                    crate::log::LogLevel::Info => app.theme.log_colors.info,
+                    crate::log::LogLevel::Debug => app.theme.log_colors.debug,
+                    crate::log::LogLevel::Trace => app.theme.log_colors.trace,
                 };
                 let text = format!(
                     "[{}] {} {}",
@@ -139,13 +164,13 @@ fn show_logs(app: &App, ui: &mut egui::Ui) {
                 ui.colored_label(color, text);
             }
             if entries.is_empty() {
-                ui.label("No log entries yet.");
+                ui.colored_label(app.theme.text_secondary, "No log entries yet.");
             }
         });
 }
 
 fn show_mods(
-    _app: &mut App,
+    app: &mut App,
     ui: &mut egui::Ui,
     root_path: &std::path::Path,
     id: &str,
@@ -167,11 +192,11 @@ fn show_mods(
                 }
             }
             if !found_mods {
-                ui.label("No mods installed.");
+                ui.colored_label(app.theme.text_secondary, "No mods installed.");
             }
         }
     } else {
-        ui.label("No mods directory.");
+        ui.colored_label(app.theme.text_secondary, "No mods directory.");
     }
     ui.separator();
     if ui.button("Browse Mods (Modrinth)").clicked() {
