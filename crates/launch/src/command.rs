@@ -96,8 +96,7 @@ pub fn build_command(
     cmd.arg("-cp").arg(&cp_str);
     cmd.arg(&profile.main_class);
 
-    cmd.arg("--add-opens")
-        .arg("java.base/java.net=ALL-UNNAMED");
+    cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
 
     let game_args = profile.game_args_template.clone();
     for arg in game_args.split_whitespace() {

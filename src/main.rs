@@ -123,10 +123,7 @@ fn show_toolbar(
                 if ui.button("Accounts").clicked() {
                     *navigate_to = Some(View::AccountList);
                 }
-                if ui
-                    .button(format!(" {}", theme::icons::SETTINGS))
-                    .clicked()
-                {
+                if ui.button(format!(" {}", theme::icons::SETTINGS)).clicked() {
                     *navigate_to = Some(View::Settings);
                 }
             });

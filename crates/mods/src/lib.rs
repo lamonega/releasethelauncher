@@ -195,3 +195,113 @@ pub trait ModProvider: Send + Sync {
         target_dir: &Path,
     ) -> Result<PathBuf, ModsError>;
 }
+
+/// A mod entry in a mods directory, with its enabled/disabled state.
+#[derive(Debug, Clone)]
+pub struct ModEntry {
+    pub path: PathBuf,
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// Lists all `.jar` and `.jar.disabled` files in a mods directory.
+#[must_use]
+pub fn list_mods(mods_dir: &Path) -> Vec<ModEntry> {
+    let mut entries = Vec::new();
+    if !mods_dir.exists() {
+        return entries;
+    }
+    if let Ok(read_dir) = std::fs::read_dir(mods_dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".jar.disabled") {
+                let mod_name = name.trim_end_matches(".disabled").to_string();
+                entries.push(ModEntry {
+                    path,
+                    name: mod_name,
+                    enabled: false,
+                });
+            } else if std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
+            {
+                entries.push(ModEntry {
+                    path,
+                    name,
+                    enabled: true,
+                });
+            }
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+/// Enables a mod by renaming its file from `*.jar.disabled` to `*.jar`.
+///
+/// # Errors
+///
+/// Returns an error if the rename fails.
+pub fn enable_mod(path: &Path) -> Result<(), ModsError> {
+    if let Some(name) = path.file_name() {
+        let name_str = name.to_string_lossy();
+        if name_str.ends_with(".disabled") {
+            let new_name = name_str.trim_end_matches(".disabled");
+            let new_path = path.with_file_name(new_name);
+            if new_path.exists() {
+                let unique = get_unique_resource_name(&new_path);
+                std::fs::rename(path, &unique)?;
+            } else {
+                std::fs::rename(path, &new_path)?;
+            }
+            return Ok(());
+        }
+    }
+    Err(ModsError::Provider("File is not a disabled mod".into()))
+}
+
+/// Disables a mod by renaming its file from `*.jar` to `*.jar.disabled`.
+///
+/// # Errors
+///
+/// Returns an error if the rename fails.
+pub fn disable_mod(path: &Path) -> Result<(), ModsError> {
+    if let Some(name) = path.file_name() {
+        let name_str = name.to_string_lossy();
+        if name_str.ends_with(".jar") {
+            let new_name = format!("{name_str}.disabled");
+            let new_path = path.with_file_name(&new_name);
+            if new_path.exists() {
+                let unique = get_unique_resource_name(&new_path);
+                std::fs::rename(path, &unique)?;
+            } else {
+                std::fs::rename(path, &new_path)?;
+            }
+            return Ok(());
+        }
+    }
+    Err(ModsError::Provider("File is not an enabled mod".into()))
+}
+
+/// Returns a unique file path by appending `.duplicate` suffixes.
+fn get_unique_resource_name(path: &Path) -> PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+    let stem = path
+        .file_stem()
+        .map_or_else(|| "mod".to_string(), |s| s.to_string_lossy().to_string());
+    let ext = path
+        .extension()
+        .map_or_else(String::new, |e| format!(".{}", e.to_string_lossy()));
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut counter = 1;
+    loop {
+        let candidate = parent.join(format!("{stem}.duplicate{ext}{counter}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}

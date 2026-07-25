@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex};
 
 use log::{LogBuffer, LogEntry, LogLevel};
 use release_the_launcher_auth::AccountList;
-use release_the_launcher_core::{InstanceManager, ModLoader};
 use release_the_launcher_core::settings::GlobalSettings;
+use release_the_launcher_core::{InstanceManager, ModLoader};
 use release_the_launcher_launch::assets::AssetManager;
 use release_the_launcher_launch::{
     assemble_launch_profile, build_command, launch_game, AssetIndex, DependencyResolver,
@@ -265,6 +265,20 @@ impl App {
         };
 
         let account_data = extract_account_data(&self.account_list);
+
+        // Set up censor filters on the app's log buffer (PrismLauncher pattern)
+        self.log_buffer.clear_censor_filters();
+        if let Some((_, ref uuid, ref token)) = account_data {
+            if !token.is_empty() && token != "0" {
+                self.log_buffer
+                    .add_censor_filter(token.clone(), "<ACCESS TOKEN>".into());
+            }
+            if !uuid.is_empty() {
+                self.log_buffer
+                    .add_censor_filter(uuid.clone(), "<PROFILE ID>".into());
+            }
+        }
+
         let inst = if let Some(inst) = self.instance_manager.get(&instance_id.to_string()) {
             let gs = &self.global_settings;
             let pre = if inst.settings.pre_launch_command.is_empty() {
@@ -369,30 +383,24 @@ struct LaunchParams {
 async fn do_launch(params: LaunchParams) {
     let send = |msg: UiMessage| send_msg(&params.queue, &params.ctx, msg);
 
-    let Some((player_name, player_uuid, access_token)) = params.account_data else {
+    let Some((ref player_name, ref player_uuid, ref access_token)) = params.account_data else {
         send(UiMessage::DownloadError(
             "No active account. Add an account before launching.".to_string(),
         ));
         return;
     };
 
-    if !params.pre_launch_command.is_empty() {
-        send(UiMessage::Status("Running pre-launch command...".to_string()));
-        if let Err(e) = release_the_launcher_launch::run_pre_launch_command(
-            &params.pre_launch_command,
-            &params.instance_root,
-        )
-        .await
-        {
-            send(UiMessage::DownloadError(format!(
-                "Pre-launch command failed: {e}"
-            )));
-            return;
-        }
+    if run_pre_launch(&params).await.is_err() {
+        return;
     }
 
-    let Ok(components) =
-        resolve_components(&params.queue, &params.ctx, &params.loader, &params.mc_version).await
+    let Ok(components) = resolve_components(
+        &params.queue,
+        &params.ctx,
+        &params.loader,
+        &params.mc_version,
+    )
+    .await
     else {
         return;
     };
@@ -407,11 +415,15 @@ async fn do_launch(params: LaunchParams) {
         }
     };
 
-    let asset_index = profile.asset_index.clone();
-
     download_game_files(&params.queue, &params.ctx, &params.instance_root, &profile).await;
     extract_natives_files(&params.queue, &params.ctx, &params.instance_root, &profile);
-    download_assets(&params.queue, &params.ctx, &params.instance_root, &asset_index).await;
+    download_assets(
+        &params.queue,
+        &params.ctx,
+        &params.instance_root,
+        &profile.asset_index,
+    )
+    .await;
 
     let Some(java_path) = resolve_java_path(
         &params.queue,
@@ -427,9 +439,9 @@ async fn do_launch(params: LaunchParams) {
         &params.instance_root,
         &java_path,
         &PlayerAuth {
-            name: player_name,
-            uuid: player_uuid,
-            access_token,
+            name: player_name.clone(),
+            uuid: player_uuid.clone(),
+            access_token: access_token.clone(),
         },
         &params.memory_min,
         &params.memory_max,
@@ -451,22 +463,60 @@ async fn do_launch(params: LaunchParams) {
         }
     }
 
-    if !params.post_launch_command.is_empty() {
-        send(UiMessage::Status("Running post-launch command...".to_string()));
-        if let Err(e) = release_the_launcher_launch::run_post_launch_command(
-            &params.post_launch_command,
-            &params.instance_root,
-        )
-        .await
-        {
-            send(UiMessage::DownloadError(format!(
-                "Post-launch command failed: {e}"
-            )));
-        }
-    }
+    run_post_launch(&params).await;
 
     if params.close_after_launch {
         params.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+async fn run_pre_launch(params: &LaunchParams) -> Result<(), ()> {
+    if params.pre_launch_command.is_empty() {
+        return Ok(());
+    }
+    send_msg(
+        &params.queue,
+        &params.ctx,
+        UiMessage::Status("Running pre-launch command...".to_string()),
+    );
+    match release_the_launcher_launch::run_pre_launch_command(
+        &params.pre_launch_command,
+        &params.instance_root,
+    )
+    .await
+    {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            send_msg(
+                &params.queue,
+                &params.ctx,
+                UiMessage::DownloadError(format!("Pre-launch command failed: {e}")),
+            );
+            Err(())
+        }
+    }
+}
+
+async fn run_post_launch(params: &LaunchParams) {
+    if params.post_launch_command.is_empty() {
+        return;
+    }
+    send_msg(
+        &params.queue,
+        &params.ctx,
+        UiMessage::Status("Running post-launch command...".to_string()),
+    );
+    if let Err(e) = release_the_launcher_launch::run_post_launch_command(
+        &params.post_launch_command,
+        &params.instance_root,
+    )
+    .await
+    {
+        send_msg(
+            &params.queue,
+            &params.ctx,
+            UiMessage::DownloadError(format!("Post-launch command failed: {e}")),
+        );
     }
 }
 

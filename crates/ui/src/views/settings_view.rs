@@ -15,10 +15,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     ui.horizontal(|ui| {
         if ui
-            .add(
-                egui::Button::new(format!(" {} Save", crate::icons::ADD))
-                    .fill(app.theme.accent),
-            )
+            .add(egui::Button::new(format!(" {} Save", crate::icons::ADD)).fill(app.theme.accent))
             .clicked()
         {
             if let Err(e) = app.save_global_settings() {
@@ -71,7 +68,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Launch");
     ui.add_space(app.theme.spacing.sm);
 
-    ui.checkbox(&mut app.global_settings.close_after_launch, "Close launcher after game starts");
+    ui.checkbox(
+        &mut app.global_settings.close_after_launch,
+        "Close launcher after game starts",
+    );
 
     ui.add_space(app.theme.spacing.sm);
 

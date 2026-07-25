@@ -178,25 +178,47 @@ fn show_mods(
 ) {
     ui.label("Installed mods:");
     let mods_dir = root_path.join(".minecraft").join("mods");
-    if mods_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&mods_dir) {
-            let mut found_mods = false;
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if std::path::Path::new(&name)
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
-                {
-                    found_mods = true;
-                    ui.label(&name);
-                }
-            }
-            if !found_mods {
-                ui.colored_label(app.theme.text_secondary, "No mods installed.");
+    let mods = release_the_launcher_mods::list_mods(&mods_dir);
+
+    if mods.is_empty() {
+        ui.colored_label(app.theme.text_secondary, "No mods installed.");
+    } else {
+        let mut toggle_path = None;
+        for m in &mods {
+            ui.horizontal(|ui| {
+                let status_icon = if m.enabled { "●" } else { "○" };
+                let status_color = if m.enabled {
+                    app.theme.log_colors.info
+                } else {
+                    app.theme.text_secondary
+                };
+                ui.colored_label(status_color, status_icon);
+                ui.label(&m.name);
+            });
+            let toggle_response = ui.interact(
+                egui::Rect::NOTHING,
+                egui::Id::new(format!("toggle_{}", m.path.display())),
+                egui::Sense::click(),
+            );
+            if toggle_response.clicked() {
+                toggle_path = Some(m.path.clone());
             }
         }
-    } else {
-        ui.colored_label(app.theme.text_secondary, "No mods directory.");
+        if let Some(path) = toggle_path {
+            if let Some(entry) = mods.iter().find(|m| m.path == path) {
+                let result = if entry.enabled {
+                    release_the_launcher_mods::disable_mod(&path)
+                } else {
+                    release_the_launcher_mods::enable_mod(&path)
+                };
+                if let Err(e) = result {
+                    app.log(
+                        crate::log::LogLevel::Error,
+                        &format!("Failed to toggle mod: {e}"),
+                    );
+                }
+            }
+        }
     }
     ui.separator();
     if ui.button("Browse Mods (Modrinth)").clicked() {

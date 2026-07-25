@@ -431,7 +431,11 @@ impl ModProvider for ModrinthProvider {
                     })
                     .unwrap_or((None, None));
 
-                let primary_file = v.files.iter().find(|f| f.primary).or_else(|| v.files.first());
+                let primary_file = v
+                    .files
+                    .iter()
+                    .find(|f| f.primary)
+                    .or_else(|| v.files.first());
 
                 let filename = primary_file.map(|f| f.filename.clone()).unwrap_or_default();
 
@@ -585,13 +589,15 @@ impl ModProvider for ModrinthProvider {
 
         let mut file = fs::File::create(&tmp_path)?;
 
-        let mut hasher = version.hash_type.as_ref().and_then(|hash_type| {
-            match hash_type.as_str() {
-                "sha1" => Some(HasherChoice::Sha1(sha1::Sha1::new())),
-                "sha256" | "sha512" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
-                _ => None,
-            }
-        });
+        let mut hasher =
+            version
+                .hash_type
+                .as_ref()
+                .and_then(|hash_type| match hash_type.as_str() {
+                    "sha1" => Some(HasherChoice::Sha1(sha1::Sha1::new())),
+                    "sha256" | "sha512" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
+                    _ => None,
+                });
 
         let mut stream = stream;
         while let Some(chunk) = stream.try_next().await? {

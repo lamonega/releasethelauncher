@@ -11,69 +11,33 @@ pub struct LogEntry {
     pub target: String,
 }
 
-/// Censors sensitive tokens from a log message.
+/// Censor sensitive values from a log message using a find/replace map.
+///
+/// This follows `PrismLauncher`'s approach: build a `Vec<(&str, &str)>` of
+/// `(secret, replacement)` pairs and apply them all.
 #[must_use]
-pub fn censor_tokens(message: &str) -> String {
+pub fn censor_tokens(message: &str, filters: &[(&str, &str)]) -> String {
     let mut result = message.to_string();
-
-    // Patterns to censor (case-insensitive matching on keys, redact values)
-    let patterns = &[
-        "\"accessToken\"",
-        "\"token\"",
-        "\"access_token\"",
-        "\"refresh_token\"",
-        "\"Authorization\"",
-        "\"XBL-STS\"",
-        "\"XblToken\"",
-    ];
-
-    for pattern in patterns {
-        if let Some(idx) = result.find(pattern) {
-            let after_pattern = idx + pattern.len();
-            if after_pattern < result.len() {
-                // Find the value after the colon/separator
-                let rest = &result[after_pattern..];
-                if let Some(colon_pos) = rest.find(':') {
-                    let value_start = after_pattern + colon_pos + 1;
-                    let rest_after_colon = &result[value_start..];
-                    // Find the value (skip whitespace, find end of quoted string or word)
-                    let trimmed_start = rest_after_colon
-                        .find(|c: char| c != ' ' && c != '\t' && c != ':')
-                        .map_or(value_start, |p| value_start + p);
-                    let rest_trimmed = &result[trimmed_start..];
-                    let value_end = rest_trimmed.strip_prefix('"').map_or_else(
-                        || {
-                            rest_trimmed
-                                .find([',', '}', ' ', '\n'])
-                                .map_or(result.len(), |p| trimmed_start + p)
-                        },
-                        |stripped| {
-                            stripped
-                                .find('"')
-                                .map_or(rest_trimmed.len(), |p| trimmed_start + 1 + p + 1)
-                        },
-                    );
-                    let censor_len = value_end.saturating_sub(trimmed_start);
-                    if censor_len > 0 {
-                        result.replace_range(trimmed_start..value_end, "[REDACTED]");
-                    }
-                }
+    for &(pattern, replacement) in filters {
+        result = result.replace(pattern, replacement);
+    }
+    // Also redact long hex/base64-looking strings that could be tokens
+    let words: Vec<String> = result
+        .split(' ')
+        .map(|w| {
+            let trimmed = w.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
+            if trimmed.len() > 32
+                && trimmed
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+            {
+                "[REDACTED]".to_string()
+            } else {
+                w.to_string()
             }
-        }
-    }
-
-    // Also censor long hex/base64-looking strings that could be tokens
-    let words: Vec<&str> = result.split(' ').collect();
-    let mut censored_words: Vec<String> = Vec::new();
-    for word in &words {
-        let w = word.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
-        if w.len() > 32 && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
-            censored_words.push("[REDACTED]".to_string());
-        } else {
-            censored_words.push(word.to_string());
-        }
-    }
-    censored_words.join(" ")
+        })
+        .collect();
+    words.join(" ")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +65,7 @@ impl LogLevel {
 #[derive(Clone)]
 pub struct LogBuffer {
     entries: Arc<Mutex<VecDeque<LogEntry>>>,
+    censor_filters: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl Default for LogBuffer {
@@ -114,14 +79,38 @@ impl LogBuffer {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES))),
+            censor_filters: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Adds a censor filter: any occurrence of `secret` in log output is replaced with `replacement`.
+    pub fn add_censor_filter(&self, secret: String, replacement: String) {
+        if let Ok(mut filters) = self.censor_filters.lock() {
+            filters.push((secret, replacement));
+        }
+    }
+
+    /// Clears all censor filters (e.g., when account changes).
+    pub fn clear_censor_filters(&self) {
+        if let Ok(mut filters) = self.censor_filters.lock() {
+            filters.clear();
         }
     }
 
     pub fn push(&self, entry: LogEntry) {
+        let censored_msg = if let Ok(filters) = self.censor_filters.lock() {
+            let refs: Vec<(&str, &str)> = filters
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            censor_tokens(&entry.message, &refs)
+        } else {
+            entry.message.clone()
+        };
         let censored = LogEntry {
             timestamp: entry.timestamp,
             level: entry.level,
-            message: censor_tokens(&entry.message),
+            message: censored_msg,
             target: entry.target,
         };
         let mut buffer = self

@@ -113,7 +113,12 @@ impl AccountData {
             AccountType::Microsoft => {
                 if self.mc_token.is_some() && self.profile.is_some() {
                     AuthState::Online
-                } else if self.msa_token.as_ref().and_then(|t| t.refresh_token.as_ref()).is_some() {
+                } else if self
+                    .msa_token
+                    .as_ref()
+                    .and_then(|t| t.refresh_token.as_ref())
+                    .is_some()
+                {
                     AuthState::Expired
                 } else {
                     AuthState::Gone

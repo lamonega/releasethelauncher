@@ -124,6 +124,12 @@ fn show_results(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState, id: &
                 ui.group(|ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
+                        if let Some(icon_url) = &result.icon_url {
+                            ui.add(
+                                egui::Image::new(icon_url.as_str())
+                                    .max_size(egui::vec2(32.0, 32.0)),
+                            );
+                        }
                         ui.label(&result.name);
                         ui.colored_label(app.theme.text_secondary, format!("by {}", result.author));
                         ui.colored_label(

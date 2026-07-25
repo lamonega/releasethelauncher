@@ -140,13 +140,13 @@ fn find_bundled_java(compatible_java_majors: &[u32]) -> Option<PathBuf> {
             dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
         ]
     } else if cfg!(target_os = "macos") {
-        vec![
-            dirs::home_dir().unwrap_or_default().join("Library/Application Support/minecraft/runtime"),
-        ]
+        vec![dirs::home_dir()
+            .unwrap_or_default()
+            .join("Library/Application Support/minecraft/runtime")]
     } else {
-        vec![
-            dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
-        ]
+        vec![dirs::home_dir()
+            .unwrap_or_default()
+            .join(".minecraft/runtime")]
     };
 
     for runtime_dir in &mc_runtimes {
@@ -181,7 +181,9 @@ fn quiet_command(program: &str, args: &[&str]) -> Result<std::process::Output, s
 
 #[cfg(target_os = "windows")]
 fn find_java_from_registry() -> Vec<PathBuf> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY};
+    use winreg::enums::{
+        HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
+    };
     use winreg::RegKey;
 
     let mut candidates = Vec::new();
@@ -208,10 +210,7 @@ fn find_java_from_registry() -> Vec<PathBuf> {
         RegKey::predef(HKEY_LOCAL_MACHINE),
         RegKey::predef(HKEY_CURRENT_USER),
     ];
-    let views = [
-        KEY_READ | KEY_WOW64_64KEY,
-        KEY_READ | KEY_WOW64_32KEY,
-    ];
+    let views = [KEY_READ | KEY_WOW64_64KEY, KEY_READ | KEY_WOW64_32KEY];
 
     for hive in &hives {
         for view in &views {
@@ -220,7 +219,9 @@ fn find_java_from_registry() -> Vec<PathBuf> {
                     for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
                         if let Ok(version_key) = subkey.open_subkey(&version_name) {
                             for value_name in &value_names {
-                                if let Ok(java_home) = version_key.get_value::<String, _>(value_name) {
+                                if let Ok(java_home) =
+                                    version_key.get_value::<String, _>(value_name)
+                                {
                                     let bin_dir = PathBuf::from(&java_home).join("bin");
                                     let exe = java_executable_name();
                                     let candidate = bin_dir.join(exe);
@@ -260,11 +261,7 @@ fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<Pat
 }
 
 fn detect_java_major_version(java_path: &Path) -> Option<u32> {
-    let output = quiet_command(
-        java_path.to_str()?,
-        &["-version"],
-    )
-    .ok()?;
+    let output = quiet_command(java_path.to_str()?, &["-version"]).ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_java_version_output(&stderr)
 }
