@@ -8,7 +8,6 @@ pub use account_list::AccountList;
 pub use msa::{AuthError, MsAuthFlow};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -95,18 +94,58 @@ impl AccountData {
     }
 }
 
+/// Computes the offline-mode player UUID using MD5, matching vanilla Minecraft's
+/// `nameUUIDFromBytes` algorithm (UUID v3 with the `OfflinePlayer:` prefix).
 #[must_use]
 pub fn offline_uuid(username: &str) -> Uuid {
+    use md5::Digest as _;
+
     let input = format!("OfflinePlayer:{username}");
-    let mut hasher = Sha256::new();
+    let mut hasher = md5::Md5::new();
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
 
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(&result[..16]);
 
+    // Set UUID version to 3 (MD5)
     bytes[6] = (bytes[6] & 0x0f) | 0x30;
+    // Set UUID variant to RFC 4122
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
     Uuid::from_bytes(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Known-correct offline UUID for "Notch" computed via vanilla Minecraft's
+    /// `nameUUIDFromBytes("OfflinePlayer:Notch".getBytes())` with MD5.
+    #[test]
+    fn notch_offline_uuid_matches_vanilla() {
+        let uuid = offline_uuid("Notch");
+        assert_eq!(uuid.to_string(), "b50ad385-829d-3141-a216-7e7d7539ba7f");
+    }
+
+    #[test]
+    fn jeb_offline_uuid_matches_vanilla() {
+        let uuid = offline_uuid("jeb_");
+        assert_eq!(uuid.to_string(), "a762f560-4fce-3236-812a-b80efff0b62b");
+    }
+
+    #[test]
+    fn steve_offline_uuid_matches_vanilla() {
+        let uuid = offline_uuid("Steve");
+        assert_eq!(uuid.to_string(), "5627dd98-e6be-3c21-b8a8-e92344183641");
+    }
+
+    #[test]
+    fn offline_uuid_is_v3() {
+        let uuid = offline_uuid("TestUser");
+        // Version nibble (byte 6, upper 4 bits) should be 3
+        assert_eq!(uuid.as_bytes()[6] >> 4, 3);
+        // Variant bits (byte 8, upper 2 bits) should be 10
+        assert_eq!(uuid.as_bytes()[8] >> 6, 2);
+    }
 }
