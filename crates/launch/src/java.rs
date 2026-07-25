@@ -2,14 +2,21 @@ use std::path::{Path, PathBuf};
 
 use crate::LaunchError;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// Detects a Java installation and validates its major version against the compatible list.
 ///
 /// Checks, in order:
 /// 1. The per-instance `java_path` override from settings.
 /// 2. The `JAVA_HOME` environment variable.
-/// 3. `java` on `PATH`.
+/// 3. Windows Registry entries for known Java vendors.
+/// 4. `java`/`javaw` on `PATH`.
 ///
-/// Returns the path to a valid `java` executable, or a [`LaunchError::JavaNotFound`].
+/// Returns the path to a valid Java executable, or a [`LaunchError::JavaNotFound`].
 ///
 /// # Errors
 ///
@@ -34,14 +41,29 @@ pub fn resolve_java(
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = find_java_from_registry();
+        for path in candidates {
+            if path.exists() {
+                if let Ok(validated) = validate_java(&path, compatible_java_majors) {
+                    return Ok(validated);
+                }
+            }
+        }
+    }
+
     let exe_name = java_executable_name();
-    if let Ok(output) = std::process::Command::new("which").arg(exe_name).output() {
+    let find_cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(output) = quiet_command(find_cmd, &[exe_name]) {
         if output.status.success() {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path_str.is_empty() {
-                let path = PathBuf::from(&path_str);
+            for line in path_str.lines() {
+                let path = PathBuf::from(line.trim());
                 if path.exists() {
-                    return validate_java(&path, compatible_java_majors);
+                    if let Ok(validated) = validate_java(&path, compatible_java_majors) {
+                        return Ok(validated);
+                    }
                 }
             }
         }
@@ -54,10 +76,60 @@ pub fn resolve_java(
 
 fn java_executable_name() -> &'static str {
     if cfg!(windows) {
-        "java.exe"
+        "javaw.exe"
     } else {
         "java"
     }
+}
+
+fn quiet_command(program: &str, args: &[&str]) -> Result<std::process::Output, std::io::Error> {
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.output()
+}
+
+#[cfg(target_os = "windows")]
+fn find_java_from_registry() -> Vec<PathBuf> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let mut candidates = Vec::new();
+
+    let subkeys = [
+        r"SOFTWARE\JavaSoft\Java Runtime Environment",
+        r"SOFTWARE\JavaSoft\Java Development Kit",
+        r"SOFTWARE\JavaSoft\JRE",
+        r"SOFTWARE\JavaSoft\JDK",
+        r"SOFTWARE\Eclipse Adoptium\JRE",
+        r"SOFTWARE\Eclipse Adoptium\JDK",
+        r"SOFTWARE\Eclipse Foundation\JDK",
+        r"SOFTWARE\AdoptOpenJDK\JRE",
+        r"SOFTWARE\AdoptOpenJDK\JDK",
+        r"SOFTWARE\Microsoft\JDK",
+        r"SOFTWARE\Azul Systems\Zulu",
+        r"SOFTWARE\BellSoft\Liberica",
+        r"SOFTWARE\Semeru\JRE",
+        r"SOFTWARE\Semeru\JDK",
+    ];
+
+    for subkey_path in &subkeys {
+        if let Ok(subkey) = hklm.open_subkey(subkey_path) {
+            for version_name in subkey.enum_keys().filter_map(|k| k.ok()) {
+                if let Ok(version_key) = subkey.open_subkey(&version_name) {
+                    if let Ok(java_home) = version_key.get_value::<String, _>("JavaHome") {
+                        let bin_dir = PathBuf::from(&java_home).join("bin");
+                        let exe = java_executable_name();
+                        candidates.push(bin_dir.join(exe));
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
 }
 
 fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
@@ -78,17 +150,17 @@ fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<Pat
 }
 
 fn detect_java_major_version(java_path: &Path) -> Option<u32> {
-    let output = std::process::Command::new(java_path)
-        .arg("-version")
-        .output()
-        .ok()?;
+    let output = quiet_command(
+        java_path.to_str()?,
+        &["-version"],
+    )
+    .ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_java_version_output(&stderr)
 }
 
 fn parse_java_version_output(output: &str) -> Option<u32> {
     let version_line = output.lines().next()?;
-    // Handle both old-style: "1.8.0_xxx" and new-style: "17.0.x", "21.0.x"
     let version_str = version_line
         .trim_start_matches("java version \"")
         .trim_start_matches("openjdk version \"")
@@ -97,7 +169,6 @@ fn parse_java_version_output(output: &str) -> Option<u32> {
     let first_part: &str = version_str.split('.').next()?;
     let major: u32 = first_part.parse().ok()?;
 
-    // Old-style versioning: 1.8 = Java 8
     if major == 1 {
         let second = version_str.split('.').nth(1)?;
         second.parse().ok()
