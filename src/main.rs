@@ -209,6 +209,12 @@ fn main() -> Result<(), eframe::Error> {
         .with_target(true)
         .init();
 
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to create tokio runtime");
+    let _guard = rt.enter();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1000.0, 700.0])
