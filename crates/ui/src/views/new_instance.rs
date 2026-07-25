@@ -134,7 +134,7 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         ui.text_edit_singleline(&mut state.loader_version);
     }
 
-    ui.add_space(app.theme.spacing.md);
+    ui.add_space(app.theme.spacing.sm);
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
@@ -243,7 +243,7 @@ fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState)
     }
 
     if state.modrinth_results.is_empty() && state.modrinth_status.is_empty() {
-        ui.colored_label(app.theme.text_secondary, "Search for modpacks to install.");
+        crate::empty_state(ui, &app.theme, &["Search for modpacks to install."]);
     } else {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])

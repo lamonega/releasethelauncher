@@ -78,6 +78,7 @@ fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
             state.results = Vec::new();
             let query = state.query.clone();
             let queue = app.ui_queue.clone();
+            let ctx = app.ctx.clone().expect("egui context not set");
             let Some(handle) = app.tokio_handle.clone() else {
                 return;
             };
@@ -99,6 +100,7 @@ fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
                 if let Ok(mut q) = queue.lock() {
                     q.push(result);
                 }
+                ctx.request_repaint();
             });
         }
     });
@@ -111,9 +113,7 @@ fn show_results(app: &mut App, ui: &mut egui::Ui, state: &mut ModBrowserState, i
     }
 
     if state.results.is_empty() && state.status.is_empty() {
-        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.colored_label(app.theme.text_secondary, "Search for mods to install.");
-        });
+        crate::empty_state(ui, &app.theme, &["Search for mods to install."]);
         return;
     }
 

@@ -11,6 +11,7 @@ release-the-launcher-net = { path = "../net" }
 release-the-launcher-mods = { path = "../mods" }
 release-the-launcher-launch = { path = "../launch" }
 egui = "0.27"
+egui-phosphor = "0.5"
 eframe = "0.27"
 rfd = "0.12"
 poll-promise = "0.3"

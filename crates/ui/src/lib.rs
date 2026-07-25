@@ -2,6 +2,15 @@ pub mod log;
 pub mod theme;
 pub mod views;
 
+/// Renders a centered empty-state label in muted text using the given theme.
+pub fn empty_state(ui: &mut egui::Ui, theme: &Theme, messages: &[&str]) {
+    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+        for msg in messages {
+            ui.colored_label(theme.text_secondary, *msg);
+        }
+    });
+}
+
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -29,6 +38,7 @@ pub struct App {
     pub ui_queue: Queue,
     pub theme: Theme,
     pub tokio_handle: Option<tokio::runtime::Handle>,
+    pub ctx: Option<egui::Context>,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +141,7 @@ impl App {
             ui_queue: Arc::new(Mutex::new(Vec::new())),
             theme,
             tokio_handle: None,
+            ctx: None,
         }
     }
 
@@ -150,8 +161,12 @@ impl App {
         self.log_buffer.push(entry);
     }
 
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
     pub fn search_modrinth_modpacks(&self, query: String, mc_version: String, loader: String) {
         let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
         let handle = match &self.tokio_handle {
             Some(h) => h.clone(),
             None => return,
@@ -179,14 +194,16 @@ impl App {
                 Ok(results) => UiMessage::ModrinthSearchResult(Ok(results)),
                 Err(e) => UiMessage::ModrinthSearchResult(Err(e.to_string())),
             };
-            if let Ok(mut q) = queue.lock() {
-                q.push(result);
-            }
+            send_msg(&queue, &ctx, result);
         });
     }
 
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
     pub fn install_mod_from_modrinth(&self, project_id: String, mods_dir: std::path::PathBuf) {
         let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
         let handle = match &self.tokio_handle {
             Some(h) => h.clone(),
             None => return,
@@ -209,9 +226,7 @@ impl App {
                 }
                 Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
             };
-            if let Ok(mut q) = queue.lock() {
-                q.push(result);
-            }
+            send_msg(&queue, &ctx, result);
         });
     }
 
@@ -222,8 +237,12 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
     pub fn launch_instance(&self, instance_id: &str) {
         let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
         let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
@@ -249,6 +268,7 @@ impl App {
         } else {
             send_msg(
                 &queue,
+                &ctx,
                 UiMessage::DownloadError(format!("Instance '{instance_id}' not found")),
             );
             return;
@@ -256,7 +276,7 @@ impl App {
         let (instance_root, mc_version, loader, java_path_override, memory_min, memory_max) = inst;
 
         handle.spawn(async move {
-            let send = |msg: UiMessage| send_msg(&queue, msg);
+            let send = |msg: UiMessage| send_msg(&queue, &ctx, msg);
 
             let Some((player_name, player_uuid, access_token)) = account_data else {
                 send(UiMessage::DownloadError(
@@ -265,7 +285,8 @@ impl App {
                 return;
             };
 
-            let Ok(components) = resolve_components(&queue, &loader, &mc_version).await else {
+            let Ok(components) = resolve_components(&queue, &ctx, &loader, &mc_version).await
+            else {
                 return;
             };
 
@@ -281,12 +302,13 @@ impl App {
 
             let asset_index = profile.asset_index.clone();
 
-            download_game_files(&queue, &instance_root, &profile).await;
-            extract_natives_files(&queue, &instance_root, &profile);
-            download_assets(&queue, &instance_root, &asset_index).await;
+            download_game_files(&queue, &ctx, &instance_root, &profile).await;
+            extract_natives_files(&queue, &ctx, &instance_root, &profile);
+            download_assets(&queue, &ctx, &instance_root, &asset_index).await;
 
             let Some(java_path) = resolve_java_path(
                 &queue,
+                &ctx,
                 java_path_override.as_deref(),
                 &profile.compatible_java_majors,
             ) else {
@@ -324,8 +346,12 @@ impl App {
         });
     }
 
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
     pub fn fetch_versions_list(&self) {
         let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
         let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
@@ -338,17 +364,16 @@ impl App {
                 }
                 Err(e) => Err(e.to_string()),
             };
-            if let Ok(mut q) = queue.lock() {
-                q.push(UiMessage::VersionListResult(result));
-            }
+            send_msg(&queue, &ctx, UiMessage::VersionListResult(result));
         });
     }
 }
 
-fn send_msg(queue: &Queue, msg: UiMessage) {
+fn send_msg(queue: &Queue, ctx: &egui::Context, msg: UiMessage) {
     if let Ok(mut q) = queue.lock() {
         q.push(msg);
     }
+    ctx.request_repaint();
 }
 
 fn extract_account_data(account_list: &AccountList) -> Option<(String, String, String)> {
@@ -364,10 +389,11 @@ fn extract_account_data(account_list: &AccountList) -> Option<(String, String, S
 
 async fn resolve_components(
     queue: &Queue,
+    ctx: &egui::Context,
     loader: &ModLoader,
     mc_version: &str,
 ) -> Result<Vec<release_the_launcher_launch::Component>, ()> {
-    let send = |msg: UiMessage| send_msg(queue, msg);
+    let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let mut resolver = DependencyResolver::new();
 
     send(UiMessage::Status(
@@ -458,10 +484,11 @@ async fn resolve_components(
 
 async fn download_game_files(
     queue: &Queue,
+    ctx: &egui::Context,
     instance_root: &Path,
     profile: &release_the_launcher_launch::LaunchProfile,
 ) {
-    let send = |msg: UiMessage| send_msg(queue, msg);
+    let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
 
     let total = profile.libraries.len();
@@ -472,6 +499,7 @@ async fn download_game_files(
     });
 
     let progress_queue = queue.clone();
+    let progress_ctx = ctx.clone();
     if let Err(e) = dl_manager
         .download_libraries(&profile.libraries, move |done, lib_total| {
             let _ = progress_queue.lock().map(|mut q| {
@@ -481,6 +509,7 @@ async fn download_game_files(
                     total: lib_total,
                 });
             });
+            progress_ctx.request_repaint();
         })
         .await
     {
@@ -492,10 +521,11 @@ async fn download_game_files(
 
 fn extract_natives_files(
     queue: &Queue,
+    ctx: &egui::Context,
     instance_root: &Path,
     profile: &release_the_launcher_launch::LaunchProfile,
 ) {
-    let send = |msg: UiMessage| send_msg(queue, msg);
+    let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let libraries_dir = instance_root.join("libraries");
     let natives_dir = instance_root.join("natives");
 
@@ -510,8 +540,13 @@ fn extract_natives_files(
     }
 }
 
-async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &AssetIndex) {
-    let send = |msg: UiMessage| send_msg(queue, msg);
+async fn download_assets(
+    queue: &Queue,
+    ctx: &egui::Context,
+    instance_root: &Path,
+    asset_index: &AssetIndex,
+) {
+    let send = |msg: UiMessage| send_msg(queue, ctx, msg);
 
     if asset_index.url.is_empty() {
         return;
@@ -549,10 +584,11 @@ async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &Asse
 
 fn resolve_java_path(
     queue: &Queue,
+    ctx: &egui::Context,
     java_path_override: Option<&str>,
     compatible_java_majors: &[u32],
 ) -> Option<std::path::PathBuf> {
-    let send = |msg: UiMessage| send_msg(queue, msg);
+    let send = |msg: UiMessage| send_msg(queue, ctx, msg);
 
     match release_the_launcher_launch::java::resolve_java(
         java_path_override,

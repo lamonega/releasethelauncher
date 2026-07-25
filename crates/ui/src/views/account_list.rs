@@ -28,10 +28,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     if app.account_list.accounts.is_empty() {
-        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.colored_label(app.theme.text_secondary, "No accounts.");
-            ui.colored_label(app.theme.text_secondary, "Add one to play.");
-        });
+        crate::empty_state(ui, &app.theme, &["No accounts.", "Add one to play."]);
     } else {
         let mut remove_idx = None;
         let mut select_idx = None;

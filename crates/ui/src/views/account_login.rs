@@ -97,6 +97,7 @@ pub fn show(
 
 fn start_ms_login(app: &App) {
     let queue = app.ui_queue.clone();
+    let ctx = app.ctx.clone().expect("egui context not set");
     let Some(handle) = app.tokio_handle.clone() else {
         return;
     };
@@ -115,6 +116,7 @@ fn start_ms_login(app: &App) {
                             .unwrap_or_else(|| "Approve the login in your browser.".to_string()),
                     });
                 }
+                ctx.request_repaint();
 
                 // Poll for token
                 let poll_result = flow
@@ -163,11 +165,13 @@ fn start_ms_login(app: &App) {
                                                 account.display_name()
                                             )));
                                         }
+                                        ctx.request_repaint();
                                     }
                                     Err(e) => {
                                         if let Ok(mut q) = queue.lock() {
                                             q.push(UiMessage::MsLoginError(e.to_string()));
                                         }
+                                        ctx.request_repaint();
                                     }
                                 }
                             }
@@ -175,6 +179,7 @@ fn start_ms_login(app: &App) {
                                 if let Ok(mut q) = queue.lock() {
                                     q.push(UiMessage::MsLoginError(e.to_string()));
                                 }
+                                ctx.request_repaint();
                             }
                         }
                     }
@@ -182,6 +187,7 @@ fn start_ms_login(app: &App) {
                         if let Ok(mut q) = queue.lock() {
                             q.push(UiMessage::MsLoginError(e.to_string()));
                         }
+                        ctx.request_repaint();
                     }
                 }
             }
@@ -189,6 +195,7 @@ fn start_ms_login(app: &App) {
                 if let Ok(mut q) = queue.lock() {
                     q.push(UiMessage::MsLoginError(e.to_string()));
                 }
+                ctx.request_repaint();
             }
         }
     });

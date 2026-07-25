@@ -32,10 +32,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .collect();
 
     if instances.is_empty() {
-        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.colored_label(app.theme.text_secondary, "No instances.");
-            ui.colored_label(app.theme.text_secondary, "Create one to get started.");
-        });
+        crate::empty_state(
+            ui,
+            &app.theme,
+            &["No instances.", "Create one to get started."],
+        );
     } else {
         for id in &instances {
             if let Some(instance) = app.instance_manager.get(id) {
