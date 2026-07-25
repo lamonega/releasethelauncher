@@ -52,7 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: ${{ env.APP_NAME }}-*.AppImage
+          path: "*.AppImage"
 
   release-macos:
     name: Release macOS
