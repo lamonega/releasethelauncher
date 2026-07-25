@@ -1,0 +1,293 @@
+use reqwest::Client;
+use std::fmt::Write;
+use std::path::Path;
+use std::fs;
+
+use crate::{
+    ModsError, ModProvider, SearchArgs, SearchResults, ModVersion, ProjectInfo,
+    InstalledMod, ModUpdate, SortOrder, Side, ReleaseType, ProjectSummary,
+};
+use super::modrinth_types::{SearchResponse, ModrinthVersion, ModrinthProject};
+
+const BASE_URL: &str = "https://api.modrinth.com/v2";
+
+pub struct ModrinthProvider {
+    http: Client,
+    api_token: Option<String>,
+}
+
+impl ModrinthProvider {
+    #[must_use]
+    pub fn new(api_token: Option<String>) -> Self {
+        Self {
+            http: Client::new(),
+            api_token,
+        }
+    }
+
+    fn build_headers(&self) -> Vec<(&str, &str)> {
+        let headers = vec![
+            ("User-Agent", "release-the-launcher/0.1.0"),
+        ];
+        if let Some(ref _token) = self.api_token {
+            // headers.push(("Authorization", _token.as_str()));
+        }
+        headers
+    }
+
+    fn build_search_url(args: &SearchArgs) -> String {
+        let facets = Self::build_facets(args);
+        let mut url = format!(
+            "{BASE_URL}/search?limit={}&offset={}",
+            args.limit, args.offset
+        );
+        if !args.query.is_empty() {
+            let _ = write!(url, "&query={}", urlencoding::encode(&args.query));
+        }
+        if !facets.is_empty() {
+            let _ = write!(url, "&facets={}", urlencoding::encode(&facets));
+        }
+        if args.sort != SortOrder::Relevance {
+            let _ = write!(url, "&index={}", args.sort.as_str());
+        }
+        url
+    }
+
+    fn build_facets(args: &SearchArgs) -> String {
+        let mut facets: Vec<Vec<String>> = Vec::new();
+
+        if !args.loaders.is_empty() {
+            let loader_facets: Vec<String> = args.loaders.iter()
+                .map(|l| format!("\"categories:{l}\""))
+                .collect();
+            facets.push(loader_facets);
+        }
+
+        if !args.mc_versions.is_empty() {
+            let version_facets: Vec<String> = args.mc_versions.iter()
+                .map(|v| format!("\"versions:{v}\""))
+                .collect();
+            facets.push(version_facets);
+        }
+
+        facets.push(vec!["\"project_type:mod\"".to_string()]);
+
+        serde_json::to_string(&facets).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
+#[async_trait::async_trait]
+impl ModProvider for ModrinthProvider {
+    fn name(&self) -> &'static str {
+        "Modrinth"
+    }
+
+    async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError> {
+        let url = Self::build_search_url(&args);
+        let mut req = self.http.get(&url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        let resp: SearchResponse = req.send().await?.json().await?;
+
+        let hits = resp.hits.into_iter().map(|h| ProjectSummary {
+            id: h.project_id,
+            name: h.title,
+            slug: h.slug,
+            description: h.description,
+            author: h.author,
+            icon_url: h.icon_url,
+            downloads: h.downloads,
+            side: Side::Universal,
+        }).collect();
+
+        Ok(SearchResults {
+            hits,
+            total_hits: resp.total_hits,
+        })
+    }
+
+    async fn get_versions(
+        &self,
+        project_id: &str,
+        mc_versions: &[String],
+        loaders: &[String],
+    ) -> Result<Vec<ModVersion>, ModsError> {
+        let mut url = format!("{BASE_URL}/project/{project_id}/version?");
+        if !mc_versions.is_empty() {
+            let versions_json = serde_json::to_string(mc_versions).unwrap_or_default();
+            let _ = write!(url, "game_versions={}", urlencoding::encode(&versions_json));
+        }
+        if !loaders.is_empty() {
+            let loaders_json = serde_json::to_string(loaders).unwrap_or_default();
+            if url.contains('?') { url.push('&'); }
+            let _ = write!(url, "loaders={}", urlencoding::encode(&loaders_json));
+        }
+
+        let mut req = self.http.get(&url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        let resp: Vec<ModrinthVersion> = req.send().await?.json().await?;
+
+        let versions = resp.into_iter().map(|v| {
+            let (hash, hash_type): (Option<String>, Option<String>) = v.files.first()
+                .and_then(|f| {
+                    if let Some((algo, h)) = f.hashes.iter().next() {
+                        Some((Some(h.clone()), Some(algo.clone())))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or((None, None));
+
+            let primary_file = v.files.iter()
+                .find(|f| f.primary)
+                .or(v.files.first());
+
+            let filename = primary_file
+                .map(|f| f.filename.clone())
+                .unwrap_or_default();
+
+            let download_url = primary_file
+                .and_then(|f| f.url.clone());
+
+            let file_size = primary_file
+                .map_or(0, |f| f.size);
+
+            ModVersion {
+                id: v.id,
+                project_id: v.project_id,
+                name: v.name,
+                version_number: v.version_number,
+                release_type: match v.version_type.as_str() {
+                    "beta" => ReleaseType::Beta,
+                    "alpha" => ReleaseType::Alpha,
+                    _ => ReleaseType::Release,
+                },
+                mc_versions: v.game_versions,
+                loaders: v.loaders,
+                download_url,
+                filename,
+                hash,
+                hash_type,
+                file_size,
+            }
+        }).collect();
+
+        Ok(versions)
+    }
+
+    async fn get_project(&self, project_id: &str) -> Result<ProjectInfo, ModsError> {
+        let url = format!("{BASE_URL}/project/{project_id}");
+        let mut req = self.http.get(&url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        let resp: ModrinthProject = req.send().await?.json().await?;
+
+        Ok(ProjectInfo {
+            id: resp.id,
+            name: resp.title,
+            slug: resp.slug,
+            description: resp.description,
+            authors: resp.team.into_iter().collect(),
+            icon_url: resp.icon_url,
+            website_url: resp.source_url,
+            downloads: resp.downloads,
+            side: Side::Universal,
+        })
+    }
+
+    async fn check_updates(
+        &self,
+        installed: &[InstalledMod],
+        mc_versions: &[String],
+        loaders: &[String],
+    ) -> Result<Vec<ModUpdate>, ModsError> {
+        let mut updates = Vec::new();
+
+        for installed_mod in installed {
+            let algorithm = if installed_mod.hash_type == "sha512" { "sha512" } else { "sha1" };
+            let url = format!(
+                "{}/version_file/{}/update?algorithm={}",
+                BASE_URL, installed_mod.hash, algorithm
+            );
+
+            let body = serde_json::json!({
+                "loaders": loaders,
+                "game_versions": mc_versions,
+            });
+
+            let mut req = self.http.post(&url)
+                .json(&body);
+            for (k, v) in self.build_headers() {
+                req = req.header(k, v);
+            }
+
+            if let Ok(resp) = req.send().await {
+                if resp.status().is_success() {
+                    if let Ok(version) = resp.json::<ModrinthVersion>().await {
+                        let (hash, hash_type): (Option<String>, Option<String>) = version.files.first()
+                            .and_then(|f| f.hashes.iter().next())
+                            .map_or((None, None), |(a, h)| (Some(h.clone()), Some(a.clone())));
+
+                        let primary = version.files.iter()
+                            .find(|f| f.primary)
+                            .or(version.files.first());
+
+                        let latest = ModVersion {
+                            id: version.id,
+                            project_id: version.project_id,
+                            name: version.name,
+                            version_number: version.version_number,
+                            release_type: match version.version_type.as_str() {
+                                "beta" => ReleaseType::Beta,
+                                "alpha" => ReleaseType::Alpha,
+                                _ => ReleaseType::Release,
+                            },
+                            mc_versions: version.game_versions,
+                            loaders: version.loaders,
+                            download_url: primary.and_then(|f| f.url.clone()),
+                            filename: primary.map(|f| f.filename.clone()).unwrap_or_default(),
+                            hash,
+                            hash_type,
+                            file_size: primary.map_or(0, |f| f.size),
+                        };
+
+                        if latest.hash.as_deref() != Some(installed_mod.hash.as_str()) {
+                            updates.push(ModUpdate {
+                                installed: installed_mod.clone(),
+                                latest,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(updates)
+    }
+
+    async fn download_mod(
+        &self,
+        version: &ModVersion,
+        target_dir: &Path,
+    ) -> Result<std::path::PathBuf, ModsError> {
+        let url = version.download_url.as_ref()
+            .ok_or_else(|| ModsError::Provider("No download URL".into()))?;
+
+        let mut req = self.http.get(url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+
+        let bytes = req.send().await?.bytes().await?;
+
+        fs::create_dir_all(target_dir)?;
+        let path = target_dir.join(&version.filename);
+        fs::write(&path, &bytes)?;
+
+        Ok(path)
+    }
+}
