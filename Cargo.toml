@@ -20,6 +20,11 @@ license = "MIT"
 name = "release-the-launcher"
 path = "src/main.rs"
 
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
 [dependencies]
 release-the-launcher-core = { path = "crates/core" }
 release-the-launcher-auth = { path = "crates/auth" }

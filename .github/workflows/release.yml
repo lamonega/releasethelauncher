@@ -27,7 +27,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libatk1.0-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libxcb1-dev libasound2-dev pkg-config file
+          sudo apt-get install -y libgtk-3-dev libatk1.0-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libxcb1-dev libasound2-dev pkg-config file mold
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -36,6 +36,8 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+        env:
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
       - name: Prepare AppDir
         run: |
@@ -55,6 +57,7 @@ jobs:
         with:
           path: linuxdeploy
           key: linuxdeploy-${{ env.LINUXDEPLOY_VERSION }}
+          restore-keys: linuxdeploy-
 
       - name: Download linuxdeploy
         if: steps.cache-linuxdeploy.outputs.cache-hit != 'true'
