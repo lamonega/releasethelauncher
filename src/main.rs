@@ -16,6 +16,7 @@ struct LauncherApp {
     mod_browser_state: ModBrowserState,
     detail_tab_state: DetailTabState,
     selected_instance_id: Option<String>,
+    maximized: bool,
 }
 
 impl eframe::App for LauncherApp {
@@ -23,7 +24,7 @@ impl eframe::App for LauncherApp {
         drain_ui_messages(self);
         let mut navigate_to: Option<View> = None;
         let mut open_mod_browser: Option<String> = None;
-        show_toolbar(&self.app, ctx, &mut navigate_to);
+        show_toolbar(&self.app, &mut self.maximized, ctx, &mut navigate_to);
         show_status_bar(ctx, &self.app);
         show_sidebar(self, ctx, &mut navigate_to);
         show_central(self, ctx, &mut open_mod_browser);
@@ -87,20 +88,40 @@ fn drain_ui_messages(state: &mut LauncherApp) {
     }
 }
 
-fn show_toolbar(app: &App, ctx: &egui::Context, navigate_to: &mut Option<View>) {
+fn show_toolbar(
+    app: &App,
+    maximized: &mut bool,
+    ctx: &egui::Context,
+    navigate_to: &mut Option<View>,
+) {
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.style_mut().visuals.panel_fill = app.theme.surface_alt;
         ui.add_space(app.theme.spacing.sm);
-        ui.horizontal(|ui| {
+        let inner = ui.horizontal(|ui| {
             ui.add_space(app.theme.spacing.xs);
             ui.heading("Release The Launcher");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(app.theme.spacing.xs);
+                if ui.button("✕").clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                let maximize_icon = if *maximized { "❐" } else { "□" };
+                if ui.button(maximize_icon).clicked() {
+                    *maximized = !*maximized;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(*maximized));
+                }
+                if ui.button("—").clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+                ui.separator();
                 if ui.button("Accounts").clicked() {
                     *navigate_to = Some(View::AccountList);
                 }
             });
         });
+        let response = inner.response;
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
     });
 }
 
@@ -152,10 +173,11 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                 .collect();
 
             if instances.is_empty() {
-                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    ui.colored_label(state.app.theme.text_secondary, "No instances.");
-                    ui.colored_label(state.app.theme.text_secondary, "Create one to get started.");
-                });
+                release_the_launcher_ui::empty_state(
+                    ui,
+                    &state.app.theme,
+                    &["No instances.", "Create one to get started."],
+                );
             } else {
                 for id in &instances {
                     if let Some(instance) = state.app.instance_manager.get(id) {
@@ -220,14 +242,14 @@ fn show_central(
     egui::CentralPanel::default().show(ctx, |ui| match &state.app.current_view {
         View::InstanceList => {
             ui.add_space(state.app.theme.spacing.lg);
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.add_space(state.app.theme.spacing.lg);
-                ui.colored_label(state.app.theme.text_secondary, "Select an instance");
-                ui.colored_label(
-                    state.app.theme.text_secondary,
+            release_the_launcher_ui::empty_state(
+                ui,
+                &state.app.theme,
+                &[
+                    "Select an instance",
                     "Choose an instance from the sidebar or create a new one.",
-                );
-            });
+                ],
+            );
         }
         View::InstanceDetail { id, tab } => {
             let id = id.clone();
@@ -290,6 +312,7 @@ fn main() -> Result<(), eframe::Error> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_decorations(false)
             .with_inner_size([1000.0, 700.0])
             .with_min_inner_size([800.0, 500.0])
             .with_title("Release The Launcher"),
@@ -304,6 +327,7 @@ fn main() -> Result<(), eframe::Error> {
             let theme = Theme::apply(&cc.egui_ctx);
             let mut app = App::new();
             app.theme = theme;
+            app.ctx = Some(cc.egui_ctx.clone());
             app.tokio_handle = Some(tokio::runtime::Handle::current());
             Box::new(LauncherApp {
                 app,
@@ -313,6 +337,7 @@ fn main() -> Result<(), eframe::Error> {
                 mod_browser_state: ModBrowserState::default(),
                 detail_tab_state: DetailTabState::default(),
                 selected_instance_id: None,
+                maximized: false,
             })
         }),
     )
