@@ -65,7 +65,7 @@ pub struct DownloadJob {
 
 impl DownloadJob {
     #[must_use]
-    pub fn new(max_concurrent: usize) -> Self {
+    pub const fn new(max_concurrent: usize) -> Self {
         Self {
             downloads: VecDeque::new(),
             doing: Vec::new(),
@@ -83,7 +83,7 @@ impl DownloadJob {
     }
 
     #[must_use]
-    pub fn progress(&self) -> (usize, usize) {
+    pub const fn progress(&self) -> (usize, usize) {
         (self.completed, self.total)
     }
 

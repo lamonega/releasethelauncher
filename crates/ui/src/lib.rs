@@ -83,7 +83,7 @@ pub enum UiMessage {
     MsLoginError(String),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum DownloadPhase {
     #[default]
     Idle,

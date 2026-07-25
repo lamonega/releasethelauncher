@@ -6,7 +6,7 @@ use crate::LaunchError;
 use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Detects a Java installation and validates its major version against the compatible list.
 ///
@@ -74,7 +74,7 @@ pub fn resolve_java(
     ))
 }
 
-fn java_executable_name() -> &'static str {
+const fn java_executable_name() -> &'static str {
     if cfg!(windows) {
         "javaw.exe"
     } else {
@@ -117,7 +117,7 @@ fn find_java_from_registry() -> Vec<PathBuf> {
 
     for subkey_path in &subkeys {
         if let Ok(subkey) = hklm.open_subkey(subkey_path) {
-            for version_name in subkey.enum_keys().filter_map(|k| k.ok()) {
+            for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
                 if let Ok(version_key) = subkey.open_subkey(&version_name) {
                     if let Ok(java_home) = version_key.get_value::<String, _>("JavaHome") {
                         let bin_dir = PathBuf::from(&java_home).join("bin");
@@ -133,20 +133,23 @@ fn find_java_from_registry() -> Vec<PathBuf> {
 }
 
 fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
-    if let Some(major) = detect_java_major_version(java_path) {
-        if compatible_java_majors.is_empty() || compatible_java_majors.contains(&major) {
-            Ok(java_path.to_path_buf())
-        } else {
+    detect_java_major_version(java_path).map_or_else(
+        || {
             Err(LaunchError::JavaNotFound(format!(
-                "Found Java {major} but this version requires one of: {compatible_java_majors:?}",
+                "Could not determine Java version at: {}",
+                java_path.display()
             )))
-        }
-    } else {
-        Err(LaunchError::JavaNotFound(format!(
-            "Could not determine Java version at: {}",
-            java_path.display()
-        )))
-    }
+        },
+        |major| {
+            if compatible_java_majors.is_empty() || compatible_java_majors.contains(&major) {
+                Ok(java_path.to_path_buf())
+            } else {
+                Err(LaunchError::JavaNotFound(format!(
+                    "Found Java {major} but this version requires one of: {compatible_java_majors:?}",
+                )))
+            }
+        },
+    )
 }
 
 fn detect_java_major_version(java_path: &Path) -> Option<u32> {

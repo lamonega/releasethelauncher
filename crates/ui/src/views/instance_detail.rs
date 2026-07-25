@@ -170,7 +170,7 @@ fn show_logs(app: &App, ui: &mut egui::Ui) {
 }
 
 fn show_mods(
-    app: &mut App,
+    app: &App,
     ui: &mut egui::Ui,
     root_path: &std::path::Path,
     id: &str,

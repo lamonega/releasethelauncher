@@ -203,7 +203,7 @@ fn start_ms_login(app: &App) {
 
 use crate::UiMessage;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginState {
     Idle,
     MicrosoftPending,

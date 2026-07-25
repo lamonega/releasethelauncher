@@ -85,7 +85,7 @@ impl AccountList {
         self.active_index.and_then(|i| self.accounts.get(i))
     }
 
-    pub fn set_active(&mut self, index: usize) {
+    pub const fn set_active(&mut self, index: usize) {
         if index < self.accounts.len() {
             self.active_index = Some(index);
         }

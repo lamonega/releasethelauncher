@@ -59,7 +59,7 @@ pub fn should_include(rules: &[Rule]) -> bool {
 ///
 /// On Windows, this is `;`. On all other platforms, it is `:`.
 #[must_use]
-pub fn classpath_separator() -> &'static str {
+pub const fn classpath_separator() -> &'static str {
     if cfg!(windows) {
         ";"
     } else {

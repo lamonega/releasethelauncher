@@ -135,7 +135,7 @@ impl Theme {
                 button_padding: Vec2::new(theme.spacing.sm, theme.spacing.xs),
                 indent: theme.spacing.md,
                 menu_margin: egui::Margin::symmetric(theme.spacing.sm, theme.spacing.xs),
-                combo_height: 0.0,
+                combo_height: 20.0,
                 ..Default::default()
             },
             text_styles: [

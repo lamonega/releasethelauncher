@@ -186,7 +186,7 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     }
 }
 
-fn show_modrinth(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Search for modpacks on Modrinth:");
 
     ui.add_space(app.theme.spacing.sm);
@@ -291,14 +291,14 @@ pub struct NewInstanceState {
     pub version_list_loading: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum InstanceTab {
     #[default]
     Manual,
     Modrinth,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum LoaderType {
     #[default]
     Vanilla,
@@ -309,17 +309,17 @@ pub enum LoaderType {
 
 impl LoaderType {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            LoaderType::Vanilla => "Vanilla",
-            LoaderType::Fabric => "Fabric",
-            LoaderType::Forge => "Forge",
-            LoaderType::NeoForge => "NeoForge",
+            Self::Vanilla => "Vanilla",
+            Self::Fabric => "Fabric",
+            Self::Forge => "Forge",
+            Self::NeoForge => "NeoForge",
         }
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum LoaderFilter {
     #[default]
     Any,
@@ -330,12 +330,12 @@ pub enum LoaderFilter {
 
 impl LoaderFilter {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            LoaderFilter::Any => "Any",
-            LoaderFilter::Fabric => "Fabric",
-            LoaderFilter::Forge => "Forge",
-            LoaderFilter::NeoForge => "NeoForge",
+            Self::Any => "Any",
+            Self::Fabric => "Fabric",
+            Self::Forge => "Forge",
+            Self::NeoForge => "NeoForge",
         }
     }
 }

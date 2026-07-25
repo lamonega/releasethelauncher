@@ -73,7 +73,7 @@ impl InstanceSettings {
     }
 
     #[must_use = "Returns the name of the mod loader as a string"]
-    pub fn loader_name(&self) -> &str {
+    pub const fn loader_name(&self) -> &str {
         match &self.loader {
             ModLoader::Vanilla => "Vanilla",
             ModLoader::Fabric { .. } => "Fabric",

@@ -300,12 +300,12 @@ impl DependencyResolver {
 /// Returns an error if a dependency fetch fails.
 pub async fn resolve_dependencies(
     resolver: &mut DependencyResolver,
-    mut components: Vec<Component>,
+    components: Vec<Component>,
 ) -> Result<Vec<Component>, LaunchError> {
     let mut resolved_deps: std::collections::HashMap<String, Component> =
         std::collections::HashMap::new();
 
-    for component in components.drain(..) {
+    for component in components {
         resolved_deps.insert(component.uid.clone(), component);
     }
 

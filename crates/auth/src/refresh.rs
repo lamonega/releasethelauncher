@@ -19,13 +19,10 @@ pub fn needs_refresh(account: &AccountData) -> bool {
             return false;
         }
 
-        match msa_token.not_after {
-            Some(not_after) => {
-                let now = now_unix();
-                not_after < now + TOKEN_EXPIRY_BUFFER
-            }
-            None => true,
-        }
+        msa_token.not_after.is_none_or(|not_after| {
+            let now = now_unix();
+            not_after < now + TOKEN_EXPIRY_BUFFER
+        })
     } else {
         false
     }

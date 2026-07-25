@@ -135,7 +135,7 @@ impl MsAuthFlow {
     }
 
     #[must_use]
-    pub fn http(&self) -> &Client {
+    pub const fn http(&self) -> &Client {
         &self.http
     }
 

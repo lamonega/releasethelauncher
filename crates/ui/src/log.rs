@@ -22,13 +22,13 @@ pub enum LogLevel {
 
 impl LogLevel {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            LogLevel::Trace => "TRACE",
-            LogLevel::Debug => "DEBUG",
-            LogLevel::Info => "INFO",
-            LogLevel::Warn => "WARN",
-            LogLevel::Error => "ERROR",
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
         }
     }
 }

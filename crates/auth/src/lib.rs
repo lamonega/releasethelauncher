@@ -10,7 +10,7 @@ pub use msa::{AuthError, MsAuthFlow};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AccountType {
     #[serde(rename = "microsoft")]
     Microsoft,

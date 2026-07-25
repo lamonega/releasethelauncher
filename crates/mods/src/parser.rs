@@ -111,15 +111,16 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
         .map(|arr| {
             arr.iter()
                 .filter_map(|a| {
-                    if let Some(s) = a.as_str() {
-                        Some(s.to_string())
-                    } else if let Some(obj) = a.as_object() {
-                        obj.get("name")
-                            .and_then(|n| n.as_str())
-                            .map(ToString::to_string)
-                    } else {
-                        None
-                    }
+                    a.as_str().map_or_else(
+                        || {
+                            a.as_object().and_then(|obj| {
+                                obj.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(ToString::to_string)
+                            })
+                        },
+                        |s| Some(s.to_string()),
+                    )
                 })
                 .collect()
         })

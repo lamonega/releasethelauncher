@@ -44,11 +44,10 @@ impl DownloadManager {
         let version = parts[2];
         let classifier = parts.get(3);
 
-        let filename = if let Some(cls) = classifier {
-            format!("{artifact}-{version}-{cls}.jar")
-        } else {
-            format!("{artifact}-{version}.jar")
-        };
+        let filename = classifier.map_or_else(
+            || format!("{artifact}-{version}.jar"),
+            |cls| format!("{artifact}-{version}-{cls}.jar"),
+        );
 
         let path = format!("{group}/{artifact}/{version}/{filename}");
 
@@ -62,7 +61,7 @@ impl DownloadManager {
             lib.url
                 .as_ref()
                 .map(|u| format!("{}/{path}", u.trim_end_matches('/')))
-                .or(Some(format!("{MAVEN_CENTRAL}/{path}")))
+                .or_else(|| Some(format!("{MAVEN_CENTRAL}/{path}")))
         }
     }
 
@@ -77,11 +76,10 @@ impl DownloadManager {
         let version = parts[2];
         let classifier = parts.get(3);
 
-        let filename = if let Some(cls) = classifier {
-            format!("{artifact}-{version}-{cls}.jar")
-        } else {
-            format!("{artifact}-{version}.jar")
-        };
+        let filename = classifier.map_or_else(
+            || format!("{artifact}-{version}.jar"),
+            |cls| format!("{artifact}-{version}-{cls}.jar"),
+        );
 
         Some(
             PathBuf::from(&group)

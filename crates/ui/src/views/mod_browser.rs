@@ -106,7 +106,7 @@ fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
     });
 }
 
-fn show_results(app: &mut App, ui: &mut egui::Ui, state: &mut ModBrowserState, id: &str) {
+fn show_results(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState, id: &str) {
     if !state.status.is_empty() {
         ui.colored_label(app.theme.text_secondary, &state.status);
         ui.add_space(app.theme.spacing.sm);

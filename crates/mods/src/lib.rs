@@ -33,11 +33,11 @@ pub enum Side {
 
 impl Side {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            Side::Client => "client",
-            Side::Server => "server",
-            Side::Universal => "universal",
+            Self::Client => "client",
+            Self::Server => "server",
+            Self::Universal => "universal",
         }
     }
 }
@@ -51,16 +51,16 @@ pub enum ReleaseType {
 
 impl ReleaseType {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            ReleaseType::Release => "release",
-            ReleaseType::Beta => "beta",
-            ReleaseType::Alpha => "alpha",
+            Self::Release => "release",
+            Self::Beta => "beta",
+            Self::Alpha => "alpha",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SortOrder {
     Relevance,
     Downloads,
@@ -71,13 +71,13 @@ pub enum SortOrder {
 
 impl SortOrder {
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match self {
-            SortOrder::Relevance => "relevance",
-            SortOrder::Downloads => "downloads",
-            SortOrder::Follows => "follows",
-            SortOrder::Newest => "newest",
-            SortOrder::Updated => "updated",
+            Self::Relevance => "relevance",
+            Self::Downloads => "downloads",
+            Self::Follows => "follows",
+            Self::Newest => "newest",
+            Self::Updated => "updated",
         }
     }
 }
