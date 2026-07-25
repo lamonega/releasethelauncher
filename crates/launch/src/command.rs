@@ -1,17 +1,22 @@
 use super::profile::LaunchProfile;
+use crate::platform;
 use crate::LaunchError;
 use std::path::Path;
 use std::process::Command;
 
+#[derive(Debug, Clone)]
+pub struct PlayerAuth {
+    pub name: String,
+    pub uuid: String,
+    pub access_token: String,
+}
+
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,
     java_path: &Path,
-    player_name: &str,
-    player_uuid: &str,
-    access_token: &str,
+    player: &PlayerAuth,
     memory_min: &str,
     memory_max: &str,
 ) -> Command {
@@ -28,9 +33,9 @@ pub fn build_command(
             has_max_mem = true;
         }
 
-        let mut processed = arg.replace("{auth_player_name}", player_name);
-        processed = processed.replace("{auth_uuid}", player_uuid);
-        processed = processed.replace("{auth_access_token}", access_token);
+        let mut processed = arg.replace("{auth_player_name}", &player.name);
+        processed = processed.replace("{auth_uuid}", &player.uuid);
+        processed = processed.replace("{auth_access_token}", &player.access_token);
         processed = processed.replace("{user_properties}", "{}");
         processed = processed.replace("{client_id}", "");
         processed = processed.replace("{version_type}", &profile.mc_version_type);
@@ -47,9 +52,44 @@ pub fn build_command(
     let natives_dir = instance_dir.join("natives");
     cmd.arg(format!("-Djava.library.path={}", natives_dir.display()));
 
+    let mut classpath = build_classpath(profile);
+    let mc_jar = format!(
+        "{}/versions/{}/{}.jar",
+        instance_dir.display(),
+        profile.mc_version,
+        profile.mc_version
+    );
+    classpath.push(mc_jar);
+
+    let cp_str = classpath.join(platform::classpath_separator());
+    cmd.arg("-cp").arg(&cp_str);
+    cmd.arg(&profile.main_class);
+
+    let game_args = profile.game_args_template.clone();
+    for arg in game_args.split_whitespace() {
+        let mut processed = arg.to_string();
+        processed = processed.replace("{auth_player_name}", &player.name);
+        processed = processed.replace("{auth_uuid}", &player.uuid);
+        processed = processed.replace("{auth_access_token}", &player.access_token);
+        processed = processed.replace("{user_properties}", "{}");
+        processed = processed.replace("{client_id}", "");
+        processed = processed.replace("{version_type}", &profile.mc_version_type);
+        cmd.arg(&processed);
+    }
+
+    cmd.arg("--width").arg("854");
+    cmd.arg("--height").arg("480");
+
+    cmd
+}
+
+fn build_classpath(profile: &LaunchProfile) -> Vec<String> {
     let mut classpath = Vec::new();
     for lib in &profile.libraries {
         if lib.is_native {
+            continue;
+        }
+        if !platform::should_include(&lib.rules) {
             continue;
         }
         let parts: Vec<&str> = lib.name.split(':').collect();
@@ -62,35 +102,7 @@ pub fn build_command(
             classpath.push(jar_path);
         }
     }
-
-    let mc_jar = format!(
-        "{}/versions/{}/{}.jar",
-        instance_dir.display(),
-        profile.mc_version,
-        profile.mc_version
-    );
-    classpath.push(mc_jar);
-
-    let cp_str = classpath.join(":");
-    cmd.arg("-cp").arg(&cp_str);
-    cmd.arg(&profile.main_class);
-
-    let game_args = profile.game_args_template.clone();
-    for arg in game_args.split_whitespace() {
-        let mut processed = arg.to_string();
-        processed = processed.replace("{auth_player_name}", player_name);
-        processed = processed.replace("{auth_uuid}", player_uuid);
-        processed = processed.replace("{auth_access_token}", access_token);
-        processed = processed.replace("{user_properties}", "{}");
-        processed = processed.replace("{client_id}", "");
-        processed = processed.replace("{version_type}", &profile.mc_version_type);
-        cmd.arg(&processed);
-    }
-
-    cmd.arg("--width").arg("854");
-    cmd.arg("--height").arg("480");
-
-    cmd
+    classpath
 }
 
 /// # Errors

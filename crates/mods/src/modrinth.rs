@@ -1,6 +1,9 @@
+use futures::TryStreamExt;
 use reqwest::Client;
+use sha1::Digest as _;
 use std::fmt::Write;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use super::modrinth_types::{ModrinthProject, ModrinthVersion, SearchResponse};
@@ -10,6 +13,27 @@ use crate::{
 };
 
 const BASE_URL: &str = "https://api.modrinth.com/v2";
+
+enum HasherChoice {
+    Sha1(sha1::Sha1),
+    Sha2(sha2::Sha256),
+}
+
+impl HasherChoice {
+    fn update(&mut self, data: &[u8]) {
+        match self {
+            Self::Sha1(h) => h.update(data),
+            Self::Sha2(h) => h.update(data),
+        }
+    }
+
+    fn finalize_hex(&mut self) -> String {
+        match self {
+            Self::Sha1(h) => hex::encode(h.clone().finalize()),
+            Self::Sha2(h) => hex::encode(h.clone().finalize()),
+        }
+    }
+}
 
 pub struct ModrinthProvider {
     http: Client,
@@ -26,9 +50,9 @@ impl ModrinthProvider {
     }
 
     fn build_headers(&self) -> Vec<(&str, &str)> {
-        let headers = vec![("User-Agent", "release-the-launcher/0.1.0")];
-        if let Some(ref _token) = self.api_token {
-            // headers.push(("Authorization", _token.as_str()));
+        let mut headers = vec![("User-Agent", "release-the-launcher/0.1.0")];
+        if let Some(ref token) = self.api_token {
+            headers.push(("Authorization", token));
         }
         headers
     }
@@ -62,7 +86,7 @@ impl ModrinthProvider {
             let loader_facets: Vec<String> = args
                 .loaders
                 .iter()
-                .map(|l| format!("\"categories:{l}\""))
+                .map(|l| format!("categories:{l}"))
                 .collect();
             facets.push(loader_facets);
         }
@@ -71,12 +95,12 @@ impl ModrinthProvider {
             let version_facets: Vec<String> = args
                 .mc_versions
                 .iter()
-                .map(|v| format!("\"versions:{v}\""))
+                .map(|v| format!("versions:{v}"))
                 .collect();
             facets.push(version_facets);
         }
 
-        facets.push(vec![format!("\"project_type:{project_type}\"")]);
+        facets.push(vec![format!("project_type:{project_type}")]);
 
         serde_json::to_string(&facets).unwrap_or_else(|_| "[]".to_string())
     }
@@ -153,10 +177,22 @@ impl ModrinthProvider {
             req = req.header(k, v);
         }
 
-        let bytes = req.send().await?.bytes().await?;
+        let response = req.send().await?;
+        let stream = response.bytes_stream();
+
         let zip_path = target_dir.join(&version.filename);
         fs::create_dir_all(target_dir)?;
-        fs::write(&zip_path, &bytes)?;
+
+        // Stream to a temp file, then rename
+        let tmp_path = zip_path.with_extension("tmp");
+        {
+            let mut file = fs::File::create(&tmp_path)?;
+            let mut stream = stream;
+            while let Some(chunk) = stream.try_next().await? {
+                file.write_all(&chunk)?;
+            }
+        }
+        fs::rename(&tmp_path, &zip_path)?;
 
         let file = fs::File::open(&zip_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
@@ -409,12 +445,48 @@ impl ModProvider for ModrinthProvider {
             req = req.header(k, v);
         }
 
-        let bytes = req.send().await?.bytes().await?;
+        let response = req.send().await?;
+        let stream = response.bytes_stream();
 
         fs::create_dir_all(target_dir)?;
         let path = target_dir.join(&version.filename);
-        fs::write(&path, &bytes)?;
+        let tmp_path = path.with_extension("tmp");
 
+        let mut file = fs::File::create(&tmp_path)?;
+
+        let mut hasher = if let Some(ref hash_type) = version.hash_type {
+            match hash_type.as_str() {
+                "sha1" => Some(HasherChoice::Sha1(sha1::Sha1::new())),
+                "sha256" | "sha512" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let mut stream = stream;
+        while let Some(chunk) = stream.try_next().await? {
+            if let Some(ref mut h) = hasher {
+                h.update(&chunk);
+            }
+            file.write_all(&chunk)?;
+        }
+        drop(file);
+
+        if let Some(ref expected) = version.hash {
+            if let Some(ref mut h) = hasher {
+                let computed = h.finalize_hex();
+                if computed != *expected {
+                    let _ = fs::remove_file(&tmp_path);
+                    return Err(ModsError::Provider(format!(
+                        "Checksum mismatch for {}: expected {expected}, got {computed}",
+                        version.filename
+                    )));
+                }
+            }
+        }
+
+        fs::rename(&tmp_path, &path)?;
         Ok(path)
     }
 }

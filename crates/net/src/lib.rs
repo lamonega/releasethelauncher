@@ -4,12 +4,14 @@ pub mod validator;
 pub use cache::{CacheEntry, HttpMetaCache};
 pub use validator::{ChecksumValidator, Sha1Validator, Sha256Validator};
 
+use futures::TryStreamExt;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use thiserror::Error;
 use tokio::task::JoinHandle;
+use tokio_util::io::StreamReader;
 use url::Url;
 
 #[derive(Error, Debug)]
@@ -22,6 +24,8 @@ pub enum NetError {
     Json(#[from] serde_json::Error),
     #[error("Checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
+    #[error("Validator error: {0}")]
+    Validator(#[from] validator::ValidatorError),
     #[error("Download failed after {0} retries")]
     MaxRetries(u32),
     #[error("Rate limited, retry after {0}s")]
@@ -103,8 +107,12 @@ impl DownloadJob {
                 self.doing = remaining;
                 match result {
                     Ok(Ok(_)) => self.completed += 1,
-                    Ok(Err(e)) => eprintln!("Download error: {e}"),
-                    Err(e) => eprintln!("Task join error: {e}"),
+                    Ok(Err(e)) => {
+                        return Err(e);
+                    }
+                    Err(e) => {
+                        return Err(NetError::Io(std::io::Error::other(e.to_string())));
+                    }
                 }
             }
         }
@@ -114,7 +122,7 @@ impl DownloadJob {
 
 async fn execute_download(
     client: reqwest::Client,
-    task: DownloadTask,
+    mut task: DownloadTask,
 ) -> Result<PathBuf, NetError> {
     let mut request = client.get(task.url.clone());
 
@@ -128,35 +136,95 @@ async fn execute_download(
         return Err(NetError::Http(response.error_for_status().unwrap_err()));
     }
 
-    let _output_path = match &task.sink {
+    let output_path = match &task.sink {
         Sink::File { path, .. } => path.clone(),
         Sink::Bytes(_) => PathBuf::new(),
     };
 
-    let mut stream = response;
-    let mut bytes = Vec::new();
+    let stream = response.bytes_stream();
+    let mut reader = StreamReader::new(stream.map_err(std::io::Error::other));
 
-    while let Some(chunk) = stream.chunk().await? {
-        bytes.extend_from_slice(&chunk);
-    }
-
-    match task.sink {
+    match &mut task.sink {
         Sink::File { path, atomic } => {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                tokio::fs::create_dir_all(parent).await?;
             }
-            if atomic {
-                let tmp = path.with_extension("tmp");
-                std::fs::write(&tmp, &bytes)?;
-                std::fs::rename(&tmp, &path)?;
+
+            let dest = if *atomic {
+                path.with_extension("tmp")
             } else {
-                std::fs::write(&path, &bytes)?;
+                path.clone()
+            };
+
+            let mut file = tokio::fs::File::create(&dest).await?;
+            let mut buf = vec![0u8; 64 * 1024]; // 64 KB buffer
+
+            loop {
+                let n = tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                let chunk = &buf[..n];
+
+                // Feed to validator if present
+                if let Some(ref mut validator) = task.validator {
+                    validator.update(chunk);
+                }
+
+                // Write to file
+                tokio::io::AsyncWriteExt::write_all(&mut file, chunk).await?;
             }
-            Ok(path)
+
+            // Finalize validation
+            if let Some(validator) = task.validator.take() {
+                let computed = validator.finalize()?;
+                if let Some(ref expected) = task.expected_hash {
+                    if computed != *expected {
+                        // Remove the failed file
+                        let _ = tokio::fs::remove_file(&dest).await;
+                        return Err(NetError::ChecksumMismatch {
+                            expected: expected.clone(),
+                            actual: computed,
+                        });
+                    }
+                }
+            }
+
+            if *atomic {
+                tokio::fs::rename(&dest, path).await?;
+            }
+
+            Ok(output_path)
         }
         Sink::Bytes(data) => {
-            let mut guard = data.lock().unwrap();
-            guard.extend_from_slice(&bytes);
+            let mut buf = vec![0u8; 64 * 1024];
+
+            loop {
+                let n = tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                let chunk = &buf[..n];
+
+                if let Some(ref mut validator) = task.validator {
+                    validator.update(chunk);
+                }
+
+                data.lock().unwrap().extend_from_slice(chunk);
+            }
+
+            if let Some(validator) = task.validator.take() {
+                let computed = validator.finalize()?;
+                if let Some(ref expected) = task.expected_hash {
+                    if computed != *expected {
+                        return Err(NetError::ChecksumMismatch {
+                            expected: expected.clone(),
+                            actual: computed,
+                        });
+                    }
+                }
+            }
+
             Ok(PathBuf::new())
         }
     }

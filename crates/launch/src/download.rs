@@ -3,6 +3,7 @@ use sha1::Digest;
 use sha1::Sha1;
 use std::path::{Path, PathBuf};
 
+use crate::platform;
 use crate::{LaunchError, Library};
 
 const MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
@@ -97,14 +98,14 @@ impl DownloadManager {
         libraries: &[Library],
         progress: impl Fn(usize, usize) + Send + Sync,
     ) -> Result<(), LaunchError> {
-        let total = libraries.len();
+        let applicable: Vec<&Library> = libraries
+            .iter()
+            .filter(|lib| !lib.is_native && platform::should_include(&lib.rules))
+            .collect();
+        let total = applicable.len();
         let mut downloaded = 0;
 
-        for lib in libraries {
-            if lib.is_native {
-                continue;
-            }
-
+        for lib in applicable {
             let local_path = Self::local_path_for_library(lib).ok_or_else(|| {
                 LaunchError::Launch(format!("Invalid library coordinates: {}", lib.name))
             })?;
@@ -112,17 +113,11 @@ impl DownloadManager {
             let full_local_path = self.libraries_dir.join(&local_path);
 
             if !full_local_path.exists() {
-                if let Some(url) = Self::maven_url_for_library(lib) {
-                    match self
-                        .download_file(&url, &full_local_path, lib.sha1.as_deref())
-                        .await
-                    {
-                        Ok(()) => {}
-                        Err(e) => {
-                            eprintln!("Warning: Failed to download {}: {}", lib.name, e);
-                        }
-                    }
-                }
+                let url = Self::maven_url_for_library(lib).ok_or_else(|| {
+                    LaunchError::Launch(format!("No download URL for library: {}", lib.name))
+                })?;
+                self.download_file(&url, &full_local_path, lib.sha1.as_deref())
+                    .await?;
             }
 
             downloaded += 1;
