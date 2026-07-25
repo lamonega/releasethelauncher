@@ -1,7 +1,7 @@
 use reqwest::Client;
 use std::fmt::Write;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::modrinth_types::{ModrinthProject, ModrinthVersion, SearchResponse};
 use crate::{
@@ -52,6 +52,10 @@ impl ModrinthProvider {
     }
 
     fn build_facets(args: &SearchArgs) -> String {
+        Self::build_facets_with_type(args, "mod")
+    }
+
+    fn build_facets_with_type(args: &SearchArgs, project_type: &str) -> String {
         let mut facets: Vec<Vec<String>> = Vec::new();
 
         if !args.loaders.is_empty() {
@@ -72,9 +76,116 @@ impl ModrinthProvider {
             facets.push(version_facets);
         }
 
-        facets.push(vec!["\"project_type:mod\"".to_string()]);
+        facets.push(vec![format!("\"project_type:{project_type}\"")]);
 
         serde_json::to_string(&facets).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    fn build_search_url_with_type(args: &SearchArgs, project_type: &str) -> String {
+        let facets = Self::build_facets_with_type(args, project_type);
+        let mut url = format!(
+            "{BASE_URL}/search?limit={}&offset={}",
+            args.limit, args.offset
+        );
+        if !args.query.is_empty() {
+            let _ = write!(url, "&query={}", urlencoding::encode(&args.query));
+        }
+        if !facets.is_empty() {
+            let _ = write!(url, "&facets={}", urlencoding::encode(&facets));
+        }
+        if args.sort != SortOrder::Relevance {
+            let _ = write!(url, "&index={}", args.sort.as_str());
+        }
+        url
+    }
+
+    /// Search for modpacks on Modrinth.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request or JSON parsing fails.
+    pub async fn search_modpacks(&self, args: &SearchArgs) -> Result<SearchResults, ModsError> {
+        let url = Self::build_search_url_with_type(args, "modpack");
+        let mut req = self.http.get(&url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        let resp: SearchResponse = req.send().await?.json().await?;
+
+        let hits = resp
+            .hits
+            .into_iter()
+            .map(|h| ProjectSummary {
+                id: h.project_id,
+                name: h.title,
+                slug: h.slug,
+                description: h.description,
+                author: h.author,
+                icon_url: h.icon_url,
+                downloads: h.downloads,
+                side: Side::Universal,
+            })
+            .collect();
+
+        Ok(SearchResults {
+            hits,
+            total_hits: resp.total_hits,
+        })
+    }
+
+    /// Download and extract a .mrpack modpack into the target instance directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the download, ZIP extraction, or manifest parsing fails.
+    pub async fn download_modpack(
+        &self,
+        version: &ModVersion,
+        target_dir: &Path,
+    ) -> Result<PathBuf, ModsError> {
+        let url = version
+            .download_url
+            .as_ref()
+            .ok_or_else(|| ModsError::Provider("No download URL".into()))?;
+
+        let mut req = self.http.get(url.as_str());
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+
+        let bytes = req.send().await?.bytes().await?;
+        let zip_path = target_dir.join(&version.filename);
+        fs::create_dir_all(target_dir)?;
+        fs::write(&zip_path, &bytes)?;
+
+        let file = fs::File::open(&zip_path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i)?;
+            let entry_path = entry.mangled_name();
+
+            let components: Vec<_> = entry_path.components().collect();
+            if components.is_empty() {
+                continue;
+            }
+            let first = components[0].as_os_str().to_string_lossy();
+            if first == "overrides" || first == "client-overrides" {
+                let rel: PathBuf = components[1..].iter().collect();
+                let out_path = target_dir.join(rel);
+                if entry.is_dir() {
+                    fs::create_dir_all(&out_path)?;
+                } else {
+                    if let Some(parent) = out_path.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    let mut out_file = fs::File::create(&out_path)?;
+                    std::io::copy(&mut entry, &mut out_file)?;
+                }
+            }
+        }
+
+        Ok(zip_path)
     }
 }
 

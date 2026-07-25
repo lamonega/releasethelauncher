@@ -1,9 +1,6 @@
 use crate::App;
 use crate::View;
 
-/// # Panics
-///
-/// Panics if an instance ID in the list cannot be found in the instance manager.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Instances");
 
@@ -29,8 +26,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.label("No instances. Create one to get started.");
     } else {
         for id in &instances {
-            let instance = app.instance_manager.get(id).unwrap();
-            ui.horizontal(|ui| {
+            if let Some(instance) = app.instance_manager.get(id) {
                 let label = format!(
                     "{} - {} ({})",
                     instance.settings.name,
@@ -38,23 +34,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     instance.settings.loader_name()
                 );
                 if ui.button(&label).clicked() {
-                    app.current_view = View::InstanceDetail { id: id.clone() };
+                    app.current_view = View::InstanceDetail {
+                        id: id.clone(),
+                        tab: crate::DetailTab::Info,
+                    };
                 }
-            });
+            }
         }
-    }
-
-    if let Some((done, total)) = &app.download_progress {
-        ui.separator();
-        ui.label(format!("Downloads: {done}/{total}"));
-        #[allow(clippy::cast_precision_loss)] // Download progress values are small enough for f64
-        let progress = if *total > 0 {
-            *done as f64 / *total as f64
-        } else {
-            0.0
-        };
-        #[allow(clippy::cast_possible_truncation)] // Progress is always in [0.0, 1.0]
-        ui.add(egui::ProgressBar::new(progress as f32));
     }
 
     if !app.status_message.is_empty() {
