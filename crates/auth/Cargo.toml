@@ -1,6 +1,6 @@
 [package]
 name = "release-the-launcher-auth"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Account types, offline UUID, Microsoft OAuth"
 
@@ -15,3 +15,4 @@ hex = "0.4"
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
+md-5 = "0.10"
