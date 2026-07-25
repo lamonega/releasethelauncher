@@ -62,6 +62,8 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsErro
                     mc_version: None,
                     description: String::new(),
                     authors: Vec::new(),
+                    dependencies: Vec::new(),
+                    side: None,
                 });
             }
         }
@@ -75,6 +77,8 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsErro
         mc_version: None,
         description: String::new(),
         authors: Vec::new(),
+        dependencies: Vec::new(),
+        side: None,
     })
 }
 
@@ -132,6 +136,22 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
 
+    let dependencies = value
+        .get("depends")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.keys()
+                .filter(|k| *k != "minecraft" && *k != "java")
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let side = value
+        .get("environment")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
     Ok(ModDetails {
         mod_id,
         name,
@@ -139,6 +159,8 @@ fn parse_fabric_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> 
         mc_version,
         description,
         authors,
+        dependencies,
+        side,
     })
 }
 
@@ -198,6 +220,21 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         .map(|s| vec![s.to_string()])
         .unwrap_or_default();
 
+    let dependencies = value
+        .get("dependencies")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|dep| {
+                    dep.get("modId")
+                        .and_then(|v| v.as_str())
+                        .filter(|id| *id != "minecraft" && *id != "java")
+                        .map(ToString::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ModDetails {
         mod_id,
         name,
@@ -205,6 +242,8 @@ fn parse_mods_toml(content: &str) -> Result<ModDetails, crate::ModsError> {
         mc_version: None,
         description,
         authors,
+        dependencies,
+        side: None,
     })
 }
 
@@ -247,6 +286,17 @@ fn parse_quilt_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> {
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
 
+    let dependencies = quilt_loader
+        .and_then(|v| v.get("depends"))
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.keys()
+                .filter(|k| *k != "minecraft" && *k != "java")
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(ModDetails {
         mod_id,
         name,
@@ -254,6 +304,8 @@ fn parse_quilt_mod_json(content: &str) -> Result<ModDetails, crate::ModsError> {
         mc_version: None,
         description,
         authors,
+        dependencies,
+        side: None,
     })
 }
 
@@ -302,6 +354,8 @@ fn parse_mcmod_info(content: &str) -> Result<ModDetails, crate::ModsError> {
         mc_version,
         description,
         authors: Vec::new(),
+        dependencies: Vec::new(),
+        side: None,
     })
 }
 

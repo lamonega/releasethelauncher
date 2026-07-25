@@ -110,3 +110,16 @@ pub async fn refresh_account(
 
     Ok(true)
 }
+
+/// Try to refresh the account if tokens are about to expire.
+/// Returns true if refresh was performed.
+pub async fn try_refresh_if_needed(
+    client_id: &str,
+    http: &Client,
+    account: &mut AccountData,
+) -> Result<bool, AuthError> {
+    if !needs_refresh(account) {
+        return Ok(false);
+    }
+    refresh_account(client_id, http, account).await
+}

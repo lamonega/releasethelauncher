@@ -163,6 +163,8 @@ pub struct ModDetails {
     pub mc_version: Option<String>,
     pub description: String,
     pub authors: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub side: Option<String>,
 }
 
 #[async_trait::async_trait]

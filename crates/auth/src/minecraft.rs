@@ -134,6 +134,7 @@ pub async fn fetch_profile(
         id: profile.id,
         name: profile.name,
         skin_url,
+        skin_data: None,
         cape_url,
     }))
 }

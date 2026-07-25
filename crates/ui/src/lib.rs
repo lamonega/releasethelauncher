@@ -459,11 +459,17 @@ async fn resolve_components(
                 }
             }
         }
-        ModLoader::Quilt { .. } => {
-            send(UiMessage::DownloadError(
-                "Quilt loader is not yet supported".to_string(),
-            ));
-            return Err(());
+        ModLoader::Quilt { loader_version } => {
+            let lv = loader_version.as_str();
+            match resolver.fetch_quilt_component(mc_version, Some(lv)).await {
+                Ok(comp) => components.push(comp),
+                Err(e) => {
+                    send(UiMessage::DownloadError(format!(
+                        "Failed to fetch Quilt loader: {e}"
+                    )));
+                    return Err(());
+                }
+            }
         }
         ModLoader::Vanilla => {}
     }

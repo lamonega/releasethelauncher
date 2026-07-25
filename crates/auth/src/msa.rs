@@ -5,6 +5,10 @@ use thiserror::Error;
 
 use crate::Token;
 
+/// Default MSA OAuth client ID. This is a public client ID used by PrismLauncher.
+/// Users can override this by providing their own client_id.
+const DEFAULT_MSA_CLIENT_ID: &str = "16e109ad-0414-46dc-8d0f-8d3d4201563c";
+
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error("HTTP error: {0}")]
@@ -57,6 +61,11 @@ const MS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v
 const MS_SCOPES: &str = "XboxLive.SignIn XboxLive.offline_access";
 
 impl MsAuthFlow {
+    #[must_use]
+    pub fn new_default() -> Self {
+        Self::new(DEFAULT_MSA_CLIENT_ID.to_string())
+    }
+
     #[must_use]
     pub fn new(client_id: String) -> Self {
         Self {

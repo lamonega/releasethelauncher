@@ -53,6 +53,69 @@ pub fn resolve_java(
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let home = dirs::home_dir().unwrap_or_default();
+        let dev_paths = [
+            home.join(".jdks"),
+            home.join(".sdkman/candidates/java"),
+            home.join(".gradle/jdks"),
+        ];
+        for base in &dev_paths {
+            if base.exists() {
+                if let Ok(entries) = std::fs::read_dir(base) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let exe = path.join("bin").join(java_executable_name());
+                        if exe.exists() {
+                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
+                                return Ok(validated);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        let mc_runtimes = if cfg!(windows) {
+            let local = dirs::data_local_dir().unwrap_or_default();
+            vec![
+                local.join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/runtime"),
+                dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
+            ]
+        } else if cfg!(target_os = "macos") {
+            vec![
+                dirs::home_dir().unwrap_or_default().join("Library/Application Support/minecraft/runtime"),
+            ]
+        } else {
+            vec![
+                dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
+            ]
+        };
+
+        for runtime_dir in &mc_runtimes {
+            if runtime_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(runtime_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let exe = if cfg!(windows) {
+                            path.join("bin/javaw.exe")
+                        } else {
+                            path.join("bin/java")
+                        };
+                        if exe.exists() {
+                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
+                                return Ok(validated);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let exe_name = java_executable_name();
     let find_cmd = if cfg!(windows) { "where" } else { "which" };
     if let Ok(output) = quiet_command(find_cmd, &[exe_name]) {
@@ -64,6 +127,25 @@ pub fn resolve_java(
                     if let Ok(validated) = validate_java(&path, compatible_java_majors) {
                         return Ok(validated);
                     }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let fallbacks = [
+            r"C:\Program Files\Java\jre8\bin\javaw.exe",
+            r"C:\Program Files\Java\jre1.8.0\bin\javaw.exe",
+            r"C:\Program Files (x86)\Java\jre8\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-17\bin\java.exe",
+            r"C:\Program Files\Java\jdk-21\bin\java.exe",
+        ];
+        for fallback in &fallbacks {
+            let path = PathBuf::from(fallback);
+            if path.exists() {
+                if let Ok(validated) = validate_java(&path, compatible_java_majors) {
+                    return Ok(validated);
                 }
             }
         }
@@ -92,10 +174,9 @@ fn quiet_command(program: &str, args: &[&str]) -> Result<std::process::Output, s
 
 #[cfg(target_os = "windows")]
 fn find_java_from_registry() -> Vec<PathBuf> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY};
     use winreg::RegKey;
 
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let mut candidates = Vec::new();
 
     let subkeys = [
@@ -115,14 +196,33 @@ fn find_java_from_registry() -> Vec<PathBuf> {
         r"SOFTWARE\Semeru\JDK",
     ];
 
-    for subkey_path in &subkeys {
-        if let Ok(subkey) = hklm.open_subkey(subkey_path) {
-            for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
-                if let Ok(version_key) = subkey.open_subkey(&version_name) {
-                    if let Ok(java_home) = version_key.get_value::<String, _>("JavaHome") {
-                        let bin_dir = PathBuf::from(&java_home).join("bin");
-                        let exe = java_executable_name();
-                        candidates.push(bin_dir.join(exe));
+    let value_names = ["JavaHome", "Path", "InstallationPath"];
+    let hives = [
+        RegKey::predef(HKEY_LOCAL_MACHINE),
+        RegKey::predef(HKEY_CURRENT_USER),
+    ];
+    let views = [
+        KEY_READ | KEY_WOW64_64KEY,
+        KEY_READ | KEY_WOW64_32KEY,
+    ];
+
+    for hive in &hives {
+        for view in &views {
+            for subkey_path in &subkeys {
+                if let Ok(subkey) = hive.open_subkey_with_flags(subkey_path, *view) {
+                    for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
+                        if let Ok(version_key) = subkey.open_subkey(&version_name) {
+                            for value_name in &value_names {
+                                if let Ok(java_home) = version_key.get_value::<String, _>(value_name) {
+                                    let bin_dir = PathBuf::from(&java_home).join("bin");
+                                    let exe = java_executable_name();
+                                    let candidate = bin_dir.join(exe);
+                                    if !candidates.contains(&candidate) {
+                                        candidates.push(candidate);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

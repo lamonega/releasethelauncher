@@ -2,6 +2,7 @@ pub mod assets;
 pub mod command;
 pub mod download;
 pub mod java;
+pub mod memory;
 pub mod natives;
 pub mod platform;
 pub mod profile;
@@ -9,7 +10,9 @@ pub mod resolve;
 
 use thiserror::Error;
 
-pub use command::{build_command, launch_game, PlayerAuth};
+pub use command::{
+    build_command, launch_game, run_post_launch_command, run_pre_launch_command, PlayerAuth,
+};
 pub use download::DownloadManager;
 pub use profile::{assemble_launch_profile, AssetIndex, LaunchProfile};
 pub use resolve::DependencyResolver;

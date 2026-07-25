@@ -19,6 +19,16 @@ pub struct InstanceSettings {
     pub last_launch_time: Option<u64>,
     pub loader: ModLoader,
     pub java: JavaSettings,
+    #[serde(default)]
+    pub pre_launch_command: String,
+    #[serde(default)]
+    pub post_launch_command: String,
+    #[serde(default = "default_close_after_launch")]
+    pub close_after_launch: bool,
+}
+
+fn default_close_after_launch() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +58,9 @@ impl InstanceSettings {
             last_launch_time: None,
             loader,
             java: JavaSettings::default(),
+            pre_launch_command: String::new(),
+            post_launch_command: String::new(),
+            close_after_launch: false,
         }
     }
 
@@ -81,5 +94,73 @@ impl InstanceSettings {
             ModLoader::Forge { .. } => "Forge",
             ModLoader::NeoForge { .. } => "NeoForge",
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalSettings {
+    pub format_version: u32,
+    pub java_path: Option<String>,
+    pub memory_min: Option<String>,
+    pub memory_max: Option<String>,
+    pub close_after_launch: bool,
+    pub pre_launch_command: String,
+    pub post_launch_command: String,
+}
+
+impl Default for GlobalSettings {
+    fn default() -> Self {
+        Self {
+            format_version: 1,
+            java_path: None,
+            memory_min: Some("1G".to_string()),
+            memory_max: Some("2G".to_string()),
+            close_after_launch: false,
+            pre_launch_command: String::new(),
+            post_launch_command: String::new(),
+        }
+    }
+}
+
+impl GlobalSettings {
+    pub fn load(path: &Path) -> Self {
+        let content = fs::read_to_string(path).unwrap_or_default();
+        toml::from_str(&content).unwrap_or_default()
+    }
+
+    /// # Errors
+    pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, content)
+    }
+
+    /// Merge instance settings with global defaults.
+    /// Instance-level values override global when `Some`.
+    #[must_use]
+    pub fn java_path_for(&self, instance_java_path: Option<&str>) -> Option<String> {
+        instance_java_path
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .or_else(|| self.java_path.clone())
+    }
+
+    #[must_use]
+    pub fn memory_min_for(&self, instance_memory_min: &Option<String>) -> String {
+        instance_memory_min
+            .clone()
+            .or_else(|| self.memory_min.clone())
+            .unwrap_or_else(|| "1G".to_string())
+    }
+
+    #[must_use]
+    pub fn memory_max_for(&self, instance_memory_max: &Option<String>) -> String {
+        instance_memory_max
+            .clone()
+            .or_else(|| self.memory_max.clone())
+            .unwrap_or_else(|| "2G".to_string())
     }
 }

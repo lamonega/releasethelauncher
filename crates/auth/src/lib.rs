@@ -27,10 +27,22 @@ pub struct Token {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthState {
+    Offline,
+    Online,
+    Refreshing,
+    Expired,
+    Disabled,
+    Gone,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinecraftProfile {
     pub id: String,
     pub name: String,
     pub skin_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin_data: Option<String>,
     pub cape_url: Option<String>,
 }
 
@@ -79,6 +91,7 @@ impl AccountData {
                 id: uuid.to_string().replace('-', ""),
                 name: username.to_string(),
                 skin_url: None,
+                skin_data: None,
                 cape_url: None,
             }),
             entitlement: Some(Entitlement {
@@ -91,6 +104,27 @@ impl AccountData {
     #[must_use]
     pub fn display_name(&self) -> &str {
         self.profile.as_ref().map_or("Unknown", |p| p.name.as_str())
+    }
+
+    #[must_use]
+    pub fn auth_state(&self) -> AuthState {
+        match self.account_type {
+            AccountType::Offline => AuthState::Offline,
+            AccountType::Microsoft => {
+                if self.mc_token.is_some() && self.profile.is_some() {
+                    AuthState::Online
+                } else if self.msa_token.as_ref().and_then(|t| t.refresh_token.as_ref()).is_some() {
+                    AuthState::Expired
+                } else {
+                    AuthState::Gone
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn skin_texture_url(&self) -> Option<String> {
+        self.profile.as_ref().and_then(|p| p.skin_url.clone())
     }
 }
 

@@ -223,6 +223,148 @@ impl ModrinthProvider {
 
         Ok(zip_path)
     }
+
+    /// Download a modpack and extract it to create a new instance.
+    /// Returns (instance_name, mc_version, loader_from_manifest).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the version lookup, download, or manifest parsing fails.
+    pub async fn install_modpack_as_instance(
+        &self,
+        project_id: &str,
+        target_base_dir: &Path,
+    ) -> Result<(String, String, String), ModsError> {
+        let versions = self.get_versions(project_id, &[], &[]).await?;
+        let version = versions
+            .first()
+            .ok_or_else(|| ModsError::Provider("No versions found".into()))?;
+
+        let project = self.get_project(project_id).await?;
+        let instance_name = project.name.clone();
+        let instance_dir = target_base_dir.join(&instance_name);
+        fs::create_dir_all(&instance_dir)?;
+
+        self.download_modpack(version, &instance_dir).await?;
+
+        let index_path = instance_dir.join("modrinth.index.json");
+        let (mc_version, loader) = if index_path.exists() {
+            let content = fs::read_to_string(&index_path)?;
+            let index: serde_json::Value = serde_json::from_str(&content)?;
+
+            let mc_ver = index
+                .get("dependencies")
+                .and_then(|d| d.get("minecraft"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("1.20.1")
+                .to_string();
+
+            let loader = if index
+                .get("dependencies")
+                .and_then(|d| d.get("fabric-loader"))
+                .is_some()
+            {
+                let loader_ver = index["dependencies"]["fabric-loader"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                format!("Fabric:{loader_ver}")
+            } else if index
+                .get("dependencies")
+                .and_then(|d| d.get("forge"))
+                .is_some()
+            {
+                let loader_ver = index["dependencies"]["forge"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                format!("Forge:{loader_ver}")
+            } else if index
+                .get("dependencies")
+                .and_then(|d| d.get("neoforge"))
+                .is_some()
+            {
+                let loader_ver = index["dependencies"]["neoforge"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                format!("NeoForge:{loader_ver}")
+            } else if index
+                .get("dependencies")
+                .and_then(|d| d.get("quilt-loader"))
+                .is_some()
+            {
+                let loader_ver = index["dependencies"]["quilt-loader"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                format!("Quilt:{loader_ver}")
+            } else {
+                "Vanilla".to_string()
+            };
+
+            let mc_dir = instance_dir.join(".minecraft");
+            fs::create_dir_all(&mc_dir)?;
+
+            for entry in fs::read_dir(&instance_dir)? {
+                let entry = entry?;
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name == "modrinth.index.json" || name.ends_with(".mrpack") {
+                    continue;
+                }
+                if name == "overrides" || name == "client-overrides" {
+                    continue;
+                }
+            }
+
+            (mc_ver, loader)
+        } else {
+            ("1.20.1".to_string(), "Vanilla".to_string())
+        };
+
+        Ok((instance_name, mc_version, loader))
+    }
+
+    /// Search with pagination support, filtering by project type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request or JSON parsing fails.
+    pub async fn search_page(
+        &self,
+        args: &SearchArgs,
+        project_type: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<SearchResults, ModsError> {
+        let mut paged_args = args.clone();
+        paged_args.offset = offset;
+        paged_args.limit = limit;
+        let url = Self::build_search_url_with_type(&paged_args, project_type);
+        let mut req = self.http.get(&url);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        let resp: SearchResponse = req.send().await?.json().await?;
+        let hits = resp
+            .hits
+            .into_iter()
+            .map(|h| ProjectSummary {
+                id: h.project_id,
+                name: h.title,
+                slug: h.slug,
+                description: h.description,
+                author: h.author,
+                icon_url: h.icon_url,
+                downloads: h.downloads,
+                side: Side::Universal,
+            })
+            .collect();
+        Ok(SearchResults {
+            hits,
+            total_hits: resp.total_hits,
+        })
+    }
 }
 
 #[async_trait::async_trait]

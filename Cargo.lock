@@ -3344,6 +3344,7 @@ dependencies = [
 name = "release-the-launcher-launch"
 version = "0.4.1"
 dependencies = [
+ "dirs",
  "hex",
  "release-the-launcher-auth",
  "release-the-launcher-core",

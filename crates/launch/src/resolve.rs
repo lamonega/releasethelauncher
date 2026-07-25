@@ -4,6 +4,7 @@ use reqwest::Client;
 const VERSION_MANIFEST_URL: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const FABRIC_META_URL: &str = "https://meta.fabricmc.net/v2";
+const QUILT_META_URL: &str = "https://meta.quiltmc.org/v3";
 const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
 const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
 
@@ -286,6 +287,78 @@ impl DependencyResolver {
                 "net.minecraftforge".into(),
                 "net.fabricmc.fabric-loader".into(),
                 "org.quiltmc".into(),
+            ],
+            version_file: VersionFile {
+                main_class,
+                libraries,
+                ..VersionFile::default()
+            },
+        })
+    }
+
+    /// # Errors
+    /// Returns an error if the Quilt metadata request fails.
+    pub async fn fetch_quilt_component(
+        &self,
+        mc_version: &str,
+        loader_version: Option<&str>,
+    ) -> Result<Component, LaunchError> {
+        let loader_url = if let Some(lv) = loader_version {
+            format!("{QUILT_META_URL}/versions/loader/{mc_version}/{lv}/profile/json")
+        } else {
+            let versions: Vec<serde_json::Value> = self
+                .http
+                .get(format!("{QUILT_META_URL}/versions/loader/{mc_version}"))
+                .send()
+                .await?
+                .json()
+                .await?;
+            let latest = versions.first().ok_or_else(|| {
+                LaunchError::VersionNotFound("No Quilt loader version found".into())
+            })?;
+            let loader_ver = latest
+                .get("loader")
+                .and_then(|v| v.get("version"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.26.13");
+            format!("{QUILT_META_URL}/versions/loader/{mc_version}/{loader_ver}/profile/json")
+        };
+
+        let resp: serde_json::Value = self.http.get(&loader_url).send().await?.json().await?;
+        let mut libraries = Vec::new();
+        let mut main_class = None;
+
+        if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
+            for lib in libs {
+                libraries.push(parse_library(lib));
+            }
+        }
+        if let Some(mc) = resp.get("mainClass").and_then(|v| v.as_str()) {
+            main_class = Some(mc.to_string());
+        }
+
+        let loader_ver = loader_version.unwrap_or("unknown");
+
+        Ok(Component {
+            uid: "org.quiltmc.quilt-loader".to_string(),
+            version: loader_ver.to_string(),
+            is_locked: true,
+            dependencies: vec![
+                Requirement {
+                    uid: "net.minecraft".to_string(),
+                    suggests: Some(mc_version.to_string()),
+                    equals: Some(mc_version.to_string()),
+                },
+                Requirement {
+                    uid: "org.quiltmc.quilt-intermediary".to_string(),
+                    suggests: Some(mc_version.to_string()),
+                    equals: None,
+                },
+            ],
+            conflicts: vec![
+                "net.neoforged".into(),
+                "net.minecraftforge".into(),
+                "net.fabricmc.fabric-loader".into(),
             ],
             version_file: VersionFile {
                 main_class,
