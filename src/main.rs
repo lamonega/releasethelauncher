@@ -1,3 +1,4 @@
+use release_the_launcher_ui::theme::{self, Theme};
 use release_the_launcher_ui::views::account_login::{show as show_account_login, LoginState};
 use release_the_launcher_ui::views::instance_detail::{
     show as show_instance_detail, DetailTabState,
@@ -22,7 +23,7 @@ impl eframe::App for LauncherApp {
         drain_ui_messages(self);
         let mut navigate_to: Option<View> = None;
         let mut open_mod_browser: Option<String> = None;
-        show_toolbar(ctx, &mut navigate_to);
+        show_toolbar(&self.app, ctx, &mut navigate_to);
         show_status_bar(ctx, &self.app);
         show_sidebar(self, ctx, &mut navigate_to);
         show_central(self, ctx, &mut open_mod_browser);
@@ -60,16 +61,41 @@ fn drain_ui_messages(state: &mut LauncherApp) {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = format!("Download error: {err}");
             }
-            UiMessage::ModrinthSearchResult(_) | UiMessage::ModrinthInstallResult(_) => {}
+            UiMessage::ModrinthSearchResult(_)
+            | UiMessage::ModrinthInstallResult(_)
+            | UiMessage::VersionListResult(_) => {}
+            UiMessage::MsDeviceCode {
+                user_code,
+                verification_uri,
+                message,
+            } => {
+                state.login_state = LoginState::MicrosoftDeviceCode {
+                    user_code,
+                    verification_uri,
+                    message,
+                };
+            }
+            UiMessage::MsLoginSuccess { display_name } => {
+                state.login_state = LoginState::Idle;
+                state.app.status_message = format!("Logged in as {display_name}");
+                state.app.current_view = View::AccountList;
+            }
+            UiMessage::MsLoginError(err) => {
+                state.login_state = LoginState::MicrosoftError(err);
+            }
         }
     }
 }
 
-fn show_toolbar(ctx: &egui::Context, navigate_to: &mut Option<View>) {
+fn show_toolbar(app: &App, ctx: &egui::Context, navigate_to: &mut Option<View>) {
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+        ui.style_mut().visuals.panel_fill = app.theme.surface_alt;
+        ui.add_space(app.theme.spacing.sm);
         ui.horizontal(|ui| {
+            ui.add_space(app.theme.spacing.xs);
             ui.heading("Release The Launcher");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(app.theme.spacing.xs);
                 if ui.button("Accounts").clicked() {
                     *navigate_to = Some(View::AccountList);
                 }
@@ -80,6 +106,8 @@ fn show_toolbar(ctx: &egui::Context, navigate_to: &mut Option<View>) {
 
 fn show_status_bar(ctx: &egui::Context, app: &App) {
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+        ui.style_mut().visuals.panel_fill = app.theme.surface_alt;
+        ui.add_space(app.theme.spacing.xs);
         ui.horizontal(|ui| {
             match &app.download_state.phase {
                 DownloadPhase::Idle => {}
@@ -91,11 +119,9 @@ fn show_status_bar(ctx: &egui::Context, app: &App) {
                     ui.spinner();
                     ui.label(message.as_str());
                     if app.download_state.total > 0 {
-                        #[allow(clippy::cast_precision_loss)]
                         let progress =
-                            app.download_state.completed as f64 / app.download_state.total as f64;
-                        #[allow(clippy::cast_possible_truncation)]
-                        ui.add(egui::ProgressBar::new(progress as f32).text(format!(
+                            progress_ratio(app.download_state.completed, app.download_state.total);
+                        ui.add(egui::ProgressBar::new(progress).text(format!(
                             "{}/{}",
                             app.download_state.completed, app.download_state.total
                         )));
@@ -113,6 +139,7 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
     egui::SidePanel::left("sidebar")
         .default_width(200.0)
         .show(ctx, |ui| {
+            ui.add_space(state.app.theme.spacing.sm);
             ui.heading("Instances");
             ui.separator();
 
@@ -125,20 +152,39 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                 .collect();
 
             if instances.is_empty() {
-                ui.label("No instances.");
-                ui.label("Create one to get started.");
+                ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                    ui.colored_label(state.app.theme.text_secondary, "No instances.");
+                    ui.colored_label(state.app.theme.text_secondary, "Create one to get started.");
+                });
             } else {
                 for id in &instances {
                     if let Some(instance) = state.app.instance_manager.get(id) {
                         let is_selected =
                             state.selected_instance_id.as_deref() == Some(id.as_str());
-                        let label = format!(
-                            "{}\n{} ({})",
-                            instance.settings.name,
-                            instance.settings.minecraft_version,
-                            instance.settings.loader_name()
+                        let inner = egui::Frame::none()
+                            .fill(if is_selected {
+                                state.app.theme.surface_alt
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            })
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.label(&instance.settings.name);
+                                ui.colored_label(
+                                    state.app.theme.text_secondary,
+                                    format!(
+                                        "{} ({})",
+                                        instance.settings.minecraft_version,
+                                        instance.settings.loader_name()
+                                    ),
+                                );
+                            });
+                        let sense_response = ui.interact(
+                            inner.response.rect,
+                            ui.next_auto_id(),
+                            egui::Sense::click(),
                         );
-                        if ui.selectable_label(is_selected, label).clicked() {
+                        if sense_response.clicked() {
                             state.selected_instance_id = Some(id.clone());
                             state.app.current_view = View::InstanceDetail {
                                 id: id.clone(),
@@ -150,8 +196,15 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                 }
             }
 
+            ui.add_space(state.app.theme.spacing.sm);
             ui.separator();
-            if ui.button("+ New Instance").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(format!(" {} New Instance", theme::icons::ADD))
+                        .fill(state.app.theme.accent),
+                )
+                .clicked()
+            {
                 state.new_instance_state = NewInstanceState::default();
                 *navigate_to = Some(View::NewInstance);
                 state.selected_instance_id = None;
@@ -166,8 +219,15 @@ fn show_central(
 ) {
     egui::CentralPanel::default().show(ctx, |ui| match &state.app.current_view {
         View::InstanceList => {
-            ui.heading("Select an instance");
-            ui.label("Choose an instance from the sidebar or create a new one.");
+            ui.add_space(state.app.theme.spacing.lg);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.add_space(state.app.theme.spacing.lg);
+                ui.colored_label(state.app.theme.text_secondary, "Select an instance");
+                ui.colored_label(
+                    state.app.theme.text_secondary,
+                    "Choose an instance from the sidebar or create a new one.",
+                );
+            });
         }
         View::InstanceDetail { id, tab } => {
             let id = id.clone();
@@ -202,6 +262,19 @@ fn show_central(
     });
 }
 
+/// Computes a progress ratio (0.0–1.0) using only `From`-based conversions to
+/// avoid clippy pedantic cast lints.
+fn progress_ratio(completed: usize, total: usize) -> f32 {
+    if total == 0 {
+        return 0.0;
+    }
+    let permil = completed.saturating_mul(1000) / total;
+    let permil = permil.min(usize::from(u16::MAX));
+    // SAFETY: permil ≤ u16::MAX by construction
+    let permil_u16 = u16::try_from(permil).unwrap_or(u16::MAX);
+    f32::from(permil_u16) / 1000.0
+}
+
 fn main() -> Result<(), eframe::Error> {
     tracing_subscriber::fmt()
         .with_ansi(false)
@@ -228,7 +301,9 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            let theme = Theme::apply(&cc.egui_ctx);
             let mut app = App::new();
+            app.theme = theme;
             app.tokio_handle = Some(tokio::runtime::Handle::current());
             Box::new(LauncherApp {
                 app,
