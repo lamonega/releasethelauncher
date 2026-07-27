@@ -1,4 +1,57 @@
-use crate::{Component, LaunchError, Library};
+use std::collections::HashMap;
+
+use crate::{ClientDownload, Component, LaunchError, Library};
+
+fn maven_key(name: &str) -> &str {
+    let mut count = 0;
+    for (i, b) in name.bytes().enumerate() {
+        if b == b':' {
+            count += 1;
+            if count == 2 {
+                return &name[..i];
+            }
+        }
+    }
+    name
+}
+
+fn maven_version(name: &str) -> &str {
+    let mut count = 0;
+    let mut start = 0;
+    for (i, b) in name.bytes().enumerate() {
+        if b == b':' {
+            count += 1;
+            if count == 2 {
+                start = i + 1;
+            } else if count == 3 {
+                return &name[start..i];
+            }
+        }
+    }
+    if count == 2 {
+        &name[start..]
+    } else {
+        ""
+    }
+}
+
+fn parse_version_segments(v: &str) -> Vec<u32> {
+    v.split('.')
+        .filter_map(|s| {
+            s.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .ok()
+        })
+        .collect()
+}
+
+fn is_higher_version(a: &str, b: &str) -> bool {
+    let va = parse_version_segments(a);
+    let vb = parse_version_segments(b);
+    va > vb
+}
 
 #[derive(Debug, Clone)]
 pub struct LaunchProfile {
@@ -8,6 +61,7 @@ pub struct LaunchProfile {
     pub libraries: Vec<Library>,
     pub native_libraries: Vec<Library>,
     pub asset_index: AssetIndex,
+    pub client_download: Option<ClientDownload>,
     pub jvm_args: Vec<String>,
     pub game_args_template: String,
     pub traits: Vec<String>,
@@ -22,11 +76,27 @@ pub struct AssetIndex {
     pub size: u64,
 }
 
+fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
+    let key = maven_key(&lib.name).to_string();
+    let version = maven_version(&lib.name).to_string();
+    match map.get(&key) {
+        Some(existing) => {
+            let existing_ver = maven_version(&existing.name);
+            if is_higher_version(&version, existing_ver) {
+                map.insert(key, lib.clone());
+            }
+        }
+        None => {
+            map.insert(key, lib.clone());
+        }
+    }
+}
+
 /// # Errors
 /// Returns an error if the components are inconsistent.
 pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile, LaunchError> {
-    let mut libraries = Vec::new();
-    let mut native_libraries = Vec::new();
+    let mut libraries_map: HashMap<String, Library> = HashMap::new();
+    let mut native_map: HashMap<String, Library> = HashMap::new();
     let mut main_class = None;
     let mut mc_version = String::new();
     let mc_version_type = "release".to_string();
@@ -34,6 +104,8 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     let mut game_args_template = String::new();
     let mut all_traits = Vec::new();
     let mut compatible_java_majors = Vec::new();
+    let mut asset_index = AssetIndex::default();
+    let mut client_download = None;
 
     for component in components {
         if component.uid == "net.minecraft" {
@@ -49,16 +121,19 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
                 .clone()
                 .unwrap_or_default();
         }
+        if let Some(ai) = &component.version_file.asset_index {
+            if asset_index.id.is_empty() {
+                asset_index = ai.clone();
+            }
+        }
+        if client_download.is_none() {
+            client_download = component.version_file.client_download.clone();
+        }
         for lib in &component.version_file.libraries {
             if lib.is_native {
-                if !native_libraries
-                    .iter()
-                    .any(|e: &Library| e.name == lib.name)
-                {
-                    native_libraries.push(lib.clone());
-                }
-            } else if !libraries.iter().any(|e: &Library| e.name == lib.name) {
-                libraries.push(lib.clone());
+                upsert_library(&mut native_map, lib);
+            } else {
+                upsert_library(&mut libraries_map, lib);
             }
         }
         for arg in &component.version_file.jvm_args {
@@ -86,9 +161,10 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         mc_version,
         mc_version_type,
         main_class: main_class.unwrap_or_else(|| "net.minecraft.client.main.Main".to_string()),
-        libraries,
-        native_libraries,
-        asset_index: AssetIndex::default(),
+        libraries: libraries_map.into_values().collect(),
+        native_libraries: native_map.into_values().collect(),
+        asset_index,
+        client_download,
         jvm_args,
         game_args_template,
         traits: all_traits,

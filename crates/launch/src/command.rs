@@ -1,11 +1,9 @@
 use super::profile::LaunchProfile;
 use crate::platform;
 use crate::LaunchError;
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::ExitStatus;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone)]
 pub struct PlayerAuth {
@@ -39,6 +37,45 @@ pub fn set_game_env(cmd: &mut tokio::process::Command, instance_root: &Path, mc_
     cmd.env("NO_COLOR", "1");
 }
 
+fn replace_placeholders(
+    raw: &str,
+    profile: &LaunchProfile,
+    instance_dir: &Path,
+    player: &PlayerAuth,
+    cp_str: &str,
+) -> String {
+    let mc_dir = instance_dir.join(".minecraft");
+    let assets_dir = instance_dir.join("assets");
+    let natives_dir = instance_dir.join("natives");
+    let token = if player.access_token.is_empty() {
+        "0"
+    } else {
+        &player.access_token
+    };
+
+    let mut res = raw.to_string();
+    for (key, val) in [
+        ("auth_player_name", player.name.as_str()),
+        ("auth_uuid", player.uuid.as_str()),
+        ("auth_access_token", token),
+        ("user_type", "msa"),
+        ("version_name", profile.mc_version.as_str()),
+        ("version_type", profile.mc_version_type.as_str()),
+        ("game_directory", mc_dir.to_str().unwrap_or("")),
+        ("assets_root", assets_dir.to_str().unwrap_or("")),
+        ("game_assets", assets_dir.to_str().unwrap_or("")),
+        ("assets_index_name", profile.asset_index.id.as_str()),
+        ("natives_directory", natives_dir.to_str().unwrap_or("")),
+        ("classpath", cp_str),
+        ("user_properties", "{}"),
+        ("client_id", ""),
+    ] {
+        res = res.replace(&format!("${{{key}}}"), val);
+        res = res.replace(&format!("{{{key}}}"), val);
+    }
+    res
+}
+
 #[must_use]
 pub fn build_command(
     profile: &LaunchProfile,
@@ -50,8 +87,20 @@ pub fn build_command(
 ) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(java_path);
 
+    let mc_dir = instance_dir.join(".minecraft");
+    std::fs::create_dir_all(&mc_dir).ok();
+    cmd.current_dir(&mc_dir);
+
     clean_environment(&mut cmd);
     set_game_env(&mut cmd, instance_dir, &profile.mc_version);
+
+    let mut classpath = build_classpath(profile, instance_dir);
+    let mc_jar = instance_dir
+        .join("versions")
+        .join(&profile.mc_version)
+        .join(format!("{}.jar", profile.mc_version));
+    classpath.push(mc_jar.display().to_string());
+    let cp_str = classpath.join(platform::classpath_separator());
 
     let mut has_min_mem = false;
     let mut has_max_mem = false;
@@ -63,13 +112,10 @@ pub fn build_command(
         if arg.starts_with("-Xmx") {
             has_max_mem = true;
         }
-
-        let mut processed = arg.replace("{auth_player_name}", &player.name);
-        processed = processed.replace("{auth_uuid}", &player.uuid);
-        processed = processed.replace("{auth_access_token}", &player.access_token);
-        processed = processed.replace("{user_properties}", "{}");
-        processed = processed.replace("{client_id}", "");
-        processed = processed.replace("{version_type}", &profile.mc_version_type);
+        let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
+        if processed.contains("sun-misc-unsafe-memory-access") {
+            continue;
+        }
         cmd.arg(&processed);
     }
 
@@ -83,30 +129,25 @@ pub fn build_command(
     let natives_dir = instance_dir.join("natives");
     cmd.arg(format!("-Djava.library.path={}", natives_dir.display()));
 
-    let mut classpath = build_classpath(profile);
-    let mc_jar = format!(
-        "{}/versions/{}/{}.jar",
-        instance_dir.display(),
-        profile.mc_version,
-        profile.mc_version
-    );
-    classpath.push(mc_jar);
+    if !profile.jvm_args.iter().any(|a| a.contains("-cp")) {
+        cmd.arg("-cp").arg(&cp_str);
+    }
 
-    let cp_str = classpath.join(platform::classpath_separator());
-    cmd.arg("-cp").arg(&cp_str);
     cmd.arg(&profile.main_class);
 
     cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
 
-    let game_args = profile.game_args_template.clone();
-    for arg in game_args.split_whitespace() {
-        let mut processed = arg.to_string();
-        processed = processed.replace("{auth_player_name}", &player.name);
-        processed = processed.replace("{auth_uuid}", &player.uuid);
-        processed = processed.replace("{auth_access_token}", &player.access_token);
-        processed = processed.replace("{user_properties}", "{}");
-        processed = processed.replace("{client_id}", "");
-        processed = processed.replace("{version_type}", &profile.mc_version_type);
+    let game_args_raw = if profile.game_args_template.is_empty() {
+        "--username {auth_player_name} --version {version_name} --gameDir {game_directory} --assetsDir {assets_root} --assetIndex {assets_index_name} --uuid {auth_uuid} --accessToken {auth_access_token} --userType msa".to_string()
+    } else {
+        profile.game_args_template.clone()
+    };
+
+    for arg in game_args_raw.split_whitespace() {
+        let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
+        if processed == "--demo" {
+            continue;
+        }
         cmd.arg(&processed);
     }
 
@@ -116,8 +157,10 @@ pub fn build_command(
     cmd
 }
 
-fn build_classpath(profile: &LaunchProfile) -> Vec<String> {
+fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> {
     let mut classpath = Vec::new();
+    let mut seen_keys: HashSet<String> = HashSet::new();
+    let libraries_dir = instance_dir.join("libraries");
     for lib in &profile.libraries {
         if lib.is_native {
             continue;
@@ -127,12 +170,24 @@ fn build_classpath(profile: &LaunchProfile) -> Vec<String> {
         }
         let parts: Vec<&str> = lib.name.split(':').collect();
         if parts.len() >= 3 {
+            let key = format!("{}:{}", parts[0], parts[1]);
+            if !seen_keys.insert(key) {
+                continue;
+            }
             let path = parts[0].replace('.', "/");
             let artifact = parts[1];
             let version = parts[2];
-            let filename = format!("{artifact}-{version}.jar");
-            let jar_path = format!("{path}/{artifact}/{version}/{filename}");
-            classpath.push(jar_path);
+            let classifier = parts.get(3);
+            let filename = classifier.map_or_else(
+                || format!("{artifact}-{version}.jar"),
+                |cls| format!("{artifact}-{version}-{cls}.jar"),
+            );
+            let jar_path = libraries_dir
+                .join(&path)
+                .join(artifact)
+                .join(version)
+                .join(filename);
+            classpath.push(jar_path.display().to_string());
         }
     }
     classpath
@@ -141,9 +196,6 @@ fn build_classpath(profile: &LaunchProfile) -> Vec<String> {
 /// # Errors
 /// Returns an error if the process fails to spawn or wait.
 pub async fn launch_game(command: &mut tokio::process::Command) -> Result<ExitStatus, LaunchError> {
-    #[cfg(target_os = "windows")]
-    command.creation_flags(CREATE_NO_WINDOW);
-
     command
         .spawn()
         .map_err(|e| LaunchError::Launch(e.to_string()))?
