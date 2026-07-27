@@ -176,10 +176,12 @@ async fn execute_download(
             }
 
             // Finalize validation
+            drop(file);
+
             if let Some(validator) = task.validator.take() {
                 let computed = validator.finalize()?;
                 if let Some(ref expected) = task.expected_hash {
-                    if computed != *expected {
+                    if !computed.eq_ignore_ascii_case(expected) {
                         // Remove the failed file
                         let _ = tokio::fs::remove_file(&dest).await;
                         return Err(NetError::ChecksumMismatch {
