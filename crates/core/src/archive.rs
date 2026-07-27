@@ -29,17 +29,8 @@ pub fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), Arch
         let mut entry = archive.by_index(i)?;
         let outpath = match entry.enclosed_name() {
             Some(path) => target_dir.join(path),
-            None => continue,
+            None => return Err(ArchiveError::PathTraversal(entry.name().to_string())),
         };
-
-        let canonical_entry = outpath.canonicalize().unwrap_or_else(|_| outpath.clone());
-        let canonical_target = target_dir
-            .canonicalize()
-            .unwrap_or_else(|_| target_dir.to_path_buf());
-
-        if !canonical_entry.starts_with(&canonical_target) {
-            return Err(ArchiveError::PathTraversal(entry.name().to_string()));
-        }
 
         if entry.is_dir() {
             fs::create_dir_all(&outpath)?;
