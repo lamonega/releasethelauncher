@@ -3,6 +3,10 @@ use crate::View;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+        app.log(
+            crate::log::LogLevel::Info,
+            "UI: Navigated back from Accounts",
+        );
         app.current_view = View::InstanceList;
         return;
     }
@@ -19,6 +23,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             )
             .clicked()
         {
+            app.log(crate::log::LogLevel::Info, "UI: Navigated to Add Account");
             app.current_view = View::AccountLogin;
         }
     });
@@ -46,8 +51,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     select_idx = Some(i);
                 }
                 let type_label = match account.account_type {
-                    release_the_launcher_auth::AccountType::Offline => "Offline",
-                    release_the_launcher_auth::AccountType::Microsoft => "Microsoft",
+                    release_the_launcher_auth::AccountType::Offline => "Offline Account",
+                    release_the_launcher_auth::AccountType::Microsoft => "Microsoft Account",
                 };
                 ui.colored_label(app.theme.text_secondary, type_label);
                 if let Some(skin_url) = account.skin_texture_url() {
@@ -60,32 +65,49 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     remove_idx = Some(i);
                 }
             });
-            let auth = account.auth_state();
-            let state_label = match auth {
-                release_the_launcher_auth::AuthState::Offline => "Offline",
-                release_the_launcher_auth::AuthState::Online => "Online",
-                release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
-                release_the_launcher_auth::AuthState::Expired => "Expired",
-                release_the_launcher_auth::AuthState::Disabled => "Disabled",
-                release_the_launcher_auth::AuthState::Gone => "No token",
-            };
-            let state_color = match auth {
-                release_the_launcher_auth::AuthState::Online => app.theme.log_colors.info,
-                release_the_launcher_auth::AuthState::Expired
-                | release_the_launcher_auth::AuthState::Gone => app.theme.log_colors.warn,
-                release_the_launcher_auth::AuthState::Disabled => app.theme.log_colors.error,
-                _ => app.theme.text_secondary,
-            };
-            ui.horizontal(|ui| {
-                ui.add_space(32.0);
-                ui.colored_label(state_color, state_label);
-            });
+
+            if account.account_type == release_the_launcher_auth::AccountType::Microsoft {
+                let auth = account.auth_state();
+                let state_label = match auth {
+                    release_the_launcher_auth::AuthState::Online => "Online",
+                    release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
+                    release_the_launcher_auth::AuthState::Expired => "Token Expired",
+                    release_the_launcher_auth::AuthState::Disabled => "Disabled",
+                    release_the_launcher_auth::AuthState::Gone => "No token",
+                    _ => "",
+                };
+                if !state_label.is_empty() {
+                    let state_color = match auth {
+                        release_the_launcher_auth::AuthState::Online => app.theme.log_colors.info,
+                        release_the_launcher_auth::AuthState::Expired
+                        | release_the_launcher_auth::AuthState::Gone => app.theme.log_colors.warn,
+                        release_the_launcher_auth::AuthState::Disabled => {
+                            app.theme.log_colors.error
+                        }
+                        _ => app.theme.text_secondary,
+                    };
+                    ui.horizontal(|ui| {
+                        ui.add_space(32.0);
+                        ui.colored_label(state_color, state_label);
+                    });
+                }
+            }
         }
         if let Some(i) = select_idx {
+            let name = app.account_list.accounts[i].display_name().to_string();
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Selected account '{name}'"),
+            );
             app.account_list.set_active(i);
             let _ = app.account_list.save();
         }
         if let Some(i) = remove_idx {
+            let name = app.account_list.accounts[i].display_name().to_string();
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Removed account '{name}'"),
+            );
             app.account_list.remove(i);
             let _ = app.account_list.save();
         }

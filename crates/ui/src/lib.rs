@@ -21,8 +21,8 @@ use release_the_launcher_core::settings::GlobalSettings;
 use release_the_launcher_core::{InstanceManager, ModLoader};
 use release_the_launcher_launch::assets::AssetManager;
 use release_the_launcher_launch::{
-    assemble_launch_profile, build_command, launch_game, AssetIndex, DependencyResolver,
-    DownloadManager, PlayerAuth,
+    assemble_launch_profile, build_command, AssetIndex, DependencyResolver, DownloadManager,
+    PlayerAuth,
 };
 use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs, SearchResults};
 use theme::{icons, Theme};
@@ -74,15 +74,19 @@ pub enum UiMessage {
     DownloadComplete(String),
     DownloadError(String),
     ModrinthSearchResult(Result<SearchResults, String>),
+    ModrinthVersionsResult {
+        project_id: String,
+        result: Result<Vec<release_the_launcher_mods::ModVersion>, String>,
+    },
     ModrinthInstallResult(Result<String, String>),
-    VersionListResult(Result<Vec<String>, String>),
+    VersionListResult(Result<Vec<(String, String)>, String>),
     MsDeviceCode {
         user_code: String,
         verification_uri: String,
         message: String,
     },
     MsLoginSuccess {
-        display_name: String,
+        account: release_the_launcher_auth::AccountData,
     },
     MsLoginError(String),
 }
@@ -135,13 +139,25 @@ impl App {
         let account_list = AccountList::load(&accounts_path);
         let global_settings = GlobalSettings::load(&settings_path);
 
+        let log_file = config_dir.join("launcher.log");
+        let log_buffer = LogBuffer::new();
+        log_buffer.set_log_file_path(log_file.clone());
+        log_buffer.push(LogEntry {
+            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+            level: LogLevel::Info,
+            message: format!(
+                "Release The Launcher started. Log file: {}",
+                log_file.display()
+            ),
+            target: "launcher".to_string(),
+        });
         let theme = Theme::default();
 
         Self {
             instance_manager,
             account_list,
             current_view: View::InstanceList,
-            log_buffer: LogBuffer::new(),
+            log_buffer,
             status_message: String::new(),
             download_state: DownloadState::default(),
             ui_queue: Arc::new(Mutex::new(Vec::new())),
@@ -240,6 +256,60 @@ impl App {
                     } else {
                         UiMessage::ModrinthInstallResult(Err("No versions found".into()))
                     }
+                }
+                Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
+            };
+            send_msg(&queue, &ctx, result);
+        });
+    }
+
+    pub fn fetch_modpack_versions(&self, project_id: String) {
+        let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
+        let handle = match &self.tokio_handle {
+            Some(h) => h.clone(),
+            None => return,
+        };
+        let pid = project_id.clone();
+        handle.spawn(async move {
+            let provider = ModrinthProvider::new(None);
+            let result = match provider.get_versions(&pid, &[], &[]).await {
+                Ok(versions) => UiMessage::ModrinthVersionsResult {
+                    project_id: pid,
+                    result: Ok(versions),
+                },
+                Err(e) => UiMessage::ModrinthVersionsResult {
+                    project_id: pid,
+                    result: Err(e.to_string()),
+                },
+            };
+            send_msg(&queue, &ctx, result);
+        });
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
+    pub fn install_modpack_as_instance(
+        &self,
+        project_id: String,
+        version_id: Option<String>,
+        instances_dir: std::path::PathBuf,
+    ) {
+        let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
+        let handle = match &self.tokio_handle {
+            Some(h) => h.clone(),
+            None => return,
+        };
+        handle.spawn(async move {
+            let provider = ModrinthProvider::new(None);
+            let result = match provider
+                .install_modpack_as_instance(&project_id, version_id.as_deref(), &instances_dir)
+                .await
+            {
+                Ok((name, mc_ver, loader_str)) => {
+                    UiMessage::ModrinthInstallResult(Ok(format!("{name}|{mc_ver}|{loader_str}")))
                 }
                 Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
             };
@@ -355,7 +425,7 @@ impl App {
             let mut resolver = DependencyResolver::new();
             let result = match resolver.fetch_manifest().await {
                 Ok(()) => {
-                    let versions: Vec<String> = resolver.available_versions();
+                    let versions: Vec<(String, String)> = resolver.available_versions_with_types();
                     Ok(versions)
                 }
                 Err(e) => Err(e.to_string()),
@@ -380,19 +450,105 @@ struct LaunchParams {
     close_after_launch: bool,
 }
 
+fn send_log(
+    queue: &Arc<Mutex<Vec<UiMessage>>>,
+    ctx: &egui::Context,
+    level: crate::log::LogLevel,
+    message: impl Into<String>,
+) {
+    if let Ok(mut q) = queue.lock() {
+        q.push(UiMessage::Log(crate::log::LogEntry {
+            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+            level,
+            message: message.into(),
+            target: "launcher".to_string(),
+        }));
+    }
+    ctx.request_repaint();
+}
+
 async fn do_launch(params: LaunchParams) {
     let send = |msg: UiMessage| send_msg(&params.queue, &params.ctx, msg);
 
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!(
+            "=== Launching Instance: {} ===",
+            params.instance_root.display()
+        ),
+    );
+
     let Some((ref player_name, ref player_uuid, ref access_token)) = params.account_data else {
-        send(UiMessage::DownloadError(
-            "No active account. Add an account before launching.".to_string(),
-        ));
+        let err = "No active account. Add an account before launching.".to_string();
+        send_log(
+            &params.queue,
+            &params.ctx,
+            crate::log::LogLevel::Error,
+            &err,
+        );
+        send(UiMessage::DownloadError(err));
         return;
     };
 
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Account: {} (UUID: {})", player_name, player_uuid),
+    );
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!(
+            "Minecraft: {}, Loader: {:?}",
+            params.mc_version, params.loader
+        ),
+    );
+
     if run_pre_launch(&params).await.is_err() {
+        send_log(
+            &params.queue,
+            &params.ctx,
+            crate::log::LogLevel::Error,
+            "Pre-launch command failed",
+        );
         return;
     }
+
+    let index_path = params.instance_root.join("modrinth.index.json");
+    if index_path.exists() {
+        send_log(
+            &params.queue,
+            &params.ctx,
+            crate::log::LogLevel::Info,
+            "Downloading modpack mods...",
+        );
+        let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
+        let progress_queue = params.queue.clone();
+        let progress_ctx = params.ctx.clone();
+        let _ = mod_manager
+            .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
+                let _ = progress_queue.lock().map(|mut q| {
+                    q.push(UiMessage::DownloadProgress {
+                        message: format!("Downloading mod: {mod_name}"),
+                        done,
+                        total,
+                    });
+                });
+                progress_ctx.request_repaint();
+            })
+            .await;
+    }
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Resolving version components & manifests...",
+    );
 
     let Ok(components) = resolve_components(
         &params.queue,
@@ -402,21 +558,70 @@ async fn do_launch(params: LaunchParams) {
     )
     .await
     else {
+        send_log(
+            &params.queue,
+            &params.ctx,
+            crate::log::LogLevel::Error,
+            "Failed to resolve version components",
+        );
         return;
     };
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Resolved {} component(s)", components.len()),
+    );
 
     let profile = match assemble_launch_profile(&components) {
         Ok(p) => p,
         Err(e) => {
-            send(UiMessage::DownloadError(format!(
-                "Failed to assemble profile: {e}"
-            )));
+            let msg = format!("Failed to assemble profile: {e}");
+            send_log(
+                &params.queue,
+                &params.ctx,
+                crate::log::LogLevel::Error,
+                &msg,
+            );
+            send(UiMessage::DownloadError(msg));
             return;
         }
     };
 
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!(
+            "Profile ready: MainClass='{}', {} libraries",
+            profile.main_class,
+            profile.libraries.len()
+        ),
+    );
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Checking & downloading required game libraries...",
+    );
     download_game_files(&params.queue, &params.ctx, &params.instance_root, &profile).await;
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Extracting native libraries...",
+    );
     extract_natives_files(&params.queue, &params.ctx, &params.instance_root, &profile);
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Checking & downloading game assets...",
+    );
     download_assets(
         &params.queue,
         &params.ctx,
@@ -425,14 +630,70 @@ async fn do_launch(params: LaunchParams) {
     )
     .await;
 
+    if let Some(ref client_dl) = profile.client_download {
+        if !client_dl.url.is_empty() {
+            let client_jar = params
+                .instance_root
+                .join("versions")
+                .join(&profile.mc_version)
+                .join(format!("{}.jar", profile.mc_version));
+            if !client_jar.exists() {
+                send_log(
+                    &params.queue,
+                    &params.ctx,
+                    crate::log::LogLevel::Info,
+                    format!("Downloading Minecraft client: {}.jar", profile.mc_version),
+                );
+                send(UiMessage::Status(format!(
+                    "Downloading Minecraft {}.jar...",
+                    profile.mc_version
+                )));
+                let dl_mgr = DownloadManager::new(params.instance_root.clone());
+                if let Err(e) = dl_mgr
+                    .download_client_jar(&client_jar, &client_dl.url, client_dl.sha1.as_deref())
+                    .await
+                {
+                    let msg = format!("Failed to download client.jar: {e}");
+                    send_log(
+                        &params.queue,
+                        &params.ctx,
+                        crate::log::LogLevel::Error,
+                        &msg,
+                    );
+                    send(UiMessage::DownloadError(msg));
+                    return;
+                }
+            }
+        }
+    }
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Resolving Java runtime...",
+    );
     let Some(java_path) = resolve_java_path(
         &params.queue,
         &params.ctx,
         params.java_path_override.as_deref(),
         &profile.compatible_java_majors,
     ) else {
+        send_log(
+            &params.queue,
+            &params.ctx,
+            crate::log::LogLevel::Error,
+            "Failed to resolve Java path",
+        );
         return;
     };
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Java executable: {}", java_path.display()),
+    );
 
     let mut cmd = build_command(
         &profile,
@@ -447,19 +708,102 @@ async fn do_launch(params: LaunchParams) {
         &params.memory_max,
     );
 
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Java Command Line: {:?}", cmd.as_std()),
+    );
+
     send(UiMessage::Status("Launching game...".to_string()));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    match launch_game(&mut cmd).await {
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = format!("Failed to spawn process: {e}");
+            send_log(
+                &params.queue,
+                &params.ctx,
+                crate::log::LogLevel::Error,
+                &msg,
+            );
+            send(UiMessage::DownloadError(msg));
+            return;
+        }
+    };
+
+    send(UiMessage::DownloadComplete("Game is running".to_string()));
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Game process started successfully. Streaming logs...",
+    );
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let queue_out = params.queue.clone();
+    let ctx_out = params.ctx.clone();
+    if let Some(stdout) = stdout {
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if let Ok(mut q) = queue_out.lock() {
+                    q.push(UiMessage::Log(crate::log::LogEntry {
+                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        level: crate::log::LogLevel::Info,
+                        message: line,
+                        target: "game".to_string(),
+                    }));
+                }
+                ctx_out.request_repaint();
+            }
+        });
+    }
+
+    let queue_err = params.queue.clone();
+    let ctx_err = params.ctx.clone();
+    if let Some(stderr) = stderr {
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if let Ok(mut q) = queue_err.lock() {
+                    q.push(UiMessage::Log(crate::log::LogEntry {
+                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        level: crate::log::LogLevel::Error,
+                        message: line,
+                        target: "game".to_string(),
+                    }));
+                }
+                ctx_err.request_repaint();
+            }
+        });
+    }
+
+    match child.wait().await {
         Ok(status) => {
-            send(UiMessage::DownloadComplete(format!(
-                "Game exited with status: {status}"
-            )));
+            let msg = format!("Game process exited with status: {status}");
+            let level = if status.success() {
+                crate::log::LogLevel::Info
+            } else {
+                crate::log::LogLevel::Error
+            };
+            send_log(&params.queue, &params.ctx, level, &msg);
+            send(UiMessage::DownloadComplete(msg));
         }
         Err(e) => {
-            send(UiMessage::DownloadError(format!(
-                "Failed to launch game: {e}"
-            )));
+            let msg = format!("Failed to wait for game process: {e}");
+            send_log(
+                &params.queue,
+                &params.ctx,
+                crate::log::LogLevel::Error,
+                &msg,
+            );
+            send(UiMessage::DownloadError(msg));
         }
     }
 
@@ -650,7 +994,7 @@ async fn download_game_files(
 
     let total = profile.libraries.len();
     send(UiMessage::DownloadProgress {
-        message: format!("Downloading {total} libraries..."),
+        message: format!("Preparing {total} libraries..."),
         done: 0,
         total,
     });
@@ -658,10 +1002,10 @@ async fn download_game_files(
     let progress_queue = queue.clone();
     let progress_ctx = ctx.clone();
     if let Err(e) = dl_manager
-        .download_libraries(&profile.libraries, move |done, lib_total| {
+        .download_libraries(&profile.libraries, move |done, lib_total, lib_name| {
             let _ = progress_queue.lock().map(|mut q| {
                 q.push(UiMessage::DownloadProgress {
-                    message: "Downloading libraries...".to_string(),
+                    message: format!("Downloading library: {lib_name}"),
                     done,
                     total: lib_total,
                 });
@@ -725,7 +1069,21 @@ async fn download_assets(
         Ok(index_path) => {
             send(UiMessage::Status("Downloading assets...".to_string()));
             let dl_manager = DownloadManager::new(instance_root.to_path_buf());
-            if let Err(e) = dl_manager.download_asset_objects(&http, &index_path).await {
+            let progress_queue = queue.clone();
+            let progress_ctx = ctx.clone();
+            if let Err(e) = dl_manager
+                .download_asset_objects(&http, &index_path, move |done, total, asset_name| {
+                    let _ = progress_queue.lock().map(|mut q| {
+                        q.push(UiMessage::DownloadProgress {
+                            message: format!("Downloading asset: {asset_name}"),
+                            done,
+                            total,
+                        });
+                    });
+                    progress_ctx.request_repaint();
+                })
+                .await
+            {
                 send(UiMessage::DownloadError(format!(
                     "Failed to download assets: {e}"
                 )));

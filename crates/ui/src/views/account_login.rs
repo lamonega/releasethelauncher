@@ -8,6 +8,10 @@ pub fn show(
     login_state: &mut LoginState,
 ) {
     if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+        app.log(
+            crate::log::LogLevel::Info,
+            "UI: Navigated back from Add Account",
+        );
         app.current_view = View::AccountList;
         *login_state = LoginState::Idle;
         return;
@@ -31,6 +35,10 @@ pub fn show(
                 .clicked()
                 && !username_input.is_empty()
             {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    &format!("UI: Added offline account '{username_input}'"),
+                );
                 let account = release_the_launcher_auth::AccountData::offline(username_input);
                 app.account_list.add(account);
                 let _ = app.account_list.save();
@@ -44,6 +52,7 @@ pub fn show(
             ui.add_space(app.theme.spacing.sm);
             ui.label("Or sign in with Microsoft:");
             if ui.button("Microsoft Login").clicked() {
+                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login started");
                 *login_state = LoginState::MicrosoftPending;
                 start_ms_login(app);
             }
@@ -53,6 +62,7 @@ pub fn show(
             ui.label("Check the terminal for the device code and URL.");
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
+                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login cancelled");
                 *login_state = LoginState::Idle;
             }
         }
@@ -70,6 +80,10 @@ pub fn show(
             ui.label(message.as_str());
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Microsoft Login cancelled (device code)",
+                );
                 *login_state = LoginState::Idle;
             }
         }
@@ -78,6 +92,10 @@ pub fn show(
             ui.spinner();
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Microsoft Login cancelled (polling)",
+                );
                 *login_state = LoginState::Idle;
             }
         }
@@ -85,6 +103,7 @@ pub fn show(
             ui.colored_label(app.theme.log_colors.error, err.as_str());
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Try Again").clicked() {
+                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login retry");
                 *login_state = LoginState::Idle;
             }
         }
@@ -153,13 +172,7 @@ fn start_ms_login(app: &App) {
                                         );
 
                                         if let Ok(mut q) = queue.lock() {
-                                            q.push(UiMessage::MsLoginSuccess {
-                                                display_name: account.display_name().to_string(),
-                                            });
-                                            q.push(UiMessage::Status(format!(
-                                                "Logged in as {}",
-                                                account.display_name()
-                                            )));
+                                            q.push(UiMessage::MsLoginSuccess { account });
                                         }
                                         ctx.request_repaint();
                                     }

@@ -1,7 +1,7 @@
 use crate::App;
 use crate::View;
 use release_the_launcher_core::ModLoader;
-use release_the_launcher_mods::ProjectSummary;
+use release_the_launcher_mods::{ModVersion, ProjectSummary};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     let messages = app.drain_messages();
@@ -16,9 +16,65 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                     state.modrinth_status = format!("Search failed: {e}");
                 }
             },
+            crate::UiMessage::ModrinthVersionsResult { project_id, result } => match result {
+                Ok(versions) => {
+                    state.modpack_versions.insert(project_id, versions);
+                    state.loading_versions_for_project = None;
+                }
+                Err(e) => {
+                    state.modrinth_status = format!("Failed to load versions: {e}");
+                    state.loading_versions_for_project = None;
+                }
+            },
             crate::UiMessage::ModrinthInstallResult(result) => match result {
-                Ok(name) => {
-                    state.modrinth_status = format!("Installed modpack: {name}");
+                Ok(info) => {
+                    let parts: Vec<&str> = info.split('|').collect();
+                    if parts.len() == 3 {
+                        let name = parts[0];
+                        let mc_version = parts[1];
+                        let loader_raw = parts[2];
+                        let loader = if loader_raw.starts_with("Fabric") {
+                            ModLoader::Fabric {
+                                loader_version: loader_raw
+                                    .strip_prefix("Fabric:")
+                                    .unwrap_or("")
+                                    .to_string(),
+                            }
+                        } else if loader_raw.starts_with("Forge") {
+                            ModLoader::Forge {
+                                loader_version: loader_raw
+                                    .strip_prefix("Forge:")
+                                    .unwrap_or("")
+                                    .to_string(),
+                            }
+                        } else if loader_raw.starts_with("NeoForge") {
+                            ModLoader::NeoForge {
+                                loader_version: loader_raw
+                                    .strip_prefix("NeoForge:")
+                                    .unwrap_or("")
+                                    .to_string(),
+                            }
+                        } else if loader_raw.starts_with("Quilt") {
+                            ModLoader::Quilt {
+                                loader_version: loader_raw
+                                    .strip_prefix("Quilt:")
+                                    .unwrap_or("")
+                                    .to_string(),
+                            }
+                        } else {
+                            ModLoader::Vanilla
+                        };
+                        let settings = release_the_launcher_core::InstanceSettings::new(
+                            name.to_string(),
+                            mc_version.to_string(),
+                            loader,
+                        );
+                        let _ = app.instance_manager.create(name, settings);
+                        app.status_message = format!("Installed modpack instance: {name}");
+                        app.current_view = View::InstanceList;
+                    } else {
+                        state.modrinth_status = format!("Installed: {info}");
+                    }
                     state.installing_modpack_id = None;
                 }
                 Err(e) => {
@@ -28,7 +84,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             },
             crate::UiMessage::VersionListResult(result) => match result {
                 Ok(versions) => {
-                    if let Some(latest) = versions.first() {
+                    if let Some((latest, _)) = versions.first() {
                         state.mc_version = latest.clone();
                     }
                     state.available_versions = versions;
@@ -52,6 +108,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         ui.heading("New Instance");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Navigated back from New Instance",
+                );
                 app.current_view = View::InstanceList;
             }
         });
@@ -66,6 +126,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             egui::Button::new("Manual")
         };
         if ui.add(manual_style).clicked() {
+            app.log(crate::log::LogLevel::Info, "UI: Switched to Manual tab");
             state.tab = InstanceTab::Manual;
         }
 
@@ -75,6 +136,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             egui::Button::new("From Modrinth")
         };
         if ui.add(modrinth_style).clicked() {
+            app.log(
+                crate::log::LogLevel::Info,
+                "UI: Switched to From Modrinth tab",
+            );
             state.tab = InstanceTab::Modrinth;
         }
     });
@@ -95,6 +160,56 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
 
     ui.add_space(app.theme.spacing.sm);
 
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Filter Minecraft Versions:").strong());
+        if ui
+            .checkbox(&mut state.manual_show_releases, "Releases")
+            .changed()
+        {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!(
+                    "UI: MC version filter - Releases: {}",
+                    state.manual_show_releases
+                ),
+            );
+        }
+        if ui
+            .checkbox(&mut state.manual_show_snapshots, "Snapshots")
+            .changed()
+        {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!(
+                    "UI: MC version filter - Snapshots: {}",
+                    state.manual_show_snapshots
+                ),
+            );
+        }
+        if ui
+            .checkbox(&mut state.manual_show_betas, "Old Betas")
+            .changed()
+        {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: MC version filter - Betas: {}", state.manual_show_betas),
+            );
+        }
+        if ui
+            .checkbox(&mut state.manual_show_alphas, "Old Alphas")
+            .changed()
+        {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!(
+                    "UI: MC version filter - Alphas: {}",
+                    state.manual_show_alphas
+                ),
+            );
+        }
+    });
+    ui.add_space(app.theme.spacing.xs);
+
     ui.label("Minecraft Version:");
     if state.available_versions.is_empty() {
         if state.version_list_loading {
@@ -106,12 +221,32 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             ui.text_edit_singleline(&mut state.mc_version);
         }
     } else {
+        let filtered_versions: Vec<&(String, String)> = state
+            .available_versions
+            .iter()
+            .filter(|(_, ver_type)| match ver_type.as_str() {
+                "release" => state.manual_show_releases,
+                "snapshot" => state.manual_show_snapshots,
+                "old_beta" => state.manual_show_betas,
+                "old_alpha" => state.manual_show_alphas,
+                _ => false,
+            })
+            .collect();
+
         egui::ComboBox::from_label("Minecraft Version")
             .selected_text(&state.mc_version)
-            .width(200.0)
+            .width(220.0)
             .show_ui(ui, |ui| {
-                for version in &state.available_versions {
-                    ui.selectable_value(&mut state.mc_version, version.clone(), version);
+                for (version, _) in filtered_versions {
+                    if ui
+                        .selectable_value(&mut state.mc_version, version.clone(), version)
+                        .changed()
+                    {
+                        app.log(
+                            crate::log::LogLevel::Info,
+                            &format!("UI: MC version selected: {}", state.mc_version),
+                        );
+                    }
                 }
             });
     }
@@ -122,11 +257,36 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     egui::ComboBox::from_label("Mod Loader")
         .selected_text(state.loader_type.as_str())
         .show_ui(ui, |ui| {
-            ui.selectable_value(&mut state.loader_type, LoaderType::Vanilla, "Vanilla");
-            ui.selectable_value(&mut state.loader_type, LoaderType::Fabric, "Fabric");
-            ui.selectable_value(&mut state.loader_type, LoaderType::Forge, "Forge");
-            ui.selectable_value(&mut state.loader_type, LoaderType::NeoForge, "NeoForge");
-            ui.selectable_value(&mut state.loader_type, LoaderType::Quilt, "Quilt");
+            if ui
+                .selectable_value(&mut state.loader_type, LoaderType::Vanilla, "Vanilla")
+                .changed()
+            {
+                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Vanilla");
+            }
+            if ui
+                .selectable_value(&mut state.loader_type, LoaderType::Fabric, "Fabric")
+                .changed()
+            {
+                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Fabric");
+            }
+            if ui
+                .selectable_value(&mut state.loader_type, LoaderType::Forge, "Forge")
+                .changed()
+            {
+                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Forge");
+            }
+            if ui
+                .selectable_value(&mut state.loader_type, LoaderType::NeoForge, "NeoForge")
+                .changed()
+            {
+                app.log(crate::log::LogLevel::Info, "UI: Loader changed to NeoForge");
+            }
+            if ui
+                .selectable_value(&mut state.loader_type, LoaderType::Quilt, "Quilt")
+                .changed()
+            {
+                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Quilt");
+            }
         });
 
     if state.loader_type != LoaderType::Vanilla {
@@ -174,7 +334,12 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             Ok(_) => {
                 app.log(
                     crate::log::LogLevel::Info,
-                    &format!("Created instance: {}", state.name),
+                    &format!(
+                        "UI: Created instance '{}' (MC {}, loader {})",
+                        state.name,
+                        state.mc_version,
+                        state.loader_type.as_str()
+                    ),
                 );
                 app.status_message = format!("Created instance: {}", state.name);
                 app.current_view = View::InstanceList;
@@ -209,11 +374,51 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         egui::ComboBox::from_id_source("modrinth_loader_filter")
             .selected_text(state.loader_filter.as_str())
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut state.loader_filter, LoaderFilter::Any, "Any");
-                ui.selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric");
-                ui.selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge");
-                ui.selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge");
-                ui.selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt");
+                if ui
+                    .selectable_value(&mut state.loader_filter, LoaderFilter::Any, "Any")
+                    .changed()
+                {
+                    app.log(
+                        crate::log::LogLevel::Info,
+                        "UI: Modrinth loader filter changed to Any",
+                    );
+                }
+                if ui
+                    .selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric")
+                    .changed()
+                {
+                    app.log(
+                        crate::log::LogLevel::Info,
+                        "UI: Modrinth loader filter changed to Fabric",
+                    );
+                }
+                if ui
+                    .selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge")
+                    .changed()
+                {
+                    app.log(
+                        crate::log::LogLevel::Info,
+                        "UI: Modrinth loader filter changed to Forge",
+                    );
+                }
+                if ui
+                    .selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge")
+                    .changed()
+                {
+                    app.log(
+                        crate::log::LogLevel::Info,
+                        "UI: Modrinth loader filter changed to NeoForge",
+                    );
+                }
+                if ui
+                    .selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt")
+                    .changed()
+                {
+                    app.log(
+                        crate::log::LogLevel::Info,
+                        "UI: Modrinth loader filter changed to Quilt",
+                    );
+                }
             });
     });
 
@@ -224,6 +429,10 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         .clicked()
         && !state.modrinth_query.is_empty()
     {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Searched Modrinth for '{}'", state.modrinth_query),
+        );
         state.modrinth_status = "Searching...".to_string();
         state.modrinth_results = Vec::new();
         let loader = match state.loader_filter {
@@ -266,12 +475,145 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
 
                         if state.installing_modpack_id == Some(result.id.clone()) {
                             ui.label(&state.modrinth_status);
-                        } else if ui
-                            .button(format!(" {} Install as New Instance", crate::icons::ADD))
-                            .clicked()
-                        {
-                            state.installing_modpack_id = Some(result.id.clone());
-                            state.modrinth_status = format!("Installing {}...", result.name);
+                        } else {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button(format!(" {} Install Latest", crate::icons::ADD))
+                                    .clicked()
+                                {
+                                    app.log(
+                                        crate::log::LogLevel::Info,
+                                        &format!("UI: Installing modpack '{}' (latest)", result.name),
+                                    );
+                                    state.installing_modpack_id = Some(result.id.clone());
+                                    state.modrinth_status = format!("Installing {}...", result.name);
+                                    let base_dir = dirs::config_dir()
+                                        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
+                                        .join("release-the-launcher")
+                                        .join("instances");
+                                    app.install_modpack_as_instance(result.id.clone(), None, base_dir);
+                                }
+
+                                let is_expanded = state.expanded_project_id.as_deref() == Some(&result.id);
+                                let expand_text = if is_expanded { "Hide Versions" } else { "Choose Version" };
+
+                                if ui.button(expand_text).clicked() {
+                                    if is_expanded {
+                                        app.log(
+                                            crate::log::LogLevel::Info,
+                                            &format!("UI: Hid versions for '{}'", result.name),
+                                        );
+                                        state.expanded_project_id = None;
+                                    } else {
+                                        app.log(
+                                            crate::log::LogLevel::Info,
+                                            &format!("UI: Showed versions for '{}'", result.name),
+                                        );
+                                        state.expanded_project_id = Some(result.id.clone());
+                                        if !state.modpack_versions.contains_key(&result.id) {
+                                            state.loading_versions_for_project = Some(result.id.clone());
+                                            app.fetch_modpack_versions(result.id.clone());
+                                        }
+                                    }
+                                }
+                            });
+
+                            if state.expanded_project_id.as_deref() == Some(&result.id) {
+                                ui.add_space(app.theme.spacing.sm);
+                                ui.indent("modpack_versions", |ui| {
+                                    if state.loading_versions_for_project.as_deref() == Some(&result.id) {
+                                        ui.horizontal(|ui| {
+                                            ui.spinner();
+                                            ui.label(egui::RichText::new("Loading available versions...").size(14.0));
+                                        });
+                                    } else if let Some(versions) = state.modpack_versions.get(&result.id) {
+                                        if versions.is_empty() {
+                                            ui.label(egui::RichText::new("No versions found.").size(14.0));
+                                        } else {
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new("Filter:").strong());
+                                                ui.checkbox(&mut state.filter_releases, "Releases");
+                                                ui.checkbox(&mut state.filter_betas, "Betas");
+                                                ui.checkbox(&mut state.filter_alphas, "Alphas");
+                                                ui.add_space(10.0);
+                                                ui.add(egui::TextEdit::singleline(&mut state.version_search_query).hint_text("Search version...").desired_width(120.0));
+                                            });
+                                            ui.add_space(app.theme.spacing.xs);
+
+                                            let search_q = state.version_search_query.to_lowercase();
+                                            let filtered_versions: Vec<_> = versions.iter().filter(|ver| {
+                                                let type_match = match ver.release_type {
+                                                    release_the_launcher_mods::ReleaseType::Release => state.filter_releases,
+                                                    release_the_launcher_mods::ReleaseType::Beta => state.filter_betas,
+                                                    release_the_launcher_mods::ReleaseType::Alpha => state.filter_alphas,
+                                                };
+                                                if !type_match {
+                                                    return false;
+                                                }
+                                                if !search_q.is_empty() {
+                                                    let matches_ver = ver.version_number.to_lowercase().contains(&search_q);
+                                                    let matches_mc = ver.mc_versions.iter().any(|m| m.to_lowercase().contains(&search_q));
+                                                    return matches_ver || matches_mc;
+                                                }
+                                                true
+                                            }).collect();
+
+                                            if filtered_versions.is_empty() {
+                                                ui.label("No matching versions found.");
+                                            } else {
+                                                egui::ScrollArea::vertical()
+                                                    .max_height(280.0)
+                                                    .auto_shrink([false, true])
+                                                    .show(ui, |ui| {
+                                                        ui.spacing_mut().item_spacing = egui::vec2(20.0, 10.0);
+                                                        egui::Grid::new(format!("ver_grid_{}", result.id))
+                                                            .striped(true)
+                                                            .show(ui, |ui| {
+                                                                ui.label(egui::RichText::new("Modpack Version").strong().size(15.0));
+                                                                ui.label(egui::RichText::new("Minecraft Version").strong().size(15.0));
+                                                                ui.label(egui::RichText::new("Loader").strong().size(15.0));
+                                                                ui.label(egui::RichText::new("Type").strong().size(15.0));
+                                                                ui.label(egui::RichText::new("Action").strong().size(15.0));
+                                                                ui.end_row();
+
+                                                                for ver in filtered_versions {
+                                                                    ui.label(egui::RichText::new(&ver.version_number).strong().size(14.0));
+                                                                    ui.label(egui::RichText::new(ver.mc_versions.join(", ")).size(13.0));
+                                                                    ui.label(egui::RichText::new(ver.loaders.join(", ")).size(13.0));
+                                                                    ui.label(egui::RichText::new(ver.release_type.as_str()).size(13.0));
+                                                                    if ui.add(egui::Button::new(egui::RichText::new("Install Version").strong().size(13.0)).fill(app.theme.accent)).clicked() {
+                                                                        app.log(
+                                                                            crate::log::LogLevel::Info,
+                                                                            &format!("UI: Installing modpack '{}' version '{}'", result.name, ver.version_number),
+                                                                        );
+                                                                        state.installing_modpack_id = Some(result.id.clone());
+                                                                        state.modrinth_status = format!(
+                                                                            "Installing {} ({})...",
+                                                                            result.name, ver.version_number
+                                                                        );
+                                                                        let base_dir = dirs::config_dir()
+                                                                            .unwrap_or_else(|| {
+                                                                                dirs::home_dir()
+                                                                                    .unwrap_or_default()
+                                                                                    .join(".config")
+                                                                            })
+                                                                            .join("release-the-launcher")
+                                                                            .join("instances");
+                                                                        app.install_modpack_as_instance(
+                                                                            result.id.clone(),
+                                                                            Some(ver.id.clone()),
+                                                                            base_dir,
+                                                                        );
+                                                                    }
+                                                                    ui.end_row();
+                                                                }
+                                                            });
+                                                    });
+                                            }
+                                        }
+                                    }
+                                });
+                            }
                         }
                     });
                 }
@@ -279,7 +621,6 @@ fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     }
 }
 
-#[derive(Default)]
 pub struct NewInstanceState {
     pub name: String,
     pub mc_version: String,
@@ -292,9 +633,52 @@ pub struct NewInstanceState {
     pub modrinth_status: String,
     pub modrinth_results: Vec<ProjectSummary>,
     pub installing_modpack_id: Option<String>,
-    pub available_versions: Vec<String>,
+    pub available_versions: Vec<(String, String)>,
     pub version_list_loaded: bool,
     pub version_list_loading: bool,
+    pub modpack_versions: std::collections::HashMap<String, Vec<ModVersion>>,
+    pub loading_versions_for_project: Option<String>,
+    pub expanded_project_id: Option<String>,
+    pub filter_releases: bool,
+    pub filter_betas: bool,
+    pub filter_alphas: bool,
+    pub version_search_query: String,
+    pub manual_show_releases: bool,
+    pub manual_show_snapshots: bool,
+    pub manual_show_betas: bool,
+    pub manual_show_alphas: bool,
+}
+
+impl Default for NewInstanceState {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            mc_version: String::new(),
+            loader_type: LoaderType::default(),
+            loader_version: String::new(),
+            tab: InstanceTab::default(),
+            modrinth_query: String::new(),
+            mc_version_filter: String::new(),
+            loader_filter: LoaderFilter::default(),
+            modrinth_status: String::new(),
+            modrinth_results: Vec::new(),
+            installing_modpack_id: None,
+            available_versions: Vec::new(),
+            version_list_loaded: false,
+            version_list_loading: false,
+            modpack_versions: std::collections::HashMap::new(),
+            loading_versions_for_project: None,
+            expanded_project_id: None,
+            filter_releases: true,
+            filter_betas: false,
+            filter_alphas: false,
+            version_search_query: String::new(),
+            manual_show_releases: true,
+            manual_show_snapshots: false,
+            manual_show_betas: false,
+            manual_show_alphas: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

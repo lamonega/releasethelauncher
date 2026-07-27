@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use release_the_launcher_ui::log::LogLevel;
 use release_the_launcher_ui::theme::{self, Theme};
 use release_the_launcher_ui::views::account_login::{show as show_account_login, LoginState};
 use release_the_launcher_ui::views::instance_detail::{
@@ -66,6 +67,7 @@ fn drain_ui_messages(state: &mut LauncherApp) {
                 state.app.status_message = format!("Download error: {err}");
             }
             view_msg @ (UiMessage::ModrinthSearchResult(_)
+            | UiMessage::ModrinthVersionsResult { .. }
             | UiMessage::ModrinthInstallResult(_)
             | UiMessage::VersionListResult(_)) => {
                 if let Ok(mut q) = state.app.ui_queue.lock() {
@@ -83,12 +85,24 @@ fn drain_ui_messages(state: &mut LauncherApp) {
                     message,
                 };
             }
-            UiMessage::MsLoginSuccess { display_name } => {
+            UiMessage::MsLoginSuccess { account } => {
+                let name = account.display_name().to_string();
+                state.app.log(
+                    LogLevel::Info,
+                    &format!("UI: Microsoft Login successful, logged in as '{name}'"),
+                );
                 state.login_state = LoginState::Idle;
+                let display_name = name;
+                state.app.account_list.add(account);
+                let _ = state.app.account_list.save();
                 state.app.status_message = format!("Logged in as {display_name}");
                 state.app.current_view = View::AccountList;
             }
             UiMessage::MsLoginError(err) => {
+                state.app.log(
+                    LogLevel::Error,
+                    &format!("UI: Microsoft Login failed: {err}"),
+                );
                 state.login_state = LoginState::MicrosoftError(err);
             }
         }
@@ -101,42 +115,80 @@ fn show_toolbar(
     ctx: &egui::Context,
     navigate_to: &mut Option<View>,
 ) {
-    egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-        ui.style_mut().visuals.panel_fill = app.theme.surface_alt;
-        ui.add_space(app.theme.spacing.sm);
-        let inner = ui.horizontal(|ui| {
-            ui.add_space(app.theme.spacing.xs);
-            ui.heading("Release The Launcher");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✕").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                let maximize_icon = if *maximized { "❐" } else { "□" };
-                if ui.button(maximize_icon).clicked() {
-                    *maximized = !*maximized;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(*maximized));
-                }
-                if ui.button("—").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                }
-                ui.separator();
-                if ui.button("Accounts").clicked() {
-                    *navigate_to = Some(View::AccountList);
-                }
-                if ui.button(format!(" {}", theme::icons::SETTINGS)).clicked() {
-                    *navigate_to = Some(View::Settings);
-                }
+    egui::TopBottomPanel::top("toolbar")
+        .frame(
+            egui::Frame::none()
+                .fill(app.theme.surface_alt)
+                .inner_margin(egui::Margin::symmetric(10.0, 6.0)),
+        )
+        .show(ctx, |ui| {
+            let panel_rect = ui.max_rect();
+
+            ui.horizontal(|ui| {
+                ui.heading("Release The Launcher");
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let btn_size = egui::vec2(28.0, 24.0);
+
+                    // Close Button "X"
+                    let close_btn = egui::Button::new(egui::RichText::new("X").strong().size(14.0))
+                        .min_size(btn_size);
+                    if ui.add(close_btn).clicked() {
+                        app.log(LogLevel::Info, "UI: Close button clicked");
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
+                    // Maximize / Restore Button
+                    let max_text = if *maximized { "❐" } else { "□" };
+                    let max_btn =
+                        egui::Button::new(egui::RichText::new(max_text).strong().size(14.0))
+                            .min_size(btn_size);
+                    if ui.add(max_btn).clicked() {
+                        *maximized = !*maximized;
+                        let action = if *maximized { "maximized" } else { "restored" };
+                        app.log(LogLevel::Info, &format!("UI: Window {action}"));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(*maximized));
+                    }
+
+                    // Minimize Button
+                    let min_btn = egui::Button::new(egui::RichText::new("—").strong().size(14.0))
+                        .min_size(btn_size);
+                    if ui.add(min_btn).clicked() {
+                        app.log(LogLevel::Info, "UI: Window minimized");
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+
+                    ui.separator();
+
+                    if ui.button("Accounts").clicked() {
+                        app.log(LogLevel::Info, "UI: Navigated to Accounts");
+                        *navigate_to = Some(View::AccountList);
+                    }
+                    if ui.button(format!(" {}", theme::icons::SETTINGS)).clicked() {
+                        app.log(LogLevel::Info, "UI: Navigated to Settings");
+                        *navigate_to = Some(View::Settings);
+                    }
+
+                    // Calculate left edge of the right-side button group
+                    let right_buttons_left_x = ui.min_rect().min.x;
+
+                    // Drag region covers everything from left edge to the start of the right buttons
+                    let drag_rect = egui::Rect::from_min_max(
+                        panel_rect.min,
+                        egui::pos2(right_buttons_left_x - 8.0, panel_rect.max.y),
+                    );
+
+                    let title_drag = ui.interact(
+                        drag_rect,
+                        egui::Id::new("title_drag_area"),
+                        egui::Sense::drag(),
+                    );
+                    if title_drag.drag_started_by(egui::PointerButton::Primary) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                });
             });
         });
-        let title_bar_response = ui.interact(
-            inner.response.rect,
-            egui::Id::new("title_bar"),
-            egui::Sense::click_and_drag(),
-        );
-        if title_bar_response.drag_started_by(egui::PointerButton::Primary) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-        }
-    });
 }
 
 fn show_status_bar(ctx: &egui::Context, app: &App) {
@@ -153,14 +205,23 @@ fn show_status_bar(ctx: &egui::Context, app: &App) {
                 DownloadPhase::Downloading { message } => {
                     ui.spinner();
                     ui.label(message.as_str());
-                    if app.download_state.total > 0 {
-                        let progress =
-                            progress_ratio(app.download_state.completed, app.download_state.total);
-                        ui.add(egui::ProgressBar::new(progress).text(format!(
-                            "{}/{}",
-                            app.download_state.completed, app.download_state.total
-                        )));
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if app.download_state.total > 0 {
+                            let progress = progress_ratio(
+                                app.download_state.completed,
+                                app.download_state.total,
+                            );
+                            let pct = (progress * 100.0) as u32;
+                            ui.add(
+                                egui::ProgressBar::new(progress)
+                                    .text(format!(
+                                        "{}% ({}/{})",
+                                        pct, app.download_state.completed, app.download_state.total
+                                    ))
+                                    .desired_width(200.0),
+                            );
+                        }
+                    });
                 }
             }
             if !app.status_message.is_empty() && app.download_state.phase == DownloadPhase::Idle {
@@ -197,30 +258,31 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                     if let Some(instance) = state.app.instance_manager.get(id) {
                         let is_selected =
                             state.selected_instance_id.as_deref() == Some(id.as_str());
-                        let inner = egui::Frame::none()
-                            .fill(if is_selected {
-                                state.app.theme.surface_alt
-                            } else {
-                                egui::Color32::TRANSPARENT
-                            })
-                            .show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                ui.label(&instance.settings.name);
-                                ui.colored_label(
-                                    state.app.theme.text_secondary,
-                                    format!(
-                                        "{} ({})",
-                                        instance.settings.minecraft_version,
-                                        instance.settings.loader_name()
-                                    ),
-                                );
-                            });
-                        let sense_response = ui.interact(
-                            inner.response.rect,
-                            ui.next_auto_id(),
-                            egui::Sense::click(),
+
+                        let bg_color = if is_selected {
+                            state.app.theme.surface_alt
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        };
+
+                        let text = format!(
+                            "{}\n{}",
+                            instance.settings.name,
+                            format!(
+                                "{} ({})",
+                                instance.settings.minecraft_version,
+                                instance.settings.loader_name()
+                            )
                         );
-                        if sense_response.clicked() {
+
+                        let btn = egui::Button::new(text)
+                            .fill(bg_color)
+                            .min_size(egui::vec2(ui.available_width(), 40.0));
+
+                        if ui.add(btn).clicked() {
+                            state
+                                .app
+                                .log(LogLevel::Info, &format!("UI: Selected instance '{id}'"));
                             state.selected_instance_id = Some(id.clone());
                             state.app.current_view = View::InstanceDetail {
                                 id: id.clone(),
@@ -241,6 +303,9 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                 )
                 .clicked()
             {
+                state
+                    .app
+                    .log(LogLevel::Info, "UI: Navigated to New Instance");
                 state.new_instance_state = NewInstanceState::default();
                 *navigate_to = Some(View::NewInstance);
                 state.selected_instance_id = None;

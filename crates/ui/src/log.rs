@@ -1,4 +1,7 @@
 use std::collections::VecDeque;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 const MAX_LOG_ENTRIES: usize = 1000;
@@ -66,6 +69,7 @@ impl LogLevel {
 pub struct LogBuffer {
     entries: Arc<Mutex<VecDeque<LogEntry>>>,
     censor_filters: Arc<Mutex<Vec<(String, String)>>>,
+    log_file_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl Default for LogBuffer {
@@ -80,6 +84,13 @@ impl LogBuffer {
         Self {
             entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES))),
             censor_filters: Arc::new(Mutex::new(Vec::new())),
+            log_file_path: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn set_log_file_path(&self, path: PathBuf) {
+        if let Ok(mut p) = self.log_file_path.lock() {
+            *p = Some(path);
         }
     }
 
@@ -113,6 +124,32 @@ impl LogBuffer {
             message: censored_msg,
             target: entry.target,
         };
+
+        // Print to standard output so running in terminal shows all logs live
+        println!(
+            "[{}] [{}/{}] {}",
+            censored.timestamp,
+            censored.level.as_str(),
+            censored.target,
+            censored.message
+        );
+
+        // Write to log file if path is set
+        if let Ok(path_opt) = self.log_file_path.lock() {
+            if let Some(ref path) = *path_opt {
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+                    let _ = writeln!(
+                        file,
+                        "[{}] [{}/{}] {}",
+                        censored.timestamp,
+                        censored.level.as_str(),
+                        censored.target,
+                        censored.message
+                    );
+                }
+            }
+        }
+
         let mut buffer = self
             .entries
             .lock()

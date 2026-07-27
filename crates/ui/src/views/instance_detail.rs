@@ -74,9 +74,17 @@ pub fn show(
             app.launch_instance(&id);
         }
         Some("open_folder") => {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Open folder for instance '{name}'"),
+            );
             let _ = open::that(&root_path);
         }
         Some("delete") => {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Deleted instance '{name}'"),
+            );
             let _ = app.instance_manager.delete(&id);
             app.current_view = View::InstanceList;
             return;
@@ -118,6 +126,10 @@ fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab) {
                 egui::Button::new(label)
             };
             if ui.add(style).clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    &format!("UI: Switched to {target_tab:?} tab on instance '{id}'"),
+                );
                 app.current_view = View::InstanceDetail {
                     id: id.to_string(),
                     tab: target_tab,
@@ -185,27 +197,18 @@ fn show_mods(
     } else {
         let mut toggle_path = None;
         for m in &mods {
-            ui.horizontal(|ui| {
-                let status_icon = if m.enabled { "●" } else { "○" };
-                let status_color = if m.enabled {
-                    app.theme.log_colors.info
-                } else {
-                    app.theme.text_secondary
-                };
-                ui.colored_label(status_color, status_icon);
-                ui.label(&m.name);
-            });
-            let toggle_response = ui.interact(
-                egui::Rect::NOTHING,
-                egui::Id::new(format!("toggle_{}", m.path.display())),
-                egui::Sense::click(),
-            );
-            if toggle_response.clicked() {
+            let mut enabled = m.enabled;
+            if ui.checkbox(&mut enabled, &m.name).changed() {
                 toggle_path = Some(m.path.clone());
             }
         }
         if let Some(path) = toggle_path {
             if let Some(entry) = mods.iter().find(|m| m.path == path) {
+                let action = if entry.enabled { "disabled" } else { "enabled" };
+                app.log(
+                    crate::log::LogLevel::Info,
+                    &format!("UI: Mod '{}' {action}", entry.name),
+                );
                 let result = if entry.enabled {
                     release_the_launcher_mods::disable_mod(&path)
                 } else {
@@ -222,6 +225,10 @@ fn show_mods(
     }
     ui.separator();
     if ui.button("Browse Mods (Modrinth)").clicked() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Opened Mod Browser for instance '{id}'"),
+        );
         *open_mod_browser = Some(id.to_string());
     }
 }

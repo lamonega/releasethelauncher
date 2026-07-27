@@ -55,6 +55,10 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str) {
         ui.heading("Mod Browser (Modrinth)");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Navigated back from Mod Browser",
+                );
                 app.current_view = View::InstanceDetail {
                     id: id.to_string(),
                     tab: crate::DetailTab::Mods,
@@ -74,6 +78,10 @@ fn show_search(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState) {
             .clicked()
             && !state.query.is_empty()
         {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Searched mods for '{}'", state.query),
+            );
             state.status = "Searching...".to_string();
             state.results = Vec::new();
             let query = state.query.clone();
@@ -142,6 +150,10 @@ fn show_results(app: &App, ui: &mut egui::Ui, state: &mut ModBrowserState, id: &
                     if state.installing_mod_id == Some(result.id.clone()) {
                         ui.colored_label(app.theme.text_secondary, &state.install_status);
                     } else if ui.button("Install").clicked() {
+                        app.log(
+                            crate::log::LogLevel::Info,
+                            &format!("UI: Installing mod '{}' from Modrinth", result.name),
+                        );
                         let project_id = result.id.clone();
                         state.installing_mod_id = Some(project_id.clone());
                         state.install_status = format!("Installing {}...", result.name);

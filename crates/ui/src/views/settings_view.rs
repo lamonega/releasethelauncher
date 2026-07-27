@@ -6,6 +6,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.heading("Settings");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Navigated back from Settings",
+                );
                 app.current_view = View::InstanceList;
             }
         });
@@ -18,6 +22,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             .add(egui::Button::new(format!(" {} Save", crate::icons::ADD)).fill(app.theme.accent))
             .clicked()
         {
+            app.log(crate::log::LogLevel::Info, "UI: Settings saved");
             if let Err(e) = app.save_global_settings() {
                 app.status_message = format!("Failed to save settings: {e}");
             } else {
@@ -34,6 +39,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.label("Java Path (optional, leave empty for auto-detect):");
     let mut java_path = app.global_settings.java_path.clone().unwrap_or_default();
     if ui.text_edit_singleline(&mut java_path).changed() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Java path changed to '{}'", java_path),
+        );
         app.global_settings.java_path = if java_path.is_empty() {
             None
         } else {
@@ -50,6 +59,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .clone()
         .unwrap_or_else(|| "1G".to_string());
     if ui.text_edit_singleline(&mut mem_min).changed() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Memory min changed to '{mem_min}'"),
+        );
         app.global_settings.memory_min = Some(mem_min);
     }
 
@@ -60,6 +73,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .clone()
         .unwrap_or_else(|| "2G".to_string());
     if ui.text_edit_singleline(&mut mem_max).changed() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Memory max changed to '{mem_max}'"),
+        );
         app.global_settings.memory_max = Some(mem_max);
     }
 
@@ -68,22 +85,41 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Launch");
     ui.add_space(app.theme.spacing.sm);
 
-    ui.checkbox(
-        &mut app.global_settings.close_after_launch,
-        "Close launcher after game starts",
-    );
+    if ui
+        .checkbox(
+            &mut app.global_settings.close_after_launch,
+            "Close launcher after game starts",
+        )
+        .changed()
+    {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!(
+                "UI: Close after launch toggled to {}",
+                app.global_settings.close_after_launch
+            ),
+        );
+    }
 
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Pre-launch command:");
     let mut pre = app.global_settings.pre_launch_command.clone();
     if ui.text_edit_singleline(&mut pre).changed() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Pre-launch command changed to '{pre}'"),
+        );
         app.global_settings.pre_launch_command = pre;
     }
 
     ui.label("Post-launch command:");
     let mut post = app.global_settings.post_launch_command.clone();
     if ui.text_edit_singleline(&mut post).changed() {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Post-launch command changed to '{post}'"),
+        );
         app.global_settings.post_launch_command = post;
     }
 
