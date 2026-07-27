@@ -5,8 +5,6 @@ edition = "2021"
 description = "Mod provider trait, Modrinth implementation"
 
 [dependencies]
-release-the-launcher-net = { path = "../net" }
-release-the-launcher-core = { path = "../core" }
 reqwest = { version = "0.11", features = ["stream", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

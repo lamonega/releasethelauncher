@@ -748,7 +748,6 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
- "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -3313,14 +3312,10 @@ dependencies = [
 name = "release-the-launcher-auth"
 version = "0.4.1"
 dependencies = [
- "chrono",
- "hex",
  "md-5",
- "release-the-launcher-core",
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "thiserror 1.0.69",
  "tokio",
  "uuid",
@@ -3330,13 +3325,10 @@ dependencies = [
 name = "release-the-launcher-core"
 version = "0.4.1"
 dependencies = [
- "dirs",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
- "tokio",
  "toml",
- "uuid",
  "zip",
 ]
 
@@ -3346,14 +3338,11 @@ version = "0.4.1"
 dependencies = [
  "dirs",
  "hex",
- "release-the-launcher-auth",
- "release-the-launcher-core",
  "release-the-launcher-net",
  "reqwest",
  "serde",
  "serde_json",
  "sha1",
- "sha2",
  "thiserror 1.0.69",
  "tokio",
  "url",
@@ -3368,8 +3357,6 @@ dependencies = [
  "async-trait",
  "futures",
  "hex",
- "release-the-launcher-core",
- "release-the-launcher-net",
  "reqwest",
  "serde",
  "serde_json",
