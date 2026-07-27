@@ -17,6 +17,7 @@ const BASE_URL: &str = "https://api.modrinth.com/v2";
 enum HasherChoice {
     Sha1(sha1::Sha1),
     Sha2(sha2::Sha256),
+    Sha512(sha2::Sha512),
 }
 
 impl HasherChoice {
@@ -24,6 +25,7 @@ impl HasherChoice {
         match self {
             Self::Sha1(h) => h.update(data),
             Self::Sha2(h) => h.update(data),
+            Self::Sha512(h) => h.update(data),
         }
     }
 
@@ -31,6 +33,7 @@ impl HasherChoice {
         match self {
             Self::Sha1(h) => hex::encode(h.clone().finalize()),
             Self::Sha2(h) => hex::encode(h.clone().finalize()),
+            Self::Sha512(h) => hex::encode(h.clone().finalize()),
         }
     }
 }
@@ -200,6 +203,14 @@ impl ModrinthProvider {
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i)?;
             let entry_path = entry.mangled_name();
+            let name_str = entry_path.to_string_lossy();
+
+            if name_str == "modrinth.index.json" {
+                let out_path = target_dir.join("modrinth.index.json");
+                let mut out_file = fs::File::create(&out_path)?;
+                std::io::copy(&mut entry, &mut out_file)?;
+                continue;
+            }
 
             let components: Vec<_> = entry_path.components().collect();
             if components.is_empty() {
@@ -208,7 +219,7 @@ impl ModrinthProvider {
             let first = components[0].as_os_str().to_string_lossy();
             if first == "overrides" || first == "client-overrides" {
                 let rel: PathBuf = components[1..].iter().collect();
-                let out_path = target_dir.join(rel);
+                let out_path = target_dir.join(".minecraft").join(rel);
                 if entry.is_dir() {
                     fs::create_dir_all(&out_path)?;
                 } else {
@@ -224,6 +235,92 @@ impl ModrinthProvider {
         Ok(zip_path)
     }
 
+    /// Download all mod files specified in `modrinth.index.json` in parallel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading `modrinth.index.json` or downloading fails.
+    pub async fn download_modpack_files(
+        &self,
+        target_dir: &Path,
+        progress: impl Fn(usize, usize, &str) + Send + Sync + 'static,
+    ) -> Result<(), ModsError> {
+        let index_path = target_dir.join("modrinth.index.json");
+        if !index_path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&index_path)?;
+        let index: serde_json::Value = serde_json::from_str(&content)?;
+
+        let Some(files) = index.get("files").and_then(|f| f.as_array()) else {
+            return Ok(());
+        };
+
+        let total = files.len();
+        if total == 0 {
+            return Ok(());
+        }
+
+        let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
+        let progress_cb = std::sync::Arc::new(progress);
+        let mut tasks = Vec::new();
+        let client = self.http.clone();
+
+        for file_obj in files {
+            let downloads = file_obj
+                .get("downloads")
+                .and_then(|d| d.get(0))
+                .and_then(|u| u.as_str())
+                .map(ToString::to_string);
+            let rel_path = file_obj
+                .get("path")
+                .and_then(|p| p.as_str())
+                .map(ToString::to_string);
+
+            if let (Some(url), Some(path_str)) = (downloads, rel_path) {
+                let dest = target_dir.join(".minecraft").join(&path_str);
+                let display_name = Path::new(&path_str)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or(path_str);
+
+                let sem = sem.clone();
+                let client = client.clone();
+                let completed_cnt = completed.clone();
+                let progress_ref = progress_cb.clone();
+
+                tasks.push(tokio::spawn(async move {
+                    if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
+                        let _permit = sem.acquire().await.unwrap();
+                        if let Ok(resp) = client.get(&url).send().await {
+                            if resp.status().is_success() {
+                                if let Ok(bytes) = resp.bytes().await {
+                                    if let Some(parent) = dest.parent() {
+                                        let _ = fs::create_dir_all(parent);
+                                    }
+                                    let tmp = dest.with_extension("tmp");
+                                    let _ = fs::write(&tmp, &bytes);
+                                    let _ = fs::rename(&tmp, &dest);
+                                }
+                            }
+                        }
+                    }
+
+                    let cur = completed_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    progress_ref(cur, total, &display_name);
+                }));
+            }
+        }
+
+        for task in tasks {
+            let _ = task.await;
+        }
+
+        Ok(())
+    }
+
     /// Download a modpack and extract it to create a new instance.
     /// Returns (`instance_name`, `mc_version`, `loader_from_manifest`).
     ///
@@ -233,15 +330,28 @@ impl ModrinthProvider {
     pub async fn install_modpack_as_instance(
         &self,
         project_id: &str,
+        version_id: Option<&str>,
         target_base_dir: &Path,
     ) -> Result<(String, String, String), ModsError> {
         let versions = self.get_versions(project_id, &[], &[]).await?;
-        let version = versions
-            .first()
-            .ok_or_else(|| ModsError::Provider("No versions found".into()))?;
+        let version = if let Some(vid) = version_id {
+            versions
+                .iter()
+                .find(|v| v.id == vid)
+                .or_else(|| versions.first())
+                .ok_or_else(|| ModsError::Provider("Version not found".into()))?
+        } else {
+            versions
+                .first()
+                .ok_or_else(|| ModsError::Provider("No versions found".into()))?
+        };
 
         let project = self.get_project(project_id).await?;
-        let instance_name = project.name.clone();
+        let instance_name = if version_id.is_some() {
+            format!("{} ({})", project.name, version.version_number)
+        } else {
+            project.name.clone()
+        };
         let instance_dir = target_base_dir.join(&instance_name);
         fs::create_dir_all(&instance_dir)?;
 
@@ -252,12 +362,18 @@ impl ModrinthProvider {
             let content = fs::read_to_string(&index_path)?;
             let index: serde_json::Value = serde_json::from_str(&content)?;
 
+            let fallback_mc = version
+                .mc_versions
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "1.21.1".to_string());
+
             let mc_ver = index
                 .get("dependencies")
                 .and_then(|d| d.get("minecraft"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("1.20.1")
-                .to_string();
+                .map(ToString::to_string)
+                .unwrap_or(fallback_mc);
 
             let loader = if index
                 .get("dependencies")
@@ -308,7 +424,12 @@ impl ModrinthProvider {
 
             (mc_ver, loader)
         } else {
-            ("1.20.1".to_string(), "Vanilla".to_string())
+            let fallback_mc = version
+                .mc_versions
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "1.21.1".to_string());
+            (fallback_mc, "Vanilla".to_string())
         };
 
         Ok((instance_name, mc_version, loader))
@@ -475,12 +596,21 @@ impl ModProvider for ModrinthProvider {
         }
         let resp: ModrinthProject = req.send().await?.json().await?;
 
+        let authors = match resp.team {
+            serde_json::Value::String(s) => vec![s],
+            serde_json::Value::Array(arr) => arr
+                .into_iter()
+                .filter_map(|v| v.as_str().map(ToString::to_string))
+                .collect(),
+            _ => Vec::new(),
+        };
+
         Ok(ProjectInfo {
             id: resp.id,
             name: resp.title,
             slug: resp.slug,
             description: resp.description,
-            authors: resp.team.into_iter().collect(),
+            authors,
             icon_url: resp.icon_url,
             website_url: resp.source_url,
             downloads: resp.downloads,
@@ -595,7 +725,8 @@ impl ModProvider for ModrinthProvider {
                 .as_ref()
                 .and_then(|hash_type| match hash_type.as_str() {
                     "sha1" => Some(HasherChoice::Sha1(sha1::Sha1::new())),
-                    "sha256" | "sha512" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
+                    "sha256" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
+                    "sha512" => Some(HasherChoice::Sha512(sha2::Sha512::new())),
                     _ => None,
                 });
 

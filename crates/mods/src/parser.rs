@@ -55,9 +55,13 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsErro
             let mut content = String::new();
             entry.read_to_string(&mut content)?;
             if let Some(version) = extract_manifest_version(&content) {
+                let stem = jar_path.file_stem().map_or_else(
+                    || "unknown".to_string(),
+                    |s| s.to_string_lossy().to_string(),
+                );
                 return Ok(ModDetails {
-                    mod_id: jar_path.file_stem().unwrap().to_string_lossy().to_string(),
-                    name: jar_path.file_stem().unwrap().to_string_lossy().to_string(),
+                    mod_id: stem.clone(),
+                    name: stem,
                     version,
                     mc_version: None,
                     description: String::new(),
@@ -69,7 +73,10 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsErro
         }
     }
 
-    let stem = jar_path.file_stem().unwrap().to_string_lossy().to_string();
+    let stem = jar_path.file_stem().map_or_else(
+        || "unknown".to_string(),
+        |s| s.to_string_lossy().to_string(),
+    );
     Ok(ModDetails {
         mod_id: stem.clone(),
         name: stem,

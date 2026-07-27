@@ -32,7 +32,7 @@ pub struct ModrinthProject {
     pub slug: String,
     pub description: String,
     #[serde(default)]
-    pub team: Vec<String>,
+    pub team: serde_json::Value,
     #[serde(rename = "icon_url")]
     pub icon_url: Option<String>,
     #[serde(rename = "source_url")]
@@ -51,18 +51,23 @@ pub struct ModrinthVersion {
     pub version_number: String,
     #[serde(rename = "version_type")]
     pub version_type: String,
-    #[serde(rename = "game_versions")]
+    #[serde(rename = "game_versions", default)]
     pub game_versions: Vec<String>,
+    #[serde(default)]
     pub loaders: Vec<String>,
+    #[serde(default)]
     pub files: Vec<ModrinthFile>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ModrinthFile {
+    #[serde(default)]
     pub hashes: HashMap<String, String>,
     pub url: Option<String>,
-    #[serde(rename = "filename")]
+    #[serde(rename = "filename", default)]
     pub filename: String,
+    #[serde(default)]
     pub primary: bool,
+    #[serde(default)]
     pub size: u64,
 }
