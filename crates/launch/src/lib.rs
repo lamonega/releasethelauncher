@@ -71,6 +71,7 @@ pub struct Library {
 pub struct Rule {
     pub action: String,
     pub os: Option<RuleOs>,
+    pub features: std::collections::HashMap<String, bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +85,13 @@ pub struct Extract {
     pub exclude: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ClientDownload {
+    pub url: String,
+    pub sha1: Option<String>,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct VersionFile {
     pub main_class: Option<String>,
@@ -94,6 +102,8 @@ pub struct VersionFile {
     pub compatible_java_majors: Vec<u32>,
     pub jar_mods: Vec<String>,
     pub tweakers: Vec<String>,
+    pub asset_index: Option<AssetIndex>,
+    pub client_download: Option<ClientDownload>,
 }
 
 impl Default for VersionFile {
@@ -107,6 +117,8 @@ impl Default for VersionFile {
             compatible_java_majors: vec![17, 21],
             jar_mods: Vec::new(),
             tweakers: Vec::new(),
+            asset_index: None,
+            client_download: None,
         }
     }
 }

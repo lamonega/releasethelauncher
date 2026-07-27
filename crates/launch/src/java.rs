@@ -249,12 +249,18 @@ fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<Pat
             )))
         },
         |major| {
-            if compatible_java_majors.is_empty() || compatible_java_majors.contains(&major) {
+            if compatible_java_majors.is_empty() {
                 Ok(java_path.to_path_buf())
             } else {
-                Err(LaunchError::JavaNotFound(format!(
-                    "Found Java {major} but this version requires one of: {compatible_java_majors:?}",
-                )))
+                let min_required = compatible_java_majors.iter().copied().min().unwrap_or(8);
+                if major >= min_required {
+                    Ok(java_path.to_path_buf())
+                } else {
+                    Err(LaunchError::JavaNotFound(format!(
+                        "Minecraft requires Java {min_required}+ (found Java {major} at {})",
+                        java_path.display()
+                    )))
+                }
             }
         },
     )

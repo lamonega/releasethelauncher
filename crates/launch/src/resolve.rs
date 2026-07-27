@@ -1,4 +1,6 @@
-use crate::{Component, Extract, LaunchError, Library, Requirement, Rule, RuleOs, VersionFile};
+use crate::{
+    AssetIndex, Component, Extract, LaunchError, Library, Requirement, Rule, RuleOs, VersionFile,
+};
 use reqwest::Client;
 
 const VERSION_MANIFEST_URL: &str =
@@ -12,6 +14,7 @@ const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
 struct VersionManifestEntry {
     id: String,
     url: String,
+    version_type: String,
 }
 
 #[derive(Debug)]
@@ -57,6 +60,7 @@ impl DependencyResolver {
                         Some(VersionManifestEntry {
                             id: v["id"].as_str()?.to_string(),
                             url: v["url"].as_str()?.to_string(),
+                            version_type: v["type"].as_str().unwrap_or("release").to_string(),
                         })
                     })
                     .collect()
@@ -81,6 +85,17 @@ impl DependencyResolver {
     pub fn available_versions(&self) -> Vec<String> {
         self.manifest.as_ref().map_or_else(Vec::new, |m| {
             m.versions.iter().map(|v| v.id.clone()).collect()
+        })
+    }
+
+    /// Returns all known version IDs with their Mojang type ("release", "snapshot", "old_beta", "old_alpha").
+    #[must_use]
+    pub fn available_versions_with_types(&self) -> Vec<(String, String)> {
+        self.manifest.as_ref().map_or_else(Vec::new, |m| {
+            m.versions
+                .iter()
+                .map(|v| (v.id.clone(), v.version_type.clone()))
+                .collect()
         })
     }
 
@@ -453,22 +468,19 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         .get("mainClass")
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
-    let minecraft_args = value
-        .get("minecraftArguments")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string)
-        .or_else(|| {
-            value
-                .get("arguments")
-                .and_then(|v| v.get("game"))
-                .and_then(|v| v.as_array())
-                .map(|args| {
-                    args.iter()
-                        .filter_map(|a| a.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-        });
+    let mut game_args = Vec::new();
+
+    if let Some(minecraft_args_str) = value.get("minecraftArguments").and_then(|v| v.as_str()) {
+        game_args.push(minecraft_args_str.to_string());
+    } else if let Some(game) = value
+        .get("arguments")
+        .and_then(|v| v.get("game"))
+        .and_then(|v| v.as_array())
+    {
+        for arg in game {
+            parse_argument_item(arg, &mut game_args);
+        }
+    }
 
     if let Some(jvm) = value
         .get("arguments")
@@ -476,11 +488,61 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         .and_then(|v| v.as_array())
     {
         for arg in jvm {
-            if let Some(s) = arg.as_str() {
-                jvm_args.push(s.to_string());
-            }
+            parse_argument_item(arg, &mut jvm_args);
         }
     }
+
+    let minecraft_args = if game_args.is_empty() {
+        None
+    } else {
+        Some(game_args.join(" "))
+    };
+
+    let asset_index = value.get("assetIndex").map(|ai| AssetIndex {
+        id: ai
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        url: ai
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        sha1: ai
+            .get("sha1")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        size: ai
+            .get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+    });
+
+    let client_download = value
+        .get("downloads")
+        .and_then(|d| d.get("client"))
+        .map(|c| crate::ClientDownload {
+            url: c
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            sha1: c
+                .get("sha1")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            size: c
+                .get("size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        });
+
+    let compatible_java_majors = value
+        .get("javaVersion")
+        .and_then(|jv| jv.get("majorVersion"))
+        .and_then(serde_json::Value::as_u64)
+        .map_or_else(|| vec![17, 21], |v| vec![v as u32]);
 
     VersionFile {
         main_class,
@@ -488,6 +550,9 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         jvm_args,
         libraries,
         tweakers,
+        asset_index,
+        client_download,
+        compatible_java_majors,
         ..VersionFile::default()
     }
 }
@@ -498,15 +563,31 @@ fn parse_library(lib: &serde_json::Value) -> Library {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+
+    let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
+
     let url = lib
         .get("url")
         .and_then(|v| v.as_str())
+        .or_else(|| artifact.and_then(|a| a.get("url")).and_then(|v| v.as_str()))
         .map(ToString::to_string);
     let sha1 = lib
         .get("sha1")
         .and_then(|v| v.as_str())
+        .or_else(|| {
+            artifact
+                .and_then(|a| a.get("sha1"))
+                .and_then(|v| v.as_str())
+        })
         .map(ToString::to_string);
-    let size = lib.get("size").and_then(serde_json::Value::as_u64);
+    let size = lib
+        .get("size")
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| {
+            artifact
+                .and_then(|a| a.get("size"))
+                .and_then(serde_json::Value::as_u64)
+        });
     let is_native = lib.get("natives").is_some();
 
     let rules: Vec<Rule> = lib
@@ -530,6 +611,15 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                             .and_then(|v| v.as_str())
                             .map(ToString::to_string),
                     }),
+                    features: r
+                        .get("features")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false)))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 })
                 .collect()
         })
@@ -558,5 +648,60 @@ fn parse_library(lib: &serde_json::Value) -> Library {
         is_native,
         rules,
         extract,
+    }
+}
+
+fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
+    if let Some(s) = item.as_str() {
+        target.push(s.to_string());
+    } else if let Some(obj) = item.as_object() {
+        let rules: Vec<Rule> = obj
+            .get("rules")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|r| Rule {
+                        action: r
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("allow")
+                            .to_string(),
+                        os: r.get("os").and_then(|v| v.as_object()).map(|o| RuleOs {
+                            name: o
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            arch: o
+                                .get("arch")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                        }),
+                        features: r
+                            .get("features")
+                            .and_then(|v| v.as_object())
+                            .map(|obj| {
+                                obj.iter()
+                                    .map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false)))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if crate::platform::should_include(&rules) {
+            if let Some(val) = obj.get("value") {
+                if let Some(s) = val.as_str() {
+                    target.push(s.to_string());
+                } else if let Some(arr) = val.as_array() {
+                    for elem in arr {
+                        if let Some(s) = elem.as_str() {
+                            target.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
     }
 }

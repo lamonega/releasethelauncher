@@ -47,7 +47,13 @@ pub fn should_include(rules: &[Rule]) -> bool {
                     .is_none_or(|arch| arch == current_arch())
         });
 
-        if matches_os {
+        let matches_features = rule.features.iter().all(|(feat, val)| match feat.as_str() {
+            "is_demo_user" => !*val,
+            "has_custom_resolution" => *val,
+            _ => true,
+        });
+
+        if matches_os && matches_features {
             allowed = rule.action == "allow";
         }
     }
