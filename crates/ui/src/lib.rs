@@ -385,11 +385,13 @@ impl App {
             close_after_launch,
         ) = inst;
 
+        let id_str = instance_id.to_string();
         handle.spawn(async move {
             do_launch(LaunchParams {
                 queue,
                 ctx,
                 account_data,
+                instance_id: id_str,
                 instance_root,
                 mc_version,
                 loader,
@@ -458,6 +460,7 @@ struct LaunchParams {
     queue: Queue,
     ctx: egui::Context,
     account_data: Option<(String, String, String)>,
+    instance_id: String,
     instance_root: std::path::PathBuf,
     mc_version: String,
     loader: ModLoader,
@@ -475,12 +478,22 @@ fn send_log(
     level: crate::log::LogLevel,
     message: impl Into<String>,
 ) {
+    send_log_with_target(queue, ctx, level, message, "launcher");
+}
+
+fn send_log_with_target(
+    queue: &Arc<Mutex<Vec<UiMessage>>>,
+    ctx: &egui::Context,
+    level: crate::log::LogLevel,
+    message: impl Into<String>,
+    target: impl Into<String>,
+) {
     if let Ok(mut q) = queue.lock() {
         q.push(UiMessage::Log(crate::log::LogEntry {
             timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
             level,
             message: message.into(),
-            target: "launcher".to_string(),
+            target: target.into(),
         }));
     }
     ctx.request_repaint();
@@ -764,8 +777,10 @@ async fn do_launch(params: LaunchParams) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
+    let instance_target = format!("instance:{}", params.instance_id);
     let queue_out = params.queue.clone();
     let ctx_out = params.ctx.clone();
+    let target_out = instance_target.clone();
     if let Some(stdout) = stdout {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
@@ -776,7 +791,7 @@ async fn do_launch(params: LaunchParams) {
                         timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
                         level: crate::log::LogLevel::Info,
                         message: line,
-                        target: "game".to_string(),
+                        target: target_out.clone(),
                     }));
                 }
                 ctx_out.request_repaint();
@@ -786,6 +801,7 @@ async fn do_launch(params: LaunchParams) {
 
     let queue_err = params.queue.clone();
     let ctx_err = params.ctx.clone();
+    let target_err = instance_target;
     if let Some(stderr) = stderr {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
@@ -796,7 +812,7 @@ async fn do_launch(params: LaunchParams) {
                         timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
                         level: crate::log::LogLevel::Error,
                         message: line,
-                        target: "game".to_string(),
+                        target: target_err.clone(),
                     }));
                 }
                 ctx_err.request_repaint();

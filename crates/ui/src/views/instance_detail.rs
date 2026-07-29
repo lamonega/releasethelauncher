@@ -107,7 +107,7 @@ pub fn show(
             show_info(app, ui, &root_display, &loader_name, &mc_version);
         }
         DetailTab::Logs => {
-            show_logs(app, ui);
+            show_logs(app, ui, &id, &root_path);
         }
         DetailTab::Mods => {
             if is_vanilla {
@@ -164,31 +164,86 @@ fn show_info(
     ui.colored_label(app.theme.text_secondary, format!("Minecraft: {mc_version}"));
 }
 
-fn show_logs(app: &App, ui: &mut egui::Ui) {
-    let entries = app.log_buffer.entries();
+fn show_logs(app: &App, ui: &mut egui::Ui, instance_id: &str, root_path: &std::path::Path) {
+    let mc_log_path = root_path.join(".minecraft").join("logs").join("latest.log");
+    let alt_log_path = root_path.join("logs").join("latest.log");
+
+    let log_file_path = if mc_log_path.exists() {
+        Some(mc_log_path)
+    } else if alt_log_path.exists() {
+        Some(alt_log_path)
+    } else {
+        None
+    };
+
+    let target_key = format!("instance:{instance_id}");
+    let buffer_entries: Vec<_> = app
+        .log_buffer
+        .entries()
+        .into_iter()
+        .filter(|e| e.target == target_key || e.target == instance_id)
+        .collect();
+
+    let disk_content = log_file_path.and_then(|p| std::fs::read_to_string(p).ok());
+    let has_disk_logs = disk_content
+        .as_ref()
+        .map_or(false, |c| !c.trim().is_empty());
+    let has_buffer_logs = !buffer_entries.is_empty();
+
+    if !has_disk_logs && !has_buffer_logs {
+        ui.colored_label(
+            app.theme.text_secondary,
+            "No log entries yet for this instance.",
+        );
+        return;
+    }
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
-            for entry in &entries {
-                let color = match entry.level {
-                    crate::log::LogLevel::Error => app.theme.log_colors.error,
-                    crate::log::LogLevel::Warn => app.theme.log_colors.warn,
-                    crate::log::LogLevel::Info => app.theme.log_colors.info,
-                    crate::log::LogLevel::Debug => app.theme.log_colors.debug,
-                    crate::log::LogLevel::Trace => app.theme.log_colors.trace,
-                };
-                let text = format!(
-                    "[{}] {} {}",
-                    entry.timestamp,
-                    entry.level.as_str(),
-                    entry.message
-                );
-                ui.colored_label(color, text);
+
+            if has_buffer_logs {
+                for entry in &buffer_entries {
+                    let color = match entry.level {
+                        crate::log::LogLevel::Error => app.theme.log_colors.error,
+                        crate::log::LogLevel::Warn => app.theme.log_colors.warn,
+                        crate::log::LogLevel::Info => app.theme.log_colors.info,
+                        crate::log::LogLevel::Debug => app.theme.log_colors.debug,
+                        crate::log::LogLevel::Trace => app.theme.log_colors.trace,
+                    };
+                    let text = format!(
+                        "[{}] [{}] {}",
+                        entry.timestamp,
+                        entry.level.as_str(),
+                        entry.message
+                    );
+                    ui.colored_label(color, text);
+                }
             }
-            if entries.is_empty() {
-                ui.colored_label(app.theme.text_secondary, "No log entries yet.");
+
+            if let Some(content) = disk_content {
+                for line in content.lines() {
+                    let color = if line.contains("/ERROR")
+                        || line.contains("ERROR")
+                        || line.contains("FATAL")
+                    {
+                        app.theme.log_colors.error
+                    } else if line.contains("/WARN")
+                        || line.contains("WARN")
+                        || line.contains("WARNING")
+                    {
+                        app.theme.log_colors.warn
+                    } else if line.contains("/INFO") || line.contains("INFO") {
+                        app.theme.log_colors.info
+                    } else if line.contains("/DEBUG") || line.contains("DEBUG") {
+                        app.theme.log_colors.debug
+                    } else {
+                        app.theme.text_secondary
+                    };
+                    ui.colored_label(color, line);
+                }
             }
         });
 }
