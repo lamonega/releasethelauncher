@@ -69,7 +69,8 @@ fn drain_ui_messages(state: &mut LauncherApp) {
             view_msg @ (UiMessage::ModrinthSearchResult(_)
             | UiMessage::ModrinthVersionsResult { .. }
             | UiMessage::ModrinthInstallResult(_)
-            | UiMessage::VersionListResult(_)) => {
+            | UiMessage::VersionListResult(_)
+            | UiMessage::LoaderVersionsResult { .. }) => {
                 if let Ok(mut q) = state.app.ui_queue.lock() {
                     q.push(view_msg);
                 }

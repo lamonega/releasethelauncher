@@ -382,6 +382,105 @@ impl DependencyResolver {
             },
         })
     }
+
+    /// # Errors
+    /// Returns an error if fetching metadata for the specified loader fails.
+    pub async fn fetch_loader_versions(
+        &self,
+        loader_type: &str,
+        mc_version: &str,
+    ) -> Result<Vec<String>, LaunchError> {
+        match loader_type.to_lowercase().as_str() {
+            "fabric" => {
+                let url = format!("{FABRIC_META_URL}/versions/loader/{mc_version}");
+                let resp: Vec<serde_json::Value> = self.http.get(&url).send().await?.json().await?;
+                let mut versions = Vec::new();
+                for v in resp {
+                    if let Some(ver) = v
+                        .get("loader")
+                        .and_then(|l| l.get("version"))
+                        .and_then(|s| s.as_str())
+                    {
+                        if !versions.contains(&ver.to_string()) {
+                            versions.push(ver.to_string());
+                        }
+                    }
+                }
+                Ok(versions)
+            }
+            "quilt" => {
+                let url = format!("{QUILT_META_URL}/versions/loader/{mc_version}");
+                let resp: Vec<serde_json::Value> = self.http.get(&url).send().await?.json().await?;
+                let mut versions = Vec::new();
+                for v in resp {
+                    if let Some(ver) = v
+                        .get("loader")
+                        .and_then(|l| l.get("version"))
+                        .and_then(|s| s.as_str())
+                    {
+                        if !versions.contains(&ver.to_string()) {
+                            versions.push(ver.to_string());
+                        }
+                    }
+                }
+                Ok(versions)
+            }
+            "forge" => {
+                let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+                let resp = self.http.get(url).send().await?.text().await?;
+                let prefix = format!("<version>{mc_version}-");
+                let mut versions = Vec::new();
+                for line in resp.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with(&prefix) && trimmed.ends_with("</version>") {
+                        let ver = trimmed
+                            .strip_prefix(&prefix)
+                            .and_then(|s| s.strip_suffix("</version>"))
+                            .unwrap_or("");
+                        if !ver.is_empty() && !versions.contains(&ver.to_string()) {
+                            versions.push(ver.to_string());
+                        }
+                    }
+                }
+                versions.reverse();
+                Ok(versions)
+            }
+            "neoforge" => {
+                let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+                let resp = self.http.get(url).send().await?.text().await?;
+                let neoforge_prefix = if let Some(stripped) = mc_version.strip_prefix("1.") {
+                    let parts: Vec<&str> = stripped.split('.').collect();
+                    if parts.len() >= 2 {
+                        format!("{}.{}.", parts[0], parts[1])
+                    } else if parts.len() == 1 {
+                        format!("{}.0.", parts[0])
+                    } else {
+                        mc_version.to_string()
+                    }
+                } else {
+                    mc_version.to_string()
+                };
+
+                let tag_prefix = format!("<version>{neoforge_prefix}");
+                let mut versions = Vec::new();
+                for line in resp.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with(&tag_prefix) && trimmed.ends_with("</version>") {
+                        let ver = trimmed
+                            .strip_prefix("<version>")
+                            .and_then(|s| s.strip_suffix("</version>"))
+                            .unwrap_or("");
+                        if !ver.is_empty() && !versions.contains(&ver.to_string()) {
+                            versions.push(ver.to_string());
+                        }
+                    }
+                }
+                versions.reverse();
+                Ok(versions)
+            }
+            _ => Ok(Vec::new()),
+        }
+    }
 }
 
 /// # Errors
@@ -935,5 +1034,13 @@ mod tests {
         assert!(!result[0].is_native);
         assert!(result[1].is_native);
         eprintln!("Test OK: old format parsed: {:?} + native {:?}", result[0].name, result[1].name);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_loader_versions() {
+        let resolver = DependencyResolver::new();
+        let fabric_versions = resolver.fetch_loader_versions("fabric", "1.20.1").await.unwrap();
+        assert!(!fabric_versions.is_empty(), "Fabric versions should not be empty for 1.20.1");
+        assert!(fabric_versions.contains(&"0.16.9".to_string()) || fabric_versions.contains(&"0.15.11".to_string()));
     }
 }

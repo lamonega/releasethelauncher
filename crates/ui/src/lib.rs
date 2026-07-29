@@ -80,6 +80,11 @@ pub enum UiMessage {
     },
     ModrinthInstallResult(Result<String, String>),
     VersionListResult(Result<Vec<(String, String)>, String>),
+    LoaderVersionsResult {
+        loader_type: String,
+        mc_version: String,
+        result: Result<Vec<String>, String>,
+    },
     MsDeviceCode {
         user_code: String,
         verification_uri: String,
@@ -418,6 +423,33 @@ impl App {
                 Err(e) => Err(e.to_string()),
             };
             send_msg(&queue, &ctx, UiMessage::VersionListResult(result));
+        });
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `self.ctx` is `None`.
+    pub fn fetch_loader_versions(&self, loader_type: String, mc_version: String) {
+        let queue = self.ui_queue.clone();
+        let ctx = self.ctx.clone().expect("egui context not set");
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
+        handle.spawn(async move {
+            let resolver = DependencyResolver::new();
+            let result = resolver
+                .fetch_loader_versions(&loader_type, &mc_version)
+                .await
+                .map_err(|e| e.to_string());
+            send_msg(
+                &queue,
+                &ctx,
+                UiMessage::LoaderVersionsResult {
+                    loader_type,
+                    mc_version,
+                    result,
+                },
+            );
         });
     }
 }

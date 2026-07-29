@@ -94,6 +94,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                     state.modrinth_status = format!("Failed to load versions: {e}");
                 }
             },
+            crate::UiMessage::LoaderVersionsResult {
+                loader_type,
+                mc_version,
+                result,
+            } => {
+                if state.loader_type.as_str() == loader_type && state.mc_version == mc_version {
+                    match result {
+                        Ok(versions) => {
+                            state.loader_versions = versions;
+                            state.loader_versions_loading = false;
+                            state.loader_versions_error = None;
+                            if !state.loader_versions.is_empty()
+                                && (state.loader_version.is_empty()
+                                    || !state.loader_versions.contains(&state.loader_version))
+                            {
+                                state.loader_version = state.loader_versions[0].clone();
+                            }
+                        }
+                        Err(e) => {
+                            state.loader_versions_loading = false;
+                            state.loader_versions_error = Some(e);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -289,10 +314,55 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             }
         });
 
+    if state.loader_type != LoaderType::Vanilla && !state.mc_version.is_empty() {
+        let current_key = (state.loader_type.clone(), state.mc_version.clone());
+        if state.last_fetched_loader_key.as_ref() != Some(&current_key) {
+            state.loader_versions_loading = true;
+            state.loader_versions_error = None;
+            state.loader_versions.clear();
+            state.last_fetched_loader_key = Some(current_key.clone());
+            app.fetch_loader_versions(
+                state.loader_type.as_str().to_string(),
+                state.mc_version.clone(),
+            );
+        }
+    }
+
     if state.loader_type != LoaderType::Vanilla {
         ui.add_space(app.theme.spacing.sm);
         ui.label("Loader Version:");
-        ui.text_edit_singleline(&mut state.loader_version);
+
+        if state.loader_versions_loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Loading loader versions...");
+            });
+        } else if !state.loader_versions.is_empty() {
+            egui::ComboBox::from_label("Loader Version")
+                .selected_text(&state.loader_version)
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for ver in &state.loader_versions {
+                        if ui
+                            .selectable_value(&mut state.loader_version, ver.clone(), ver)
+                            .changed()
+                        {
+                            app.log(
+                                crate::log::LogLevel::Info,
+                                &format!("UI: Loader version selected: {}", state.loader_version),
+                            );
+                        }
+                    }
+                });
+        } else {
+            if let Some(err) = &state.loader_versions_error {
+                ui.label(
+                    egui::RichText::new(format!("Failed to load versions: {err}"))
+                        .color(app.theme.log_colors.error),
+                );
+            }
+            ui.text_edit_singleline(&mut state.loader_version);
+        }
     }
 
     ui.add_space(app.theme.spacing.sm);
@@ -647,6 +717,10 @@ pub struct NewInstanceState {
     pub manual_show_snapshots: bool,
     pub manual_show_betas: bool,
     pub manual_show_alphas: bool,
+    pub loader_versions: Vec<String>,
+    pub loader_versions_loading: bool,
+    pub loader_versions_error: Option<String>,
+    pub last_fetched_loader_key: Option<(LoaderType, String)>,
 }
 
 impl Default for NewInstanceState {
@@ -677,6 +751,10 @@ impl Default for NewInstanceState {
             manual_show_snapshots: false,
             manual_show_betas: false,
             manual_show_alphas: false,
+            loader_versions: Vec::new(),
+            loader_versions_loading: false,
+            loader_versions_error: None,
+            last_fetched_loader_key: None,
         }
     }
 }
