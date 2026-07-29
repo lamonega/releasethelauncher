@@ -490,7 +490,7 @@ async fn do_launch(params: LaunchParams) {
         &params.ctx,
         crate::log::LogLevel::Info,
         format!(
-            "Minecraft: {}, Loader: {:?}",
+            "Minecraft: {}, Loader: {}",
             params.mc_version, params.loader
         ),
     );

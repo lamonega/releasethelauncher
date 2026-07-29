@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::path::Path;
 
@@ -9,6 +10,18 @@ pub enum ModLoader {
     Quilt { loader_version: String },
     Forge { loader_version: String },
     NeoForge { loader_version: String },
+}
+
+impl fmt::Display for ModLoader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModLoader::Vanilla => write!(f, "Vanilla"),
+            ModLoader::Fabric { loader_version } => write!(f, "Fabric {loader_version}"),
+            ModLoader::Quilt { loader_version } => write!(f, "Quilt {loader_version}"),
+            ModLoader::Forge { loader_version } => write!(f, "Forge {loader_version}"),
+            ModLoader::NeoForge { loader_version } => write!(f, "NeoForge {loader_version}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
