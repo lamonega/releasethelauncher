@@ -47,6 +47,9 @@ fn replace_placeholders(
     let mc_dir = instance_dir.join(".minecraft");
     let assets_dir = instance_dir.join("assets");
     let natives_dir = instance_dir.join("natives");
+    let mc_dir_str = mc_dir.display().to_string();
+    let assets_dir_str = assets_dir.display().to_string();
+    let natives_dir_str = natives_dir.display().to_string();
     let token = if player.access_token.is_empty() {
         "0"
     } else {
@@ -61,11 +64,11 @@ fn replace_placeholders(
         ("user_type", "msa"),
         ("version_name", profile.mc_version.as_str()),
         ("version_type", profile.mc_version_type.as_str()),
-        ("game_directory", mc_dir.to_str().unwrap_or("")),
-        ("assets_root", assets_dir.to_str().unwrap_or("")),
-        ("game_assets", assets_dir.to_str().unwrap_or("")),
+        ("game_directory", mc_dir_str.as_str()),
+        ("assets_root", assets_dir_str.as_str()),
+        ("game_assets", assets_dir_str.as_str()),
         ("assets_index_name", profile.asset_index.id.as_str()),
-        ("natives_directory", natives_dir.to_str().unwrap_or("")),
+        ("natives_directory", natives_dir_str.as_str()),
         ("classpath", cp_str),
         ("user_properties", "{}"),
         ("client_id", ""),
@@ -104,6 +107,8 @@ pub fn build_command(
 
     let mut has_min_mem = false;
     let mut has_max_mem = false;
+    let mut has_java_lib_path = false;
+    let mut has_lwjgl_lib_path = false;
 
     for arg in &profile.jvm_args {
         if arg.starts_with("-Xms") {
@@ -113,6 +118,12 @@ pub fn build_command(
             has_max_mem = true;
         }
         let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
+        if processed.starts_with("-Djava.library.path=") {
+            has_java_lib_path = true;
+        }
+        if processed.starts_with("-Dorg.lwjgl.librarypath=") {
+            has_lwjgl_lib_path = true;
+        }
         if processed.contains("sun-misc-unsafe-memory-access") {
             continue;
         }
@@ -127,7 +138,12 @@ pub fn build_command(
     }
 
     let natives_dir = instance_dir.join("natives");
-    cmd.arg(format!("-Djava.library.path={}", natives_dir.display()));
+    if !has_java_lib_path {
+        cmd.arg(format!("-Djava.library.path={}", natives_dir.display()));
+    }
+    if !has_lwjgl_lib_path {
+        cmd.arg(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()));
+    }
 
     if !profile.jvm_args.iter().any(|a| a.contains("-cp")) {
         cmd.arg("-cp").arg(&cp_str);
@@ -269,3 +285,85 @@ pub async fn run_post_launch_command(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_build_command_natives_and_placeholders() {
+        let profile = LaunchProfile {
+            mc_version: "1.20.1".to_string(),
+            mc_version_type: "release".to_string(),
+            main_class: "net.minecraft.client.main.Main".to_string(),
+            libraries: Vec::new(),
+            native_libraries: Vec::new(),
+            asset_index: crate::profile::AssetIndex {
+                id: "1.20".to_string(),
+                url: String::new(),
+                sha1: None,
+                size: 0,
+            },
+            client_download: None,
+            jvm_args: vec![
+                "-Djava.library.path=${natives_directory}".to_string(),
+                "-Dcustom.prop={natives_directory}".to_string(),
+            ],
+            game_args_template: String::new(),
+            traits: Vec::new(),
+            compatible_java_majors: vec![17],
+        };
+
+        let instance_dir = PathBuf::from("/tmp/test_instance");
+        let java_path = PathBuf::from("/usr/bin/java");
+        let player = PlayerAuth {
+            name: "TestUser".to_string(),
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            access_token: "testtoken".to_string(),
+        };
+
+        let cmd = build_command(&profile, &instance_dir, &java_path, &player, "1G", "2G");
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+
+        let expected_natives = instance_dir.join("natives").display().to_string();
+
+        let java_lib_args: Vec<&String> = args
+            .iter()
+            .filter(|a| a.starts_with("-Djava.library.path="))
+            .collect();
+        assert_eq!(
+            java_lib_args.len(),
+            1,
+            "Should have exactly one -Djava.library.path argument"
+        );
+        assert_eq!(
+            java_lib_args[0],
+            &format!("-Djava.library.path={expected_natives}")
+        );
+
+        let lwjgl_lib_args: Vec<&String> = args
+            .iter()
+            .filter(|a| a.starts_with("-Dorg.lwjgl.librarypath="))
+            .collect();
+        assert_eq!(
+            lwjgl_lib_args.len(),
+            1,
+            "Should have exactly one -Dorg.lwjgl.librarypath argument"
+        );
+        assert_eq!(
+            lwjgl_lib_args[0],
+            &format!("-Dorg.lwjgl.librarypath={expected_natives}")
+        );
+
+        assert!(
+            args.contains(&format!("-Dcustom.prop={expected_natives}")),
+            "Placeholder {{natives_directory}} should be replaced correctly"
+        );
+    }
+}
+

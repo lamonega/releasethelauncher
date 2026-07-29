@@ -581,9 +581,10 @@ async fn do_launch(params: LaunchParams) {
         &params.ctx,
         crate::log::LogLevel::Info,
         format!(
-            "Profile ready: MainClass='{}', {} libraries",
+            "Profile ready: MainClass='{}', {} libraries, {} native libraries",
             profile.main_class,
-            profile.libraries.len()
+            profile.libraries.len(),
+            profile.native_libraries.len()
         ),
     );
 
@@ -1016,8 +1017,19 @@ fn extract_natives_files(
     profile: &release_the_launcher_launch::LaunchProfile,
 ) {
     let send = |msg: UiMessage| send_msg(queue, ctx, msg);
+    let send_log = |level: crate::log::LogLevel, msg: String| send_msg(queue, ctx, UiMessage::Log(crate::log::LogEntry {
+        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        level,
+        message: msg,
+        target: "launcher".to_string(),
+    }));
     let libraries_dir = instance_root.join("libraries");
     let natives_dir = instance_root.join("natives");
+
+    send_log(crate::log::LogLevel::Info, format!("Extracting {} native libraries", profile.native_libraries.len()));
+    for lib in &profile.native_libraries {
+        send_log(crate::log::LogLevel::Info, format!("  native: {} url={:?}", lib.name, lib.url));
+    }
 
     if let Err(e) = release_the_launcher_launch::natives::extract_natives(
         &profile.native_libraries,

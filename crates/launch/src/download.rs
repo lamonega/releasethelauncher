@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use tracing::{debug, error, info, warn};
 
 use crate::platform;
 use crate::{LaunchError, Library};
@@ -120,11 +121,28 @@ impl DownloadManager {
         libraries: &[Library],
         progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), LaunchError> {
+        debug!(
+            total_libraries = libraries.len(),
+            "Starting download_libraries processing"
+        );
+
         let applicable: Vec<&Library> = libraries
             .iter()
-            .filter(|lib| platform::should_include(&lib.rules))
+            .filter(|lib| {
+                let include = platform::should_include(&lib.rules);
+                if !include {
+                    debug!(
+                        name = %lib.name,
+                        is_native = lib.is_native,
+                        "Skipping library: excluded by platform rules"
+                    );
+                }
+                include
+            })
             .collect();
+
         if applicable.is_empty() {
+            debug!("No applicable libraries to download for current platform");
             return Ok(());
         }
 
@@ -151,7 +169,14 @@ impl DownloadManager {
         for lib in applicable {
             let local_path = match Self::local_path_for_library(lib) {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    warn!(
+                        name = %lib.name,
+                        is_native = lib.is_native,
+                        "Skipping library: invalid Maven coordinates"
+                    );
+                    continue;
+                }
             };
 
             let full_local_path = self.libraries_dir.join(&local_path);
@@ -167,8 +192,31 @@ impl DownloadManager {
 
             let url = match Self::maven_url_for_library(lib) {
                 Some(u) => u,
-                None => continue,
+                None => {
+                    warn!(
+                        name = %lib.name,
+                        is_native = lib.is_native,
+                        "Skipping library: could not resolve Maven download URL"
+                    );
+                    continue;
+                }
             };
+
+            if exists_ok {
+                debug!(
+                    name = %lib.name,
+                    is_native = lib.is_native,
+                    path = %full_local_path.display(),
+                    "Library already downloaded and cached, skipping"
+                );
+            } else {
+                info!(
+                    name = %lib.name,
+                    is_native = lib.is_native,
+                    url = %url,
+                    "Queuing library download"
+                );
+            }
 
             let sem = semaphore.clone();
             let http = self.http.clone();
@@ -176,24 +224,44 @@ impl DownloadManager {
             let total_b = total_bytes.clone();
             let downloaded_b = downloaded_bytes.clone();
             let progress_ref = progress_cb.clone();
+            let lib_name = lib.name.clone();
+            let is_native = lib.is_native;
 
             tasks.push(tokio::spawn(async move {
                 if !exists_ok {
-                    let _permit = sem.acquire().await.unwrap();
-                    let response = http.get(&url).send().await.map_err(|e| {
-                        LaunchError::Launch(format!("HTTP error downloading {url}: {e}"))
+                    let _permit = sem.acquire().await.map_err(|e| {
+                        let err_msg = format!("Semaphore error acquiring permit for library '{lib_name}': {e}");
+                        error!(name = %lib_name, is_native = is_native, error = %e, "Semaphore permit failed");
+                        LaunchError::Launch(err_msg)
                     })?;
+
+                    info!(
+                        name = %lib_name,
+                        is_native = is_native,
+                        url = %url,
+                        "Downloading library file"
+                    );
+
+                    let response = http.get(&url).send().await.map_err(|e| {
+                        let err_msg = format!("HTTP error downloading library '{lib_name}' from '{url}': {e}");
+                        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "HTTP request failed");
+                        LaunchError::Launch(err_msg)
+                    })?;
+
                     if !response.status().is_success() {
-                        return Err(LaunchError::Launch(format!(
-                            "HTTP {} downloading {url}",
-                            response.status()
-                        )));
+                        let status = response.status();
+                        let err_msg = format!("HTTP status {status} downloading library '{lib_name}' from '{url}'");
+                        error!(name = %lib_name, is_native = is_native, url = %url, status = %status, "HTTP response status failure");
+                        return Err(LaunchError::Launch(err_msg));
                     }
+
                     let file_size = response.content_length().unwrap_or(0) as u64;
                     total_b.fetch_add(file_size, Ordering::SeqCst);
 
                     let resp = response.bytes().await.map_err(|e| {
-                        LaunchError::Launch(format!("Bytes error downloading {url}: {e}"))
+                        let err_msg = format!("Failed to read body bytes for library '{lib_name}' from '{url}': {e}");
+                        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "Failed reading response bytes");
+                        LaunchError::Launch(err_msg)
                     })?;
 
                     if let Some(ref expected) = sha1 {
@@ -201,20 +269,40 @@ impl DownloadManager {
                         hasher.update(&resp);
                         let computed = hex::encode(hasher.finalize());
                         if !computed.eq_ignore_ascii_case(expected) {
-                            return Err(LaunchError::Launch(format!(
-                                "SHA1 mismatch for {url}: expected {expected}, got {computed}"
-                            )));
+                            let err_msg = format!("SHA1 mismatch for library '{lib_name}' from '{url}': expected {expected}, got {computed}");
+                            error!(name = %lib_name, is_native = is_native, url = %url, expected = %expected, computed = %computed, "Checksum mismatch");
+                            return Err(LaunchError::Launch(err_msg));
                         }
                     }
 
                     if let Some(parent) = full_local_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
+                        std::fs::create_dir_all(parent).map_err(|e| {
+                            let err_msg = format!("Failed to create parent directory '{}' for library '{lib_name}': {e}", parent.display());
+                            error!(name = %lib_name, is_native = is_native, path = %parent.display(), error = %e, "Dir creation failed");
+                            LaunchError::Launch(err_msg)
+                        })?;
                     }
+
                     let tmp = full_local_path.with_extension("tmp");
-                    let _ = std::fs::write(&tmp, &resp);
-                    let _ = std::fs::rename(&tmp, &full_local_path);
+                    std::fs::write(&tmp, &resp).map_err(|e| {
+                        let err_msg = format!("Failed to write temporary file '{}' for library '{lib_name}': {e}", tmp.display());
+                        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), error = %e, "File write failed");
+                        LaunchError::Launch(err_msg)
+                    })?;
+
+                    std::fs::rename(&tmp, &full_local_path).map_err(|e| {
+                        let err_msg = format!("Failed to rename temporary file '{}' to '{}' for library '{lib_name}': {e}", tmp.display(), full_local_path.display());
+                        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), target_path = %full_local_path.display(), error = %e, "File rename failed");
+                        LaunchError::Launch(err_msg)
+                    })?;
 
                     downloaded_b.fetch_add(resp.len() as u64, Ordering::SeqCst);
+                    debug!(
+                        name = %lib_name,
+                        is_native = is_native,
+                        path = %full_local_path.display(),
+                        "Library downloaded successfully"
+                    );
                 }
 
                 let cur = downloaded_b.load(Ordering::SeqCst);
@@ -226,9 +314,11 @@ impl DownloadManager {
 
         for task in tasks {
             task.await
-                .map_err(|e| LaunchError::Launch(e.to_string()))??;
+                .map_err(|e| LaunchError::Launch(format!("Library download task failed to join: {e}")))?
+                ?;
         }
 
+        info!("All applicable libraries processed successfully");
         Ok(())
     }
 
@@ -318,11 +408,19 @@ impl DownloadManager {
                                     let _ = std::fs::write(&tmp, &bytes);
                                     let _ = std::fs::rename(&tmp, &target_path);
                                     downloaded_cnt.fetch_add(size, Ordering::SeqCst);
+                                    debug!(asset = %name_clone, hash = %hash, "Downloaded asset object");
+                                } else {
+                                    warn!(asset = %name_clone, hash = %hash, "Failed reading asset bytes");
                                 }
+                            } else {
+                                warn!(asset = %name_clone, hash = %hash, status = %resp.status(), "Asset download HTTP failure");
                             }
+                        } else {
+                            warn!(asset = %name_clone, hash = %hash, "Asset HTTP request failed");
                         }
                     } else {
                         downloaded_cnt.fetch_add(size, Ordering::SeqCst);
+                        debug!(asset = %name_clone, hash = %hash, "Asset object already cached");
                     }
 
                     let cur = downloaded_cnt.load(Ordering::SeqCst);
@@ -348,8 +446,10 @@ impl DownloadManager {
         expected_sha1: Option<&str>,
     ) -> Result<(), LaunchError> {
         if target_path.exists() && target_path.metadata().map_or(false, |m| m.len() > 1000) {
+            debug!(path = %target_path.display(), "Client JAR already cached, skipping download");
             return Ok(());
         }
+        info!(path = %target_path.display(), url = %url, "Downloading client JAR");
         self.download_file(url, target_path, expected_sha1).await
     }
 
@@ -359,20 +459,29 @@ impl DownloadManager {
         target: &Path,
         expected_sha1: Option<&str>,
     ) -> Result<(), LaunchError> {
-        let response = self.http.get(url).send().await?;
+        info!(url = %url, target = %target.display(), "Downloading file");
+        let response = self.http.get(url).send().await.map_err(|e| {
+            error!(url = %url, error = %e, "HTTP request failed");
+            LaunchError::Launch(format!("HTTP error downloading {url}: {e}"))
+        })?;
         if !response.status().is_success() {
+            let status = response.status();
+            error!(url = %url, status = %status, "HTTP response status failure");
             return Err(LaunchError::Launch(format!(
-                "HTTP status {} downloading {url}",
-                response.status()
+                "HTTP status {status} downloading {url}"
             )));
         }
-        let resp = response.bytes().await?;
+        let resp = response.bytes().await.map_err(|e| {
+            error!(url = %url, error = %e, "Failed reading response body");
+            LaunchError::Launch(format!("Failed reading response bytes from {url}: {e}"))
+        })?;
 
         if let Some(expected) = expected_sha1 {
             let mut hasher = Sha1::new();
             hasher.update(&resp);
             let computed = hex::encode(hasher.finalize());
             if !computed.eq_ignore_ascii_case(expected) {
+                error!(url = %url, expected = %expected, computed = %computed, "SHA1 mismatch");
                 return Err(LaunchError::Launch(format!(
                     "SHA1 mismatch for {url}: expected {expected}, got {computed}"
                 )));
@@ -380,13 +489,128 @@ impl DownloadManager {
         }
 
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                error!(target = %target.display(), error = %e, "Dir creation failed");
+                LaunchError::Launch(format!("Failed to create parent directory for {}: {e}", target.display()))
+            })?;
         }
 
         let tmp = target.with_extension("tmp");
-        std::fs::write(&tmp, &resp)?;
-        std::fs::rename(&tmp, target)?;
+        std::fs::write(&tmp, &resp).map_err(|e| {
+            error!(tmp = %tmp.display(), error = %e, "File write failed");
+            LaunchError::Launch(format!("Failed to write temporary file {}: {e}", tmp.display()))
+        })?;
+        std::fs::rename(&tmp, target).map_err(|e| {
+            error!(tmp = %tmp.display(), target = %target.display(), error = %e, "File rename failed");
+            LaunchError::Launch(format!("Failed to rename temporary file {} to {}: {e}", tmp.display(), target.display()))
+        })?;
 
+        debug!(target = %target.display(), "File downloaded successfully");
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestDir(PathBuf);
+    impl TestDir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("rtl_test_{}_{}", name, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let _ = std::fs::create_dir_all(&path);
+            Self(path)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn test_local_path_and_maven_url_for_standard_and_native_libraries() {
+        let std_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.1".to_string(),
+            url: None,
+            sha1: None,
+            size: None,
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+
+        let native_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.1:natives-windows".to_string(),
+            url: None,
+            sha1: None,
+            size: None,
+            is_native: true,
+            rules: vec![],
+            extract: None,
+        };
+
+        let std_path = DownloadManager::local_path_for_library(&std_lib).unwrap();
+        assert_eq!(
+            std_path,
+            PathBuf::from("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar")
+        );
+
+        let native_path = DownloadManager::local_path_for_library(&native_lib).unwrap();
+        assert_eq!(
+            native_path,
+            PathBuf::from("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar")
+        );
+
+        let std_url = DownloadManager::maven_url_for_library(&std_lib).unwrap();
+        assert_eq!(
+            std_url,
+            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar"
+        );
+
+        let native_url = DownloadManager::maven_url_for_library(&native_lib).unwrap();
+        assert_eq!(
+            native_url,
+            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_libraries_skips_cached() {
+        let dir = TestDir::new("skip_cached");
+        let dm = DownloadManager::new(dir.path().to_path_buf());
+
+        let native_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.1:natives-windows".to_string(),
+            url: None,
+            sha1: None,
+            size: None,
+            is_native: true,
+            rules: vec![],
+            extract: None,
+        };
+
+        // Create pre-cached library file >= 1000 bytes
+        let local_rel = DownloadManager::local_path_for_library(&native_lib).unwrap();
+        let cached_path = dm.libraries_dir().join(local_rel);
+        std::fs::create_dir_all(cached_path.parent().unwrap()).unwrap();
+        std::fs::write(&cached_path, vec![0u8; 1200]).unwrap();
+
+        let progress_called = Arc::new(AtomicU64::new(0));
+        let progress_called_clone = progress_called.clone();
+
+        let res = dm
+            .download_libraries(&[native_lib], move |_, _, _| {
+                progress_called_clone.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+
+        assert!(res.is_ok());
+        assert_eq!(progress_called.load(Ordering::SeqCst), 1);
+    }
+}
+
+

@@ -771,3 +771,169 @@ fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::profile::assemble_launch_profile;
+    use crate::{Component, Library, Rule, RuleOs, VersionFile};
+    use super::*;
+
+    #[test]
+    fn parse_library_new_format_native() {
+        let json = serde_json::json!({
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
+                    "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
+                    "size": 165442,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                }
+            },
+            "name": "org.lwjgl:lwjgl:3.3.3:natives-windows",
+            "rules": [{"action": "allow", "os": {"name": "windows"}}]
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_native);
+        assert_eq!(result[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
+        assert!(result[0].url.is_some());
+        eprintln!("Test OK: native library parsed: name={} url={:?}", result[0].name, result[0].url);
+    }
+
+    #[test]
+    fn parse_library_new_format_regular() {
+        let json = serde_json::json!({
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
+                    "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
+                    "size": 785029,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                }
+            },
+            "name": "org.lwjgl:lwjgl:3.3.3"
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_native);
+        eprintln!("Test OK: regular library parsed: name={}", result[0].name);
+    }
+
+    #[test]
+    fn parse_version_json_1206() {
+        let json = serde_json::json!({
+            "libraries": [
+                {
+                    "downloads": {
+                        "artifact": {
+                            "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
+                            "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
+                            "size": 785029,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                        }
+                    },
+                    "name": "org.lwjgl:lwjgl:3.3.3"
+                },
+                {
+                    "downloads": {
+                        "artifact": {
+                            "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
+                            "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
+                            "size": 165442,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                        }
+                    },
+                    "name": "org.lwjgl:lwjgl:3.3.3:natives-windows",
+                    "rules": [{"action": "allow", "os": {"name": "windows"}}]
+                }
+            ]
+        });
+
+        let vf = parse_version_json(&json);
+        let natives: Vec<&Library> = vf.libraries.iter().filter(|l| l.is_native).collect();
+        assert_eq!(natives.len(), 1, "Expected 1 native library, got {}", natives.len());
+        for l in &natives {
+            eprintln!("Found native: name={} url={:?}", l.name, l.url);
+        }
+        assert_eq!(natives[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
+        assert!(natives[0].url.is_some());
+        assert!(natives[0].url.as_ref().unwrap().contains("natives-windows.jar"));
+    }
+
+    #[test]
+    fn assemble_profile_with_natives() {
+        // Simulate what parse_version_json produces for a 1.20.6-style JSON
+        let native_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.3:natives-windows".to_string(),
+            url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar".to_string()),
+            sha1: Some("a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540".to_string()),
+            size: Some(165442),
+            is_native: true,
+            rules: vec![Rule {
+                action: "allow".to_string(),
+                os: Some(RuleOs {
+                    name: Some("windows".to_string()),
+                    arch: None,
+                }),
+                features: std::collections::HashMap::new(),
+            }],
+            extract: None,
+        };
+        let regular_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.3".to_string(),
+            url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar".to_string()),
+            sha1: Some("29589b5f87ed335a6c7e7ee6a5775f81f97ecb84".to_string()),
+            size: Some(785029),
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+        let vf = VersionFile {
+            libraries: vec![regular_lib, native_lib],
+            ..VersionFile::default()
+        };
+        let component = Component {
+            uid: "net.minecraft".to_string(),
+            version: "1.20.6".to_string(),
+            is_locked: true,
+            dependencies: vec![],
+            conflicts: vec![],
+            version_file: vf,
+        };
+        let profile = assemble_launch_profile(&[component]).unwrap();
+        eprintln!("libraries: {}, native_libraries: {}", profile.libraries.len(), profile.native_libraries.len());
+        assert!(!profile.native_libraries.is_empty(), "native_libraries should NOT be empty!");
+        assert_eq!(profile.native_libraries.len(), 1);
+        assert!(profile.native_libraries[0].name.contains("natives-windows"));
+    }
+
+    #[test]
+    fn parse_library_old_format() {
+        let json = serde_json::json!({
+            "name": "org.lwjgl:lwjgl:3.3.3",
+            "natives": {
+                "windows": "natives-windows",
+                "linux": "natives-linux",
+                "osx": "natives-osx"
+            },
+            "downloads": {
+                "artifact": {
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                },
+                "classifiers": {
+                    "natives-windows": {
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                    }
+                }
+            }
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 2);
+        assert!(!result[0].is_native);
+        assert!(result[1].is_native);
+        eprintln!("Test OK: old format parsed: {:?} + native {:?}", result[0].name, result[1].name);
+    }
+}

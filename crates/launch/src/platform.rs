@@ -88,6 +88,7 @@ mod tests {
         let rules = vec![Rule {
             action: "allow".to_string(),
             os: None,
+            features: std::collections::HashMap::new(),
         }];
         assert!(should_include(&rules));
     }
@@ -97,6 +98,7 @@ mod tests {
         let rules = vec![Rule {
             action: "disallow".to_string(),
             os: None,
+            features: std::collections::HashMap::new(),
         }];
         assert!(!should_include(&rules));
     }
@@ -109,6 +111,7 @@ mod tests {
                 name: Some(current_os().to_string()),
                 arch: None,
             }),
+            features: std::collections::HashMap::new(),
         }];
         assert!(should_include(&rules));
     }
@@ -121,6 +124,7 @@ mod tests {
                 name: Some(current_os().to_string()),
                 arch: None,
             }),
+            features: std::collections::HashMap::new(),
         }];
         assert!(!should_include(&rules));
     }
@@ -133,6 +137,7 @@ mod tests {
                 name: Some("windows".to_string()),
                 arch: None,
             }),
+            features: std::collections::HashMap::new(),
         }];
         // On Linux, a rule allowing only Windows should result in exclusion
         if current_os() != "windows" {

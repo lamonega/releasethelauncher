@@ -12,9 +12,12 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 ///
 /// Checks, in order:
 /// 1. The per-instance `java_path` override from settings.
-/// 2. The `JAVA_HOME` environment variable.
-/// 3. Windows Registry entries for known Java vendors.
-/// 4. `java`/`javaw` on `PATH`.
+/// 2. The `JAVA_HOME` environment variable (`bin/javaw.exe` / `bin/java.exe` / `bin/java`).
+/// 3. Windows Registry entries for known Java vendors (including JDK 25+).
+/// 4. Dev environment paths (`.jdks`, `.sdkman`, `.gradle`).
+/// 5. Bundled Minecraft Java installations.
+/// 6. `java`/`javaw` on `PATH`.
+/// 7. Known system fallback installation paths.
 ///
 /// Returns the path to a valid Java executable, or a [`LaunchError::JavaNotFound`].
 ///
@@ -26,6 +29,22 @@ pub fn resolve_java(
     instance_java_path: Option<&str>,
     compatible_java_majors: &[u32],
 ) -> Result<PathBuf, LaunchError> {
+    let mut last_incompatible_err = None;
+
+    let mut check_candidate = |path: &Path| -> Option<PathBuf> {
+        if path.exists() {
+            match validate_java(path, compatible_java_majors) {
+                Ok(validated) => Some(validated),
+                Err(err) => {
+                    last_incompatible_err = Some(err);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     if let Some(path_str) = instance_java_path {
         let path = PathBuf::from(path_str);
         if path.exists() {
@@ -34,10 +53,17 @@ pub fn resolve_java(
     }
 
     if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        let exe_name = java_executable_name();
-        let path = PathBuf::from(&java_home).join("bin").join(exe_name);
-        if path.exists() {
-            return validate_java(&path, compatible_java_majors);
+        let home_path = PathBuf::from(&java_home);
+        let executables = if cfg!(windows) {
+            vec!["javaw.exe", "java.exe"]
+        } else {
+            vec!["java"]
+        };
+        for exe in executables {
+            let path = home_path.join("bin").join(exe);
+            if let Some(valid) = check_candidate(&path) {
+                return Ok(valid);
+            }
         }
     }
 
@@ -45,10 +71,8 @@ pub fn resolve_java(
     {
         let candidates = find_java_from_registry();
         for path in candidates {
-            if path.exists() {
-                if let Ok(validated) = validate_java(&path, compatible_java_majors) {
-                    return Ok(validated);
-                }
+            if let Some(valid) = check_candidate(&path) {
+                return Ok(valid);
             }
         }
     }
@@ -66,10 +90,10 @@ pub fn resolve_java(
                 if let Ok(entries) = std::fs::read_dir(base) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        let exe = path.join("bin").join(java_executable_name());
-                        if exe.exists() {
-                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
-                                return Ok(validated);
+                        for exe in &["bin/javaw.exe", "bin/java.exe", "bin/java"] {
+                            let candidate = path.join(exe);
+                            if let Some(valid) = check_candidate(&candidate) {
+                                return Ok(valid);
                             }
                         }
                     }
@@ -78,22 +102,24 @@ pub fn resolve_java(
         }
     }
 
-    {
-        if let Some(path) = find_bundled_java(compatible_java_majors) {
-            return Ok(path);
-        }
+    if let Some(path) = find_bundled_java(compatible_java_majors) {
+        return Ok(path);
     }
 
-    let exe_name = java_executable_name();
+    let exe_names = if cfg!(windows) {
+        vec!["javaw.exe", "java.exe"]
+    } else {
+        vec!["java"]
+    };
     let find_cmd = if cfg!(windows) { "where" } else { "which" };
-    if let Ok(output) = quiet_command(find_cmd, &[exe_name]) {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            for line in path_str.lines() {
-                let path = PathBuf::from(line.trim());
-                if path.exists() {
-                    if let Ok(validated) = validate_java(&path, compatible_java_majors) {
-                        return Ok(validated);
+    for exe_name in exe_names {
+        if let Ok(output) = quiet_command(find_cmd, &[exe_name]) {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                for line in path_str.lines() {
+                    let path = PathBuf::from(line.trim());
+                    if let Some(valid) = check_candidate(&path) {
+                        return Ok(valid);
                     }
                 }
             }
@@ -103,34 +129,44 @@ pub fn resolve_java(
     #[cfg(target_os = "windows")]
     {
         let fallbacks = [
+            r"C:\Program Files\Java\jdk-25\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-25\bin\java.exe",
+            r"C:\Program Files\Eclipse Adoptium\jdk-25\bin\javaw.exe",
+            r"C:\Program Files\Microsoft\jdk-25\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-24\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-23\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-22\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-21\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-21\bin\java.exe",
+            r"C:\Program Files\Java\jdk-17\bin\javaw.exe",
+            r"C:\Program Files\Java\jdk-17\bin\java.exe",
             r"C:\Program Files\Java\jre8\bin\javaw.exe",
             r"C:\Program Files\Java\jre1.8.0\bin\javaw.exe",
             r"C:\Program Files (x86)\Java\jre8\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-17\bin\java.exe",
-            r"C:\Program Files\Java\jdk-21\bin\java.exe",
         ];
         for fallback in &fallbacks {
             let path = PathBuf::from(fallback);
-            if path.exists() {
-                if let Ok(validated) = validate_java(&path, compatible_java_majors) {
-                    return Ok(validated);
-                }
+            if let Some(valid) = check_candidate(&path) {
+                return Ok(valid);
             }
         }
     }
 
-    Err(LaunchError::JavaNotFound(
-        "No Java installation found. Set JAVA_HOME or add java to PATH.".to_string(),
-    ))
-}
-
-const fn java_executable_name() -> &'static str {
-    if cfg!(windows) {
-        "javaw.exe"
+    if let Some(err) = last_incompatible_err {
+        Err(err)
     } else {
-        "java"
+        let req_info = if compatible_java_majors.is_empty() {
+            String::new()
+        } else {
+            let min_req = compatible_java_majors.iter().copied().min().unwrap_or(8);
+            format!(" (required Java {min_req}+)")
+        };
+        Err(LaunchError::JavaNotFound(format!(
+            "No Java installation found{req_info}. Set JAVA_HOME or add java to PATH."
+        )))
     }
 }
+
 
 fn find_bundled_java(compatible_java_majors: &[u32]) -> Option<PathBuf> {
     let mc_runtimes = if cfg!(windows) {
@@ -154,14 +190,16 @@ fn find_bundled_java(compatible_java_majors: &[u32]) -> Option<PathBuf> {
             if let Ok(entries) = std::fs::read_dir(runtime_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    let exe = if cfg!(windows) {
-                        path.join("bin/javaw.exe")
+                    let exes = if cfg!(windows) {
+                        vec![path.join("bin/javaw.exe"), path.join("bin/java.exe")]
                     } else {
-                        path.join("bin/java")
+                        vec![path.join("bin/java")]
                     };
-                    if exe.exists() {
-                        if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
-                            return Some(validated);
+                    for exe in exes {
+                        if exe.exists() {
+                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
+                                return Some(validated);
+                            }
                         }
                     }
                 }
@@ -216,17 +254,26 @@ fn find_java_from_registry() -> Vec<PathBuf> {
         for view in &views {
             for subkey_path in &subkeys {
                 if let Ok(subkey) = hive.open_subkey_with_flags(subkey_path, *view) {
+                    for value_name in &value_names {
+                        if let Ok(java_home) = subkey.get_value::<String, _>(value_name) {
+                            add_java_bin_candidates(&java_home, &mut candidates);
+                        }
+                    }
+
                     for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
-                        if let Ok(version_key) = subkey.open_subkey(&version_name) {
+                        if let Ok(version_key) = subkey.open_subkey_with_flags(&version_name, *view) {
                             for value_name in &value_names {
-                                if let Ok(java_home) =
-                                    version_key.get_value::<String, _>(value_name)
-                                {
-                                    let bin_dir = PathBuf::from(&java_home).join("bin");
-                                    let exe = java_executable_name();
-                                    let candidate = bin_dir.join(exe);
-                                    if !candidates.contains(&candidate) {
-                                        candidates.push(candidate);
+                                if let Ok(java_home) = version_key.get_value::<String, _>(value_name) {
+                                    add_java_bin_candidates(&java_home, &mut candidates);
+                                }
+                            }
+
+                            for sub_version_name in version_key.enum_keys().filter_map(std::result::Result::ok) {
+                                if let Ok(nested_key) = version_key.open_subkey_with_flags(&sub_version_name, *view) {
+                                    for value_name in &value_names {
+                                        if let Ok(java_home) = nested_key.get_value::<String, _>(value_name) {
+                                            add_java_bin_candidates(&java_home, &mut candidates);
+                                        }
                                     }
                                 }
                             }
@@ -240,30 +287,50 @@ fn find_java_from_registry() -> Vec<PathBuf> {
     candidates
 }
 
-fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
-    detect_java_major_version(java_path).map_or_else(
-        || {
+#[cfg(target_os = "windows")]
+fn add_java_bin_candidates(java_home: &str, candidates: &mut Vec<PathBuf>) {
+    let base = PathBuf::from(java_home.trim());
+    for exe in &["javaw.exe", "java.exe"] {
+        let candidate = if base.ends_with("bin") {
+            base.join(exe)
+        } else {
+            base.join("bin").join(exe)
+        };
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+}
+
+pub fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
+    if let Some(major) = detect_java_major_version(java_path) {
+        check_version_compatibility(major, java_path, compatible_java_majors)
+    } else {
+        Err(LaunchError::JavaNotFound(format!(
+            "Could not determine Java version at: {}",
+            java_path.display()
+        )))
+    }
+}
+
+fn check_version_compatibility(
+    major: u32,
+    java_path: &Path,
+    compatible_java_majors: &[u32],
+) -> Result<PathBuf, LaunchError> {
+    if compatible_java_majors.is_empty() {
+        Ok(java_path.to_path_buf())
+    } else {
+        let min_required = compatible_java_majors.iter().copied().min().unwrap_or(8);
+        if major >= min_required || compatible_java_majors.contains(&major) {
+            Ok(java_path.to_path_buf())
+        } else {
             Err(LaunchError::JavaNotFound(format!(
-                "Could not determine Java version at: {}",
+                "Minecraft requires Java {min_required}+ (found Java {major} at {})",
                 java_path.display()
             )))
-        },
-        |major| {
-            if compatible_java_majors.is_empty() {
-                Ok(java_path.to_path_buf())
-            } else {
-                let min_required = compatible_java_majors.iter().copied().min().unwrap_or(8);
-                if major >= min_required {
-                    Ok(java_path.to_path_buf())
-                } else {
-                    Err(LaunchError::JavaNotFound(format!(
-                        "Minecraft requires Java {min_required}+ (found Java {major} at {})",
-                        java_path.display()
-                    )))
-                }
-            }
-        },
-    )
+        }
+    }
 }
 
 fn detect_java_major_version(java_path: &Path) -> Option<u32> {
@@ -272,21 +339,64 @@ fn detect_java_major_version(java_path: &Path) -> Option<u32> {
     parse_java_version_output(&stderr)
 }
 
-fn parse_java_version_output(output: &str) -> Option<u32> {
-    let version_line = output.lines().next()?;
-    let version_str = version_line
-        .trim_start_matches("java version \"")
-        .trim_start_matches("openjdk version \"")
-        .trim_matches('"');
+pub fn parse_java_version_output(output: &str) -> Option<u32> {
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
 
-    let first_part: &str = version_str.split('.').next()?;
-    let major: u32 = first_part.parse().ok()?;
+        if let Some(idx) = line.find("version ") {
+            let after_version = &line[idx + "version ".len()..];
+            let ver_str = if after_version.starts_with('"') {
+                let inside = &after_version[1..];
+                inside.split('"').next().unwrap_or(inside)
+            } else {
+                after_version.split_whitespace().next().unwrap_or(after_version)
+            };
+            if let Some(major) = extract_major_version(ver_str) {
+                return Some(major);
+            }
+        }
 
-    if major == 1 {
-        let second = version_str.split('.').nth(1)?;
-        second.parse().ok()
+        if let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) {
+            if start < end {
+                let ver_str = &line[start + 1..end];
+                if let Some(major) = extract_major_version(ver_str) {
+                    return Some(major);
+                }
+            }
+        }
+
+        for token in line.split_whitespace() {
+            let clean_token = token.trim_matches('"');
+            if clean_token.starts_with(|c: char| c.is_ascii_digit()) {
+                if let Some(major) = extract_major_version(clean_token) {
+                    return Some(major);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn extract_major_version(ver_str: &str) -> Option<u32> {
+    let ver_str = ver_str.trim_matches('"').trim();
+    if ver_str.is_empty() {
+        return None;
+    }
+
+    let target_part = if ver_str.starts_with("1.") {
+        &ver_str[2..]
     } else {
-        Some(major)
+        ver_str
+    };
+
+    let digits: String = target_part.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse().ok()
     }
 }
 
@@ -311,11 +421,33 @@ mod tests {
     }
 
     #[test]
+    fn parse_java_25_ea() {
+        assert_eq!(
+            parse_java_version_output("openjdk version \"25-ea\" 2025-09-16"),
+            Some(25)
+        );
+    }
+
+    #[test]
+    fn parse_java_25_plain() {
+        assert_eq!(
+            parse_java_version_output("java version \"25\""),
+            Some(25)
+        );
+    }
+
+    #[test]
     fn parse_old_style_version() {
         assert_eq!(
             parse_java_version_output("java version \"1.8.0_362\""),
             Some(8)
         );
+    }
+
+    #[test]
+    fn parse_with_leading_stdout_stderr_junk() {
+        let sample = "Picked up _JAVA_OPTIONS: -Dsomething=true\nopenjdk version \"21.0.3\" 2024-04-16\nOpenJDK Runtime Environment";
+        assert_eq!(parse_java_version_output(sample), Some(21));
     }
 
     #[test]
@@ -330,4 +462,22 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn test_check_version_compatibility() {
+        let dummy_path = Path::new("/usr/bin/java");
+
+        // Equal or higher version
+        assert!(check_version_compatibility(21, dummy_path, &[17]).is_ok());
+        assert!(check_version_compatibility(25, dummy_path, &[25]).is_ok());
+        assert!(check_version_compatibility(8, dummy_path, &[8]).is_ok());
+
+        // Incompatible version lower than required
+        let err = check_version_compatibility(21, dummy_path, &[25]).unwrap_err();
+        assert!(err.to_string().contains("Minecraft requires Java 25+ (found Java 21 at /usr/bin/java)"));
+
+        let err8 = check_version_compatibility(8, dummy_path, &[17]).unwrap_err();
+        assert!(err8.to_string().contains("Minecraft requires Java 17+ (found Java 8 at /usr/bin/java)"));
+    }
 }
+
