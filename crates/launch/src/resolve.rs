@@ -205,30 +205,65 @@ impl DependencyResolver {
         mc_version: &str,
         forge_version: &str,
     ) -> Result<Component, LaunchError> {
-        let url = format!(
-            "{FORGE_MAVEN}/net/minecraftforge/forge/{mc_version}/{forge_version}/forge-{mc_version}-install-profile.json"
-        );
-        let resp: serde_json::Value = self.http.get(&url).send().await?.json().await?;
+        let full_ver = if forge_version.contains(mc_version) {
+            forge_version.to_string()
+        } else {
+            format!("{mc_version}-{forge_version}")
+        };
+
+        let urls = vec![
+            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-install-profile.json"),
+            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{mc_version}/{forge_version}/forge-{mc_version}-install-profile.json"),
+            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/install-profile.json"),
+        ];
+
         let mut libraries = Vec::new();
         let mut main_class = None;
 
-        if let Some(data) = resp.get("data") {
-            if let Some(mc_main) = data
-                .get("MINECRAFT_MAIN_CLASS")
-                .and_then(|v| v.get("client"))
-            {
-                if let Some(s) = mc_main.as_str() {
-                    main_class = Some(s.to_string());
+        for url in urls {
+            if let Ok(resp_res) = self.http.get(&url).send().await {
+                if resp_res.status().is_success() {
+                    if let Ok(resp) = resp_res.json::<serde_json::Value>().await {
+                        if let Some(data) = resp.get("data") {
+                            if let Some(mc_main) = data
+                                .get("MINECRAFT_MAIN_CLASS")
+                                .and_then(|v| v.get("client"))
+                            {
+                                if let Some(s) = mc_main.as_str() {
+                                    main_class = Some(s.to_string());
+                                }
+                            }
+                        }
+                        if let Some(libs) = resp
+                            .get("versionInfo")
+                            .and_then(|v| v.get("libraries"))
+                            .and_then(|v| v.as_array())
+                        {
+                            for lib in libs {
+                                libraries.extend(parse_library(lib));
+                            }
+                        }
+                        break;
+                    }
                 }
             }
         }
-        if let Some(libs) = resp
-            .get("versionInfo")
-            .and_then(|v| v.get("libraries"))
-            .and_then(|v| v.as_array())
-        {
-            for lib in libs {
-                libraries.extend(parse_library(lib));
+
+        if libraries.is_empty() {
+            let forge_jar_url = format!(
+                "{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-universal.jar"
+            );
+            libraries.push(crate::Library {
+                name: format!("net.minecraftforge:forge:{full_ver}"),
+                url: Some(forge_jar_url),
+                sha1: None,
+                size: None,
+                is_native: false,
+                rules: vec![],
+                extract: None,
+            });
+            if main_class.is_none() {
+                main_class = Some("net.minecraft.launchwrapper.Launch".to_string());
             }
         }
 
@@ -683,7 +718,7 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         .get("javaVersion")
         .and_then(|jv| jv.get("majorVersion"))
         .and_then(serde_json::Value::as_u64)
-        .map_or_else(|| vec![17, 21], |v| vec![v as u32]);
+        .map_or_else(|| vec![17, 21, 25], |v| vec![v as u32]);
 
     VersionFile {
         main_class,

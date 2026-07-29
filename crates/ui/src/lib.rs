@@ -60,6 +60,7 @@ pub enum DetailTab {
     Info,
     Logs,
     Mods,
+    Config,
 }
 
 #[derive(Debug, Clone)]
@@ -239,7 +240,13 @@ impl App {
     /// # Panics
     ///
     /// Panics if `self.ctx` is `None` (it is always set by `main.rs`).
-    pub fn install_mod_from_modrinth(&self, project_id: String, mods_dir: std::path::PathBuf) {
+    pub fn install_mod_from_modrinth(
+        &self,
+        project_id: String,
+        mods_dir: std::path::PathBuf,
+        mc_version: Option<String>,
+        loader_name: Option<String>,
+    ) {
         let queue = self.ui_queue.clone();
         let ctx = self.ctx.clone().expect("egui context not set");
         let handle = match &self.tokio_handle {
@@ -248,7 +255,13 @@ impl App {
         };
         handle.spawn(async move {
             let provider = ModrinthProvider::new(None);
-            let result = match provider.get_versions(&project_id, &[], &[]).await {
+            let mc_versions = mc_version.map(|v| vec![v]).unwrap_or_default();
+            let loaders = loader_name
+                .filter(|l| l != "vanilla")
+                .map(|l| vec![l.to_lowercase()])
+                .unwrap_or_default();
+
+            let result = match provider.get_versions(&project_id, &mc_versions, &loaders).await {
                 Ok(versions) => {
                     if let Some(version) = versions.first() {
                         match provider.download_mod(version, &mods_dir).await {
@@ -259,7 +272,9 @@ impl App {
                             Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
                         }
                     } else {
-                        UiMessage::ModrinthInstallResult(Err("No versions found".into()))
+                        UiMessage::ModrinthInstallResult(Err(
+                            "No compatible version found for this instance".into(),
+                        ))
                     }
                 }
                 Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
@@ -582,21 +597,26 @@ async fn do_launch(params: LaunchParams) {
         "Resolving version components & manifests...",
     );
 
-    let Ok(components) = resolve_components(
+    let components = match resolve_components(
         &params.queue,
         &params.ctx,
         &params.loader,
         &params.mc_version,
     )
     .await
-    else {
-        send_log(
-            &params.queue,
-            &params.ctx,
-            crate::log::LogLevel::Error,
-            "Failed to resolve version components",
-        );
-        return;
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = format!("Failed to resolve version components: {e}");
+            send_log(
+                &params.queue,
+                &params.ctx,
+                crate::log::LogLevel::Error,
+                &msg,
+            );
+            send(UiMessage::DownloadError(msg));
+            return;
+        }
     };
 
     send_log(
@@ -923,7 +943,7 @@ async fn resolve_components(
     ctx: &egui::Context,
     loader: &ModLoader,
     mc_version: &str,
-) -> Result<Vec<release_the_launcher_launch::Component>, ()> {
+) -> Result<Vec<release_the_launcher_launch::Component>, String> {
     let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let mut resolver = DependencyResolver::new();
 
@@ -931,10 +951,9 @@ async fn resolve_components(
         "Fetching version manifest...".to_string(),
     ));
     if let Err(e) = resolver.fetch_manifest().await {
-        send(UiMessage::DownloadError(format!(
-            "Failed to fetch version manifest: {e}"
-        )));
-        return Err(());
+        let err_msg = format!("Failed to fetch version manifest: {e}");
+        send(UiMessage::DownloadError(err_msg.clone()));
+        return Err(err_msg);
     }
 
     let mut components = Vec::new();
@@ -942,10 +961,9 @@ async fn resolve_components(
     match resolver.fetch_vanilla_component(mc_version).await {
         Ok(comp) => components.push(comp),
         Err(e) => {
-            send(UiMessage::DownloadError(format!(
-                "Failed to fetch Minecraft version: {e}"
-            )));
-            return Err(());
+            let err_msg = format!("Failed to fetch Minecraft version: {e}");
+            send(UiMessage::DownloadError(err_msg.clone()));
+            return Err(err_msg);
         }
     }
 
@@ -955,10 +973,9 @@ async fn resolve_components(
             match resolver.fetch_fabric_component(mc_version, Some(lv)).await {
                 Ok(comp) => components.push(comp),
                 Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to fetch Fabric loader: {e}"
-                    )));
-                    return Err(());
+                    let err_msg = format!("Failed to fetch Fabric loader: {e}");
+                    send(UiMessage::DownloadError(err_msg.clone()));
+                    return Err(err_msg);
                 }
             }
         }
@@ -969,10 +986,9 @@ async fn resolve_components(
             {
                 Ok(comp) => components.push(comp),
                 Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to fetch Forge loader: {e}"
-                    )));
-                    return Err(());
+                    let err_msg = format!("Failed to fetch Forge loader: {e}");
+                    send(UiMessage::DownloadError(err_msg.clone()));
+                    return Err(err_msg);
                 }
             }
         }
@@ -983,10 +999,9 @@ async fn resolve_components(
             {
                 Ok(comp) => components.push(comp),
                 Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to fetch NeoForge loader: {e}"
-                    )));
-                    return Err(());
+                    let err_msg = format!("Failed to fetch NeoForge loader: {e}");
+                    send(UiMessage::DownloadError(err_msg.clone()));
+                    return Err(err_msg);
                 }
             }
         }
@@ -995,10 +1010,9 @@ async fn resolve_components(
             match resolver.fetch_quilt_component(mc_version, Some(lv)).await {
                 Ok(comp) => components.push(comp),
                 Err(e) => {
-                    send(UiMessage::DownloadError(format!(
-                        "Failed to fetch Quilt loader: {e}"
-                    )));
-                    return Err(());
+                    let err_msg = format!("Failed to fetch Quilt loader: {e}");
+                    send(UiMessage::DownloadError(err_msg.clone()));
+                    return Err(err_msg);
                 }
             }
         }
@@ -1010,9 +1024,9 @@ async fn resolve_components(
         release_the_launcher_launch::resolve::resolve_dependencies(&mut resolver, components)
             .await
             .map_err(|e| {
-                send(UiMessage::DownloadError(format!(
-                    "Failed to resolve dependencies: {e}"
-                )));
+                let err_msg = format!("Failed to resolve dependencies: {e}");
+                send(UiMessage::DownloadError(err_msg.clone()));
+                err_msg
             })?;
 
     send(UiMessage::Status("Components resolved.".to_string()));

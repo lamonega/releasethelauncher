@@ -55,8 +55,8 @@ impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             path: None,
-            memory_min: Some("1G".to_string()),
-            memory_max: Some("2G".to_string()),
+            memory_min: None,
+            memory_max: None,
         }
     }
 }

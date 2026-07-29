@@ -180,4 +180,5 @@ pub mod icons {
     pub const ADD: &str = egui_phosphor::regular::PLUS;
     pub const SEARCH: &str = egui_phosphor::regular::MAGNIFYING_GLASS;
     pub const SETTINGS: &str = egui_phosphor::regular::GEAR;
+    pub const COPY: &str = egui_phosphor::regular::COPY;
 }

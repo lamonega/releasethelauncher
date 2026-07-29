@@ -154,7 +154,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     }
 
     if compatible_java_majors.is_empty() {
-        compatible_java_majors = vec![17, 21];
+        compatible_java_majors = vec![17, 21, 25];
     }
 
     Ok(LaunchProfile {

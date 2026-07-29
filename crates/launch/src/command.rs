@@ -50,18 +50,23 @@ fn replace_placeholders(
     let mc_dir_str = mc_dir.display().to_string();
     let assets_dir_str = assets_dir.display().to_string();
     let natives_dir_str = natives_dir.display().to_string();
-    let token = if player.access_token.is_empty() {
+    let is_offline = player.access_token.is_empty()
+        || player.access_token == "0"
+        || player.access_token == "offline";
+    let token = if is_offline {
         "0"
     } else {
         &player.access_token
     };
+    let user_type = if is_offline { "legacy" } else { "msa" };
 
     let mut res = raw.to_string();
     for (key, val) in [
         ("auth_player_name", player.name.as_str()),
         ("auth_uuid", player.uuid.as_str()),
         ("auth_access_token", token),
-        ("user_type", "msa"),
+        ("auth_session_id", token),
+        ("user_type", user_type),
         ("version_name", profile.mc_version.as_str()),
         ("version_type", profile.mc_version_type.as_str()),
         ("game_directory", mc_dir_str.as_str()),
@@ -89,10 +94,7 @@ pub fn build_command(
     memory_max: &str,
 ) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(java_path);
-
-    let mc_dir = instance_dir.join(".minecraft");
-    std::fs::create_dir_all(&mc_dir).ok();
-    cmd.current_dir(&mc_dir);
+    cmd.current_dir(instance_dir);
 
     clean_environment(&mut cmd);
     set_game_env(&mut cmd, instance_dir, &profile.mc_version);
@@ -103,7 +105,7 @@ pub fn build_command(
         .join(&profile.mc_version)
         .join(format!("{}.jar", profile.mc_version));
     classpath.push(mc_jar.display().to_string());
-    let cp_str = classpath.join(platform::classpath_separator());
+    let cp_str = classpath.join(crate::platform::classpath_separator());
 
     let mut has_min_mem = false;
     let mut has_max_mem = false;
@@ -148,23 +150,51 @@ pub fn build_command(
     if !profile.jvm_args.iter().any(|a| a.contains("-cp")) {
         cmd.arg("-cp").arg(&cp_str);
     }
+    let java_major = crate::java::detect_java_major_version(java_path).unwrap_or(8);
+    if java_major >= 9 && !profile.jvm_args.iter().any(|a| a.contains("java.base/java.net")) {
+        cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
+    }
 
     cmd.arg(&profile.main_class);
 
-    cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
-
     let game_args_raw = if profile.game_args_template.is_empty() {
-        "--username {auth_player_name} --version {version_name} --gameDir {game_directory} --assetsDir {assets_root} --assetIndex {assets_index_name} --uuid {auth_uuid} --accessToken {auth_access_token} --userType msa".to_string()
+        "--username {auth_player_name} --version {version_name} --gameDir {game_directory} --assetsDir {assets_root} --assetIndex {assets_index_name} --uuid {auth_uuid} --accessToken {auth_access_token} --userType {user_type}".to_string()
     } else {
         profile.game_args_template.clone()
     };
 
+    let mut has_tweak_class = game_args_raw.contains("--tweakClass");
+
     for arg in game_args_raw.split_whitespace() {
         let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
-        if processed == "--demo" {
+        if processed == "--demo"
+            || processed.starts_with("--quickPlay")
+            || processed.contains("${quickPlay")
+            || (processed.starts_with("${") && processed.ends_with('}'))
+        {
             continue;
         }
+        if processed == "--tweakClass" {
+            has_tweak_class = true;
+        }
         cmd.arg(&processed);
+    }
+
+    if !has_tweak_class
+        && (profile.main_class == "net.minecraft.launchwrapper.Launch"
+            || profile.traits.iter().any(|t| t == "legacyFML"))
+    {
+        let tweak = if profile.mc_version.starts_with("1.8")
+            || profile.mc_version.starts_with("1.9")
+            || profile.mc_version.starts_with("1.10")
+            || profile.mc_version.starts_with("1.11")
+            || profile.mc_version.starts_with("1.12")
+        {
+            "net.minecraftforge.fml.common.launcher.FMLTweaker"
+        } else {
+            "cpw.mods.fml.common.launcher.FMLTweaker"
+        };
+        cmd.arg("--tweakClass").arg(tweak);
     }
 
     cmd.arg("--width").arg("854");

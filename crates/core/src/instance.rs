@@ -163,4 +163,29 @@ impl InstanceManager {
     pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
         self.instances.get(id).map(|i| i.root.join(".index"))
     }
+
+    /// Updates and saves Java settings for a specific instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::InstanceNotFound`] if the instance is not found,
+    /// or [`CoreError::Io`] if saving `instance.toml` fails.
+    pub fn update_instance_java_settings(
+        &mut self,
+        id: &str,
+        path: Option<String>,
+        memory_min: Option<String>,
+        memory_max: Option<String>,
+    ) -> Result<(), CoreError> {
+        let instance = self
+            .instances
+            .get_mut(id)
+            .ok_or_else(|| CoreError::InstanceNotFound(id.to_string()))?;
+        instance.settings.java.path = path;
+        instance.settings.java.memory_min = memory_min;
+        instance.settings.java.memory_max = memory_max;
+        let config_path = instance.root.join("instance.toml");
+        instance.settings.save(&config_path)?;
+        Ok(())
+    }
 }

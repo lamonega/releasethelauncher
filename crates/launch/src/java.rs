@@ -333,7 +333,7 @@ fn check_version_compatibility(
     }
 }
 
-fn detect_java_major_version(java_path: &Path) -> Option<u32> {
+pub fn detect_java_major_version(java_path: &Path) -> Option<u32> {
     let output = quiet_command(java_path.to_str()?, &["-version"]).ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_java_version_output(&stderr)
