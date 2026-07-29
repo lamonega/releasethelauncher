@@ -558,7 +558,7 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
 }
 
 fn parse_library(lib: &serde_json::Value) -> Library {
-    let name = lib
+    let mut name = lib
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -566,12 +566,12 @@ fn parse_library(lib: &serde_json::Value) -> Library {
 
     let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
 
-    let url = lib
+    let mut url = lib
         .get("url")
         .and_then(|v| v.as_str())
         .or_else(|| artifact.and_then(|a| a.get("url")).and_then(|v| v.as_str()))
         .map(ToString::to_string);
-    let sha1 = lib
+    let mut sha1 = lib
         .get("sha1")
         .and_then(|v| v.as_str())
         .or_else(|| {
@@ -580,7 +580,7 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                 .and_then(|v| v.as_str())
         })
         .map(ToString::to_string);
-    let size = lib
+    let mut size = lib
         .get("size")
         .and_then(serde_json::Value::as_u64)
         .or_else(|| {
@@ -588,7 +588,25 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                 .and_then(|a| a.get("size"))
                 .and_then(serde_json::Value::as_u64)
         });
+
     let is_native = lib.get("natives").is_some();
+    if is_native {
+        if let Some(natives) = lib.get("natives").and_then(|v| v.as_object()) {
+            let os = crate::platform::current_os();
+            if let Some(classifier) = natives.get(os).and_then(|v| v.as_str()) {
+                let classifier = classifier.replace("${arch}", crate::platform::current_arch());
+                name.push(':');
+                name.push_str(&classifier);
+                if let Some(classifiers) = lib.get("downloads").and_then(|d| d.get("classifiers")) {
+                    if let Some(class_info) = classifiers.get(&classifier) {
+                        url = class_info.get("url").and_then(|v| v.as_str()).map(ToString::to_string);
+                        sha1 = class_info.get("sha1").and_then(|v| v.as_str()).map(ToString::to_string);
+                        size = class_info.get("size").and_then(serde_json::Value::as_u64);
+                    }
+                }
+            }
+        }
+    }
 
     let rules: Vec<Rule> = lib
         .get("rules")

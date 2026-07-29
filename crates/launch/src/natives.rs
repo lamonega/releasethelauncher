@@ -1,8 +1,32 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use crate::{LaunchError, Library};
+
+fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
+    let parts: Vec<&str> = lib.name.split(':').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let group = parts[0].replace('.', "/");
+    let artifact = parts[1];
+    let version = parts[2];
+    let classifier = parts.get(3);
+
+    let filename = classifier.map_or_else(
+        || format!("{artifact}-{version}.jar"),
+        |cls| format!("{artifact}-{version}-{cls}.jar"),
+    );
+
+    Some(
+        PathBuf::from(&group)
+            .join(artifact)
+            .join(version)
+            .join(filename),
+    )
+}
 
 /// # Errors
 /// Returns an error if file system operations fail.
@@ -17,18 +41,8 @@ pub fn extract_natives(
     fs::create_dir_all(natives_dir)?;
 
     for lib in native_libraries {
-        let parts: Vec<&str> = lib.name.split(':').collect();
-        if parts.len() >= 3 {
-            let path = parts[0].replace('.', "/");
-            let artifact = parts[1];
-            let version = parts[2];
-            let filename = format!("{artifact}-{version}-natives.jar");
-            let jar_path = libraries_dir
-                .join(&path)
-                .join(artifact)
-                .join(version)
-                .join(&filename);
-
+        if let Some(relative) = local_path_for_library(lib) {
+            let jar_path = libraries_dir.join(&relative);
             if jar_path.exists() {
                 extract_jar_to_dir(&jar_path, natives_dir)?;
             }

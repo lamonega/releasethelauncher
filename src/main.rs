@@ -235,20 +235,22 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
             ui.add_space(state.app.theme.spacing.sm);
             ui.horizontal(|ui| {
                 ui.heading("Instances");
-                if ui
-                    .add(
-                        egui::Button::new(format!(" {} New", theme::icons::ADD))
-                            .fill(state.app.theme.accent),
-                    )
-                    .clicked()
-                {
-                    state
-                        .app
-                        .log(LogLevel::Info, "UI: Navigated to New Instance");
-                    state.new_instance_state = NewInstanceState::default();
-                    *navigate_to = Some(View::NewInstance);
-                    state.selected_instance_id = None;
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add(
+                            egui::Button::new(format!(" {} New", theme::icons::ADD))
+                                .fill(state.app.theme.accent),
+                        )
+                        .clicked()
+                    {
+                        state
+                            .app
+                            .log(LogLevel::Info, "UI: Navigated to New Instance");
+                        state.new_instance_state = NewInstanceState::default();
+                        *navigate_to = Some(View::NewInstance);
+                        state.selected_instance_id = None;
+                    }
+                });
             });
             ui.separator();
 

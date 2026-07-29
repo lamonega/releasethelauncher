@@ -122,7 +122,7 @@ impl DownloadManager {
     ) -> Result<(), LaunchError> {
         let applicable: Vec<&Library> = libraries
             .iter()
-            .filter(|lib| !lib.is_native && platform::should_include(&lib.rules))
+            .filter(|lib| platform::should_include(&lib.rules))
             .collect();
         if applicable.is_empty() {
             return Ok(());

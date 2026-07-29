@@ -992,8 +992,11 @@ async fn download_game_files(
     let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
 
+    let mut all_libraries = profile.libraries.clone();
+    all_libraries.extend(profile.native_libraries.clone());
+
     send(UiMessage::DownloadProgress {
-        message: format!("Preparing {} libraries...", profile.libraries.len()),
+        message: format!("Preparing {} libraries...", all_libraries.len()),
         done: 0,
         total: 0,
     });
@@ -1001,7 +1004,7 @@ async fn download_game_files(
     let progress_queue = queue.clone();
     let progress_ctx = ctx.clone();
     if let Err(e) = dl_manager
-        .download_libraries(&profile.libraries, move |done, lib_total, lib_name| {
+        .download_libraries(&all_libraries, move |done, lib_total, lib_name| {
             let _ = progress_queue.lock().map(|mut q| {
                 q.push(UiMessage::DownloadProgress {
                     message: format!("Downloading library: {lib_name}"),
