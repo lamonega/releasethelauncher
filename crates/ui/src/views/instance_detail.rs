@@ -92,11 +92,13 @@ pub fn show(
         _ => {}
     }
 
+    let is_vanilla = loader_name == "Vanilla";
+
     ui.add_space(app.theme.spacing.sm);
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
-    show_tabs(app, ui, &id, tab);
+    show_tabs(app, ui, &id, tab, is_vanilla);
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
@@ -108,18 +110,28 @@ pub fn show(
             show_logs(app, ui);
         }
         DetailTab::Mods => {
-            show_mods(app, ui, &root_path, &id, open_mod_browser);
+            if is_vanilla {
+                show_info(app, ui, &root_display, &loader_name, &mc_version);
+            } else {
+                show_mods(app, ui, &root_path, &id, open_mod_browser);
+            }
         }
     }
 }
 
-fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab) {
-    ui.horizontal(|ui| {
-        for (label, target_tab) in [
+fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab, is_vanilla: bool) {
+    let tabs: Vec<(&str, DetailTab)> = if is_vanilla {
+        vec![("Info", DetailTab::Info), ("Logs", DetailTab::Logs)]
+    } else {
+        vec![
             ("Info", DetailTab::Info),
             ("Logs", DetailTab::Logs),
             ("Mods", DetailTab::Mods),
-        ] {
+        ]
+    };
+
+    ui.horizontal(|ui| {
+        for (label, target_tab) in tabs {
             let style = if tab == target_tab {
                 egui::Button::new(label).fill(app.theme.accent)
             } else {
