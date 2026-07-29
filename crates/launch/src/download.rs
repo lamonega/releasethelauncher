@@ -2,7 +2,7 @@ use reqwest::Client;
 use sha1::Digest;
 use sha1::Sha1;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -118,18 +118,31 @@ impl DownloadManager {
     pub async fn download_libraries(
         &self,
         libraries: &[Library],
-        progress: impl Fn(usize, usize, &str) + Send + Sync + 'static,
+        progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), LaunchError> {
         let applicable: Vec<&Library> = libraries
             .iter()
             .filter(|lib| !lib.is_native && platform::should_include(&lib.rules))
             .collect();
-        let total = applicable.len();
-        if total == 0 {
+        if applicable.is_empty() {
             return Ok(());
         }
 
-        let downloaded = Arc::new(AtomicUsize::new(0));
+        // Pre-scan: sum sizes of existing files for accurate byte tracking
+        let mut initial_downloaded: u64 = 0;
+
+        for lib in &applicable {
+            if let Some(ref p) = Self::local_path_for_library(lib) {
+                let full_path = self.libraries_dir.join(p);
+                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= 1000) {
+                    let size = full_path.metadata().map(|m| m.len()).unwrap_or(0);
+                    initial_downloaded += size;
+                }
+            }
+        }
+
+        let total_bytes = Arc::new(AtomicU64::new(initial_downloaded));
+        let downloaded_bytes = Arc::new(AtomicU64::new(initial_downloaded));
         let semaphore = Arc::new(Semaphore::new(16));
         let progress_cb = Arc::new(progress);
 
@@ -149,11 +162,8 @@ impl DownloadManager {
                 lib.name.clone()
             };
 
-            let is_missing_or_corrupt = if full_local_path.exists() {
-                full_local_path.metadata().map_or(true, |m| m.len() < 1000)
-            } else {
-                true
-            };
+            let exists_ok = full_local_path.exists()
+                && full_local_path.metadata().is_ok_and(|m| m.len() >= 1000);
 
             let url = match Self::maven_url_for_library(lib) {
                 Some(u) => u,
@@ -163,11 +173,12 @@ impl DownloadManager {
             let sem = semaphore.clone();
             let http = self.http.clone();
             let sha1 = lib.sha1.clone();
-            let downloaded_cnt = downloaded.clone();
+            let total_b = total_bytes.clone();
+            let downloaded_b = downloaded_bytes.clone();
             let progress_ref = progress_cb.clone();
 
             tasks.push(tokio::spawn(async move {
-                if is_missing_or_corrupt {
+                if !exists_ok {
                     let _permit = sem.acquire().await.unwrap();
                     let response = http.get(&url).send().await.map_err(|e| {
                         LaunchError::Launch(format!("HTTP error downloading {url}: {e}"))
@@ -178,6 +189,9 @@ impl DownloadManager {
                             response.status()
                         )));
                     }
+                    let file_size = response.content_length().unwrap_or(0) as u64;
+                    total_b.fetch_add(file_size, Ordering::SeqCst);
+
                     let resp = response.bytes().await.map_err(|e| {
                         LaunchError::Launch(format!("Bytes error downloading {url}: {e}"))
                     })?;
@@ -199,10 +213,13 @@ impl DownloadManager {
                     let tmp = full_local_path.with_extension("tmp");
                     let _ = std::fs::write(&tmp, &resp);
                     let _ = std::fs::rename(&tmp, &full_local_path);
+
+                    downloaded_b.fetch_add(resp.len() as u64, Ordering::SeqCst);
                 }
 
-                let cur = downloaded_cnt.fetch_add(1, Ordering::SeqCst) + 1;
-                progress_ref(cur, total, &display_name);
+                let cur = downloaded_b.load(Ordering::SeqCst);
+                let tot = total_b.load(Ordering::SeqCst);
+                progress_ref(cur, tot.max(cur), &display_name);
                 Ok::<(), LaunchError>(())
             }));
         }
@@ -221,7 +238,7 @@ impl DownloadManager {
         &self,
         http: &Client,
         asset_index_path: &Path,
-        progress: impl Fn(usize, usize, &str) + Send + Sync + 'static,
+        progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), LaunchError> {
         let index_content = std::fs::read_to_string(asset_index_path)?;
         let index: serde_json::Value = serde_json::from_str(&index_content)?;
@@ -229,12 +246,33 @@ impl DownloadManager {
         let objects_dir = self.cache_dir.join("assets").join("objects");
 
         if let Some(objects) = index.get("objects").and_then(|v| v.as_object()) {
-            let total = objects.len();
-            if total == 0 {
+            if objects.is_empty() {
                 return Ok(());
             }
 
-            let completed = Arc::new(AtomicUsize::new(0));
+            // Pre-scan: sum sizes of existing and missing assets
+            let mut initial_downloaded: u64 = 0;
+            let mut total_bytes: u64 = 0;
+
+            for (_, obj) in objects {
+                let hash = obj
+                    .get("hash")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let size = obj.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                total_bytes += size;
+
+                if !hash.is_empty() {
+                    let prefix = &hash[..2.min(hash.len())];
+                    let target_path = objects_dir.join(prefix).join(hash);
+                    if target_path.exists() {
+                        initial_downloaded += size;
+                    }
+                }
+            }
+
+            let total_b = Arc::new(AtomicU64::new(total_bytes));
+            let downloaded_b = Arc::new(AtomicU64::new(initial_downloaded));
             let semaphore = Arc::new(Semaphore::new(16));
             let progress_cb = Arc::new(progress);
 
@@ -246,9 +284,12 @@ impl DownloadManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                let size = obj.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+
                 if hash.is_empty() {
-                    let cur = completed.fetch_add(1, Ordering::SeqCst) + 1;
-                    progress_cb(cur, total, name);
+                    let cur = downloaded_b.fetch_add(size, Ordering::SeqCst) + size;
+                    let tot = total_b.load(Ordering::SeqCst);
+                    progress_cb(cur, tot.max(cur), name);
                     continue;
                 }
 
@@ -258,7 +299,8 @@ impl DownloadManager {
 
                 let sem = semaphore.clone();
                 let client = http.clone();
-                let completed_cnt = completed.clone();
+                let downloaded_cnt = downloaded_b.clone();
+                let total_cnt = total_b.clone();
                 let progress_ref = progress_cb.clone();
 
                 tasks.push(tokio::spawn(async move {
@@ -275,13 +317,17 @@ impl DownloadManager {
                                     let tmp = target_path.with_extension("tmp");
                                     let _ = std::fs::write(&tmp, &bytes);
                                     let _ = std::fs::rename(&tmp, &target_path);
+                                    downloaded_cnt.fetch_add(size, Ordering::SeqCst);
                                 }
                             }
                         }
+                    } else {
+                        downloaded_cnt.fetch_add(size, Ordering::SeqCst);
                     }
 
-                    let cur = completed_cnt.fetch_add(1, Ordering::SeqCst) + 1;
-                    progress_ref(cur, total, &name_clone);
+                    let cur = downloaded_cnt.load(Ordering::SeqCst);
+                    let tot = total_cnt.load(Ordering::SeqCst);
+                    progress_ref(cur, tot.max(cur), &name_clone);
                 }));
             }
 

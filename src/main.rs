@@ -214,11 +214,8 @@ fn show_status_bar(ctx: &egui::Context, app: &App) {
                             let pct = (progress * 100.0) as u32;
                             ui.add(
                                 egui::ProgressBar::new(progress)
-                                    .text(format!(
-                                        "{}% ({}/{})",
-                                        pct, app.download_state.completed, app.download_state.total
-                                    ))
-                                    .desired_width(200.0),
+                                    .text(format!("{pct}%"))
+                                    .desired_width(140.0),
                             );
                         }
                     });
@@ -236,7 +233,23 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
         .default_width(200.0)
         .show(ctx, |ui| {
             ui.add_space(state.app.theme.spacing.sm);
-            ui.heading("Instances");
+            ui.horizontal(|ui| {
+                ui.heading("Instances");
+                if ui
+                    .add(
+                        egui::Button::new(format!(" {} New", theme::icons::ADD))
+                            .fill(state.app.theme.accent),
+                    )
+                    .clicked()
+                {
+                    state
+                        .app
+                        .log(LogLevel::Info, "UI: Navigated to New Instance");
+                    state.new_instance_state = NewInstanceState::default();
+                    *navigate_to = Some(View::NewInstance);
+                    state.selected_instance_id = None;
+                }
+            });
             ui.separator();
 
             let instances: Vec<String> = state
@@ -294,22 +307,6 @@ fn show_sidebar(state: &mut LauncherApp, ctx: &egui::Context, navigate_to: &mut 
                 }
             }
 
-            ui.add_space(state.app.theme.spacing.sm);
-            ui.separator();
-            if ui
-                .add(
-                    egui::Button::new(format!(" {} New Instance", theme::icons::ADD))
-                        .fill(state.app.theme.accent),
-                )
-                .clicked()
-            {
-                state
-                    .app
-                    .log(LogLevel::Info, "UI: Navigated to New Instance");
-                state.new_instance_state = NewInstanceState::default();
-                *navigate_to = Some(View::NewInstance);
-                state.selected_instance_id = None;
-            }
         });
 }
 
@@ -366,16 +363,14 @@ fn show_central(
     });
 }
 
-/// Computes a progress ratio (0.0–1.0) using only `From`-based conversions to
-/// avoid clippy pedantic cast lints.
-fn progress_ratio(completed: usize, total: usize) -> f32 {
+fn progress_ratio(completed: u64, total: u64) -> f32 {
     if total == 0 {
         return 0.0;
     }
     let permil = completed.saturating_mul(1000) / total;
-    let permil = permil.min(usize::from(u16::MAX));
+    let permil = permil.min(u64::from(u16::MAX));
     // SAFETY: permil ≤ u16::MAX by construction
-    let permil_u16 = u16::try_from(permil).unwrap_or(u16::MAX);
+    let permil_u16 = u16::try_from(permil as usize).unwrap_or(u16::MAX);
     f32::from(permil_u16) / 1000.0
 }
 

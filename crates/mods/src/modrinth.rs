@@ -243,7 +243,7 @@ impl ModrinthProvider {
     pub async fn download_modpack_files(
         &self,
         target_dir: &Path,
-        progress: impl Fn(usize, usize, &str) + Send + Sync + 'static,
+        progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), ModsError> {
         let index_path = target_dir.join("modrinth.index.json");
         if !index_path.exists() {
@@ -257,12 +257,28 @@ impl ModrinthProvider {
             return Ok(());
         };
 
-        let total = files.len();
-        if total == 0 {
+        if files.is_empty() {
             return Ok(());
         }
 
-        let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        // Pre-scan: sum sizes of existing and missing files
+        let mut initial_downloaded: u64 = 0;
+        let mut total_bytes: u64 = 0;
+
+        for file_obj in files {
+            let size = file_obj.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
+            total_bytes += size;
+
+            if let Some(path_str) = file_obj.get("path").and_then(|p| p.as_str()) {
+                let dest = target_dir.join(".minecraft").join(path_str);
+                if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
+                    initial_downloaded += size;
+                }
+            }
+        }
+
+        let total_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
+        let downloaded_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
         let progress_cb = std::sync::Arc::new(progress);
         let mut tasks = Vec::new();
@@ -278,6 +294,7 @@ impl ModrinthProvider {
                 .get("path")
                 .and_then(|p| p.as_str())
                 .map(ToString::to_string);
+            let size = file_obj.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
 
             if let (Some(url), Some(path_str)) = (downloads, rel_path) {
                 let dest = target_dir.join(".minecraft").join(&path_str);
@@ -288,7 +305,8 @@ impl ModrinthProvider {
 
                 let sem = sem.clone();
                 let client = client.clone();
-                let completed_cnt = completed.clone();
+                let downloaded_cnt = downloaded_b.clone();
+                let total_cnt = total_b.clone();
                 let progress_ref = progress_cb.clone();
 
                 tasks.push(tokio::spawn(async move {
@@ -308,8 +326,10 @@ impl ModrinthProvider {
                         }
                     }
 
-                    let cur = completed_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                    progress_ref(cur, total, &display_name);
+                    downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+                    let cur = downloaded_cnt.load(std::sync::atomic::Ordering::SeqCst);
+                    let tot = total_cnt.load(std::sync::atomic::Ordering::SeqCst);
+                    progress_ref(cur, tot.max(cur), &display_name);
                 }));
             }
         }

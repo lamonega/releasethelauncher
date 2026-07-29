@@ -68,8 +68,8 @@ pub enum UiMessage {
     Status(String),
     DownloadProgress {
         message: String,
-        done: usize,
-        total: usize,
+        done: u64,
+        total: u64,
     },
     DownloadComplete(String),
     DownloadError(String),
@@ -104,8 +104,8 @@ pub enum DownloadPhase {
 #[derive(Default)]
 pub struct DownloadState {
     pub phase: DownloadPhase,
-    pub completed: usize,
-    pub total: usize,
+    pub completed: u64,
+    pub total: u64,
 }
 
 impl Default for App {
@@ -992,11 +992,10 @@ async fn download_game_files(
     let send = |msg: UiMessage| send_msg(queue, ctx, msg);
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
 
-    let total = profile.libraries.len();
     send(UiMessage::DownloadProgress {
-        message: format!("Preparing {total} libraries..."),
+        message: format!("Preparing {} libraries...", profile.libraries.len()),
         done: 0,
-        total,
+        total: 0,
     });
 
     let progress_queue = queue.clone();
