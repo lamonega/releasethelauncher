@@ -129,7 +129,7 @@ impl DownloadManager {
         let applicable: Vec<&Library> = libraries
             .iter()
             .filter(|lib| {
-                let include = platform::should_include(&lib.rules);
+                let include = platform::should_include_library(lib);
                 if !include {
                     debug!(
                         name = %lib.name,

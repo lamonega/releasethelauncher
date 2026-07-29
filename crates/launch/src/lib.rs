@@ -115,7 +115,7 @@ impl Default for VersionFile {
             jvm_args: Vec::new(),
             libraries: Vec::new(),
             traits: Vec::new(),
-            compatible_java_majors: vec![17, 21],
+            compatible_java_majors: Vec::new(),
             jar_mods: Vec::new(),
             tweakers: Vec::new(),
             asset_index: None,

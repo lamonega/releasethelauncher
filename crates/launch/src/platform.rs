@@ -61,6 +61,35 @@ pub fn should_include(rules: &[Rule]) -> bool {
     allowed
 }
 
+#[must_use]
+pub fn should_include_library(lib: &crate::Library) -> bool {
+    if !should_include(&lib.rules) {
+        return false;
+    }
+
+    let parts: Vec<&str> = lib.name.split(':').collect();
+    if parts.len() >= 4 {
+        let classifier = parts[3].to_lowercase();
+        let arch = current_arch();
+
+        if classifier.contains("arm64") || classifier.contains("aarch64") {
+            if arch != "aarch64" {
+                return false;
+            }
+        } else if classifier.contains("x86_64") || classifier.contains("amd64") || classifier.contains("x64") {
+            if arch != "x86_64" {
+                return false;
+            }
+        } else if classifier.contains("x86") || classifier.contains("i386") || classifier.contains("i686") {
+            if arch != "x86" {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 /// Returns the platform-correct classpath separator.
 ///
 /// On Windows, this is `;`. On all other platforms, it is `:`.

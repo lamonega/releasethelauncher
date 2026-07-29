@@ -178,7 +178,7 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
     let mut seen: HashSet<String> = HashSet::new();
     let libraries_dir = instance_dir.join("libraries");
     for lib in profile.libraries.iter().chain(profile.native_libraries.iter()) {
-        if !platform::should_include(&lib.rules) {
+        if !platform::should_include_library(lib) {
             continue;
         }
         let parts: Vec<&str> = lib.name.split(':').collect();

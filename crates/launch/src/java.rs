@@ -321,12 +321,12 @@ fn check_version_compatibility(
     if compatible_java_majors.is_empty() {
         Ok(java_path.to_path_buf())
     } else {
-        let min_required = compatible_java_majors.iter().copied().min().unwrap_or(8);
-        if major >= min_required || compatible_java_majors.contains(&major) {
+        let required = compatible_java_majors.iter().copied().max().unwrap_or(8);
+        if major >= required {
             Ok(java_path.to_path_buf())
         } else {
             Err(LaunchError::JavaNotFound(format!(
-                "Minecraft requires Java {min_required}+ (found Java {major} at {})",
+                "Minecraft requires Java {required}+ (found Java {major} at {})",
                 java_path.display()
             )))
         }

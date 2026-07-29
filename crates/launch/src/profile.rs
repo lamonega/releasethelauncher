@@ -2,17 +2,15 @@ use std::collections::HashMap;
 
 use crate::{ClientDownload, Component, LaunchError, Library};
 
-fn maven_key(name: &str) -> &str {
-    let mut count = 0;
-    for (i, b) in name.bytes().enumerate() {
-        if b == b':' {
-            count += 1;
-            if count == 2 {
-                return &name[..i];
-            }
-        }
+fn maven_key(name: &str) -> String {
+    let parts: Vec<&str> = name.split(':').collect();
+    if parts.len() >= 4 {
+        format!("{}:{}:{}", parts[0], parts[1], parts[3])
+    } else if parts.len() >= 2 {
+        format!("{}:{}", parts[0], parts[1])
+    } else {
+        name.to_string()
     }
-    name
 }
 
 fn maven_version(name: &str) -> &str {
@@ -28,7 +26,7 @@ fn maven_version(name: &str) -> &str {
             }
         }
     }
-    if count == 2 {
+    if count >= 2 {
         &name[start..]
     } else {
         ""
@@ -77,7 +75,7 @@ pub struct AssetIndex {
 }
 
 fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
-    let key = maven_key(&lib.name).to_string();
+    let key = maven_key(&lib.name);
     let version = maven_version(&lib.name).to_string();
     match map.get(&key) {
         Some(existing) => {
@@ -111,8 +109,10 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         if component.uid == "net.minecraft" {
             mc_version.clone_from(&component.version);
         }
-        if component.version_file.main_class.is_some() && main_class.is_none() {
-            main_class.clone_from(&component.version_file.main_class);
+        if let Some(ref mc) = component.version_file.main_class {
+            if component.uid != "net.minecraft" || main_class.is_none() {
+                main_class = Some(mc.clone());
+            }
         }
         if component.version_file.minecraft_args.is_some() && game_args_template.is_empty() {
             game_args_template = component
@@ -170,4 +170,48 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         traits: all_traits,
         compatible_java_majors,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::VersionFile;
+
+    #[test]
+    fn test_modloader_main_class_precedence() {
+        let vanilla = Component {
+            uid: "net.minecraft".to_string(),
+            version: "26.1.2".to_string(),
+            is_locked: true,
+            dependencies: vec![],
+            conflicts: vec![],
+            version_file: VersionFile {
+                main_class: Some("net.minecraft.client.main.Main".to_string()),
+                compatible_java_majors: vec![25],
+                ..VersionFile::default()
+            },
+        };
+
+        let fabric = Component {
+            uid: "net.fabricmc.fabric-loader".to_string(),
+            version: "0.19.3".to_string(),
+            is_locked: true,
+            dependencies: vec![],
+            conflicts: vec![],
+            version_file: VersionFile {
+                main_class: Some("net.fabricmc.loader.impl.launch.knot.KnotClient".to_string()),
+                ..VersionFile::default()
+            },
+        };
+
+        // Test vanilla first, fabric second
+        let profile1 = assemble_launch_profile(&[vanilla.clone(), fabric.clone()]).unwrap();
+        assert_eq!(profile1.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(profile1.compatible_java_majors, vec![25]);
+
+        // Test fabric first, vanilla second
+        let profile2 = assemble_launch_profile(&[fabric, vanilla]).unwrap();
+        assert_eq!(profile2.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(profile2.compatible_java_majors, vec![25]);
+    }
 }
