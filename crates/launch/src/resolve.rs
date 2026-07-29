@@ -639,16 +639,9 @@ fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
                 .unwrap_or_default(),
         });
 
-    let regular = Library {
-        name: name.clone(),
-        url: url.clone(),
-        sha1: sha1.clone(),
-        size,
-        is_native: false,
-        rules: rules.clone(),
-        extract: extract.clone(),
-    };
+    let parts: Vec<&str> = name.split(':').collect();
 
+    // Old format: "natives" field + "downloads.classifiers"
     if let Some(natives) = lib.get("natives").and_then(|v| v.as_object()) {
         let os = crate::platform::current_os();
         if let Some(classifier) = natives.get(os).and_then(|v| v.as_str()) {
@@ -678,7 +671,15 @@ fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
                     (url.clone(), sha1.clone(), size)
                 };
             return vec![
-                regular,
+                Library {
+                    name: name.clone(),
+                    url: url.clone(),
+                    sha1: sha1.clone(),
+                    size,
+                    is_native: false,
+                    rules: rules.clone(),
+                    extract: extract.clone(),
+                },
                 Library {
                     name: native_name,
                     url: native_url,
@@ -692,7 +693,28 @@ fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
         }
     }
 
-    vec![regular]
+    // New format: separate entry with "natives-" classifier in the name
+    if parts.len() >= 4 && parts[3].starts_with("natives-") {
+        return vec![Library {
+            name,
+            url,
+            sha1,
+            size,
+            is_native: true,
+            rules,
+            extract,
+        }];
+    }
+
+    vec![Library {
+        name,
+        url,
+        sha1,
+        size,
+        is_native: false,
+        rules,
+        extract,
+    }]
 }
 
 fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
