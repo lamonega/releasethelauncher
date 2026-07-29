@@ -336,16 +336,6 @@ impl App {
 
         let account_data = extract_account_data(&self.account_list);
 
-        // Set up censor filters on the app's log buffer (PrismLauncher pattern)
-        self.log_buffer.clear_censor_filters();
-        if let Some((_, _, ref token)) = account_data {
-            if !token.is_empty() && token != "0" {
-                self.log_buffer
-                    .add_censor_filter(token.clone(), "<ACCESS TOKEN>".into());
-            }
-            // ponytail: uuid visible for debugging, keep access token hidden
-        }
-
         let inst = if let Some(inst) = self.instance_manager.get(&instance_id.to_string()) {
             let gs = &self.global_settings;
             let pre = if inst.settings.pre_launch_command.is_empty() {
