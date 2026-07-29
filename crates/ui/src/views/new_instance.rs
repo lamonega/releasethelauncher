@@ -84,7 +84,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             },
             crate::UiMessage::VersionListResult(result) => match result {
                 Ok(versions) => {
-                    if let Some((latest, _)) = versions.first() {
+                    if let Some((latest, _)) = versions.iter().find(|(_, t)| t == "release").or_else(|| versions.first()) {
                         state.mc_version = latest.clone();
                     }
                     state.available_versions = versions;

@@ -1173,6 +1173,7 @@ checksum = "1b78779f35ded1a853786c9ce0b43fe1053e10a21ea3b23ebea411805ce41593"
 dependencies = [
  "egui",
  "enum-map",
+ "image",
  "log",
  "mime_guess2",
  "serde",
