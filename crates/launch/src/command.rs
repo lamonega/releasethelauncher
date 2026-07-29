@@ -159,7 +159,7 @@ pub fn build_command(
 
 fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> {
     let mut classpath = Vec::new();
-    let mut seen_keys: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let libraries_dir = instance_dir.join("libraries");
     for lib in profile.libraries.iter().chain(profile.native_libraries.iter()) {
         if !platform::should_include(&lib.rules) {
@@ -167,8 +167,7 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
         }
         let parts: Vec<&str> = lib.name.split(':').collect();
         if parts.len() >= 3 {
-            let key = format!("{}:{}", parts[0], parts[1]);
-            if !seen_keys.insert(key) {
+            if !seen.insert(lib.name.clone()) {
                 continue;
             }
             let path = parts[0].replace('.', "/");

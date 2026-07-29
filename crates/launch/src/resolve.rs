@@ -160,7 +160,7 @@ impl DependencyResolver {
 
         if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
             for lib in libs {
-                libraries.push(parse_library(lib));
+                libraries.extend(parse_library(lib));
             }
         }
         if let Some(mc) = resp.get("mainClass").and_then(|v| v.as_str()) {
@@ -228,7 +228,7 @@ impl DependencyResolver {
             .and_then(|v| v.as_array())
         {
             for lib in libs {
-                libraries.push(parse_library(lib));
+                libraries.extend(parse_library(lib));
             }
         }
 
@@ -285,7 +285,7 @@ impl DependencyResolver {
             .and_then(|v| v.as_array())
         {
             for lib in libs {
-                libraries.push(parse_library(lib));
+                libraries.extend(parse_library(lib));
             }
         }
 
@@ -345,7 +345,7 @@ impl DependencyResolver {
 
         if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
             for lib in libs {
-                libraries.push(parse_library(lib));
+                libraries.extend(parse_library(lib));
             }
         }
         if let Some(mc) = resp.get("mainClass").and_then(|v| v.as_str()) {
@@ -460,7 +460,7 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
             if let Some(tweaker) = lib.get("tweaker_class").and_then(|v| v.as_str()) {
                 tweakers.push(tweaker.to_string());
             }
-            libraries.push(parse_library(lib));
+            libraries.extend(parse_library(lib));
         }
     }
 
@@ -557,8 +557,8 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
     }
 }
 
-fn parse_library(lib: &serde_json::Value) -> Library {
-    let mut name = lib
+fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
+    let name = lib
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -566,12 +566,12 @@ fn parse_library(lib: &serde_json::Value) -> Library {
 
     let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
 
-    let mut url = lib
+    let url = lib
         .get("url")
         .and_then(|v| v.as_str())
         .or_else(|| artifact.and_then(|a| a.get("url")).and_then(|v| v.as_str()))
         .map(ToString::to_string);
-    let mut sha1 = lib
+    let sha1 = lib
         .get("sha1")
         .and_then(|v| v.as_str())
         .or_else(|| {
@@ -580,7 +580,7 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                 .and_then(|v| v.as_str())
         })
         .map(ToString::to_string);
-    let mut size = lib
+    let size = lib
         .get("size")
         .and_then(serde_json::Value::as_u64)
         .or_else(|| {
@@ -588,25 +588,6 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                 .and_then(|a| a.get("size"))
                 .and_then(serde_json::Value::as_u64)
         });
-
-    let is_native = lib.get("natives").is_some();
-    if is_native {
-        if let Some(natives) = lib.get("natives").and_then(|v| v.as_object()) {
-            let os = crate::platform::current_os();
-            if let Some(classifier) = natives.get(os).and_then(|v| v.as_str()) {
-                let classifier = classifier.replace("${arch}", crate::platform::current_arch());
-                name.push(':');
-                name.push_str(&classifier);
-                if let Some(classifiers) = lib.get("downloads").and_then(|d| d.get("classifiers")) {
-                    if let Some(class_info) = classifiers.get(&classifier) {
-                        url = class_info.get("url").and_then(|v| v.as_str()).map(ToString::to_string);
-                        sha1 = class_info.get("sha1").and_then(|v| v.as_str()).map(ToString::to_string);
-                        size = class_info.get("size").and_then(serde_json::Value::as_u64);
-                    }
-                }
-            }
-        }
-    }
 
     let rules: Vec<Rule> = lib
         .get("rules")
@@ -658,15 +639,60 @@ fn parse_library(lib: &serde_json::Value) -> Library {
                 .unwrap_or_default(),
         });
 
-    Library {
-        name,
-        url,
-        sha1,
+    let regular = Library {
+        name: name.clone(),
+        url: url.clone(),
+        sha1: sha1.clone(),
         size,
-        is_native,
-        rules,
-        extract,
+        is_native: false,
+        rules: rules.clone(),
+        extract: extract.clone(),
+    };
+
+    if let Some(natives) = lib.get("natives").and_then(|v| v.as_object()) {
+        let os = crate::platform::current_os();
+        if let Some(classifier) = natives.get(os).and_then(|v| v.as_str()) {
+            let classifier = classifier.replace("${arch}", crate::platform::current_arch());
+            let native_name = format!("{name}:{classifier}");
+            let (native_url, native_sha1, native_size) =
+                if let Some(classifiers) = lib.get("downloads").and_then(|d| d.get("classifiers"))
+                {
+                    if let Some(class_info) = classifiers.get(&classifier) {
+                        (
+                            class_info
+                                .get("url")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            class_info
+                                .get("sha1")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            class_info
+                                .get("size")
+                                .and_then(serde_json::Value::as_u64),
+                        )
+                    } else {
+                        (url.clone(), sha1.clone(), size)
+                    }
+                } else {
+                    (url.clone(), sha1.clone(), size)
+                };
+            return vec![
+                regular,
+                Library {
+                    name: native_name,
+                    url: native_url,
+                    sha1: native_sha1,
+                    size: native_size,
+                    is_native: true,
+                    rules,
+                    extract,
+                },
+            ];
+        }
     }
+
+    vec![regular]
 }
 
 fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
