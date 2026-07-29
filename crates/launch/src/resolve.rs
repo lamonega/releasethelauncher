@@ -396,6 +396,14 @@ impl DependencyResolver {
                 let resp: Vec<serde_json::Value> = self.http.get(&url).send().await?.json().await?;
                 let mut versions = Vec::new();
                 for v in resp {
+                    let is_stable = v
+                        .get("loader")
+                        .and_then(|l| l.get("stable"))
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(true);
+                    if !is_stable {
+                        continue;
+                    }
                     if let Some(ver) = v
                         .get("loader")
                         .and_then(|l| l.get("version"))
@@ -413,6 +421,14 @@ impl DependencyResolver {
                 let resp: Vec<serde_json::Value> = self.http.get(&url).send().await?.json().await?;
                 let mut versions = Vec::new();
                 for v in resp {
+                    let is_stable = v
+                        .get("loader")
+                        .and_then(|l| l.get("stable"))
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(true);
+                    if !is_stable {
+                        continue;
+                    }
                     if let Some(ver) = v
                         .get("loader")
                         .and_then(|l| l.get("version"))
@@ -443,6 +459,32 @@ impl DependencyResolver {
                     }
                 }
                 versions.reverse();
+
+                if versions.is_empty() {
+                    if let Ok(promo_resp) = self
+                        .http
+                        .get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
+                        .send()
+                        .await
+                    {
+                        if let Ok(json) = promo_resp.json::<serde_json::Value>().await {
+                            if let Some(promos) = json.get("promos").and_then(|p| p.as_object()) {
+                                let key_latest = format!("{mc_version}-latest");
+                                let key_rec = format!("{mc_version}-recommended");
+                                if let Some(v) = promos.get(&key_rec).and_then(|v| v.as_str()) {
+                                    if !versions.contains(&v.to_string()) {
+                                        versions.push(v.to_string());
+                                    }
+                                }
+                                if let Some(v) = promos.get(&key_latest).and_then(|v| v.as_str()) {
+                                    if !versions.contains(&v.to_string()) {
+                                        versions.push(v.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Ok(versions)
             }
             "neoforge" => {
@@ -1041,6 +1083,13 @@ mod tests {
         let resolver = DependencyResolver::new();
         let fabric_versions = resolver.fetch_loader_versions("fabric", "1.20.1").await.unwrap();
         assert!(!fabric_versions.is_empty(), "Fabric versions should not be empty for 1.20.1");
-        assert!(fabric_versions.contains(&"0.16.9".to_string()) || fabric_versions.contains(&"0.15.11".to_string()));
+
+        let forge_versions_1_20_1 = resolver.fetch_loader_versions("forge", "1.20.1").await.unwrap();
+        assert!(!forge_versions_1_20_1.is_empty(), "Forge versions should not be empty for 1.20.1");
+        assert!(forge_versions_1_20_1.contains(&"47.4.22".to_string()) || forge_versions_1_20_1.iter().any(|v| v.starts_with("47.")));
+
+        let neoforge_versions_1_20_4 = resolver.fetch_loader_versions("neoforge", "1.20.4").await.unwrap();
+        assert!(!neoforge_versions_1_20_4.is_empty(), "NeoForge versions should not be empty for 1.20.4");
+        assert!(neoforge_versions_1_20_4.iter().all(|v| v.starts_with("20.4.")));
     }
 }

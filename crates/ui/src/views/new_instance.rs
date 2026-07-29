@@ -320,6 +320,7 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
             state.loader_versions_loading = true;
             state.loader_versions_error = None;
             state.loader_versions.clear();
+            state.loader_version.clear();
             state.last_fetched_loader_key = Some(current_key.clone());
             app.fetch_loader_versions(
                 state.loader_type.as_str().to_string(),
@@ -359,6 +360,15 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
                 ui.label(
                     egui::RichText::new(format!("Failed to load versions: {err}"))
                         .color(app.theme.log_colors.error),
+                );
+            } else if !state.mc_version.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "No {} versions available for Minecraft {}",
+                        state.loader_type.as_str(),
+                        state.mc_version
+                    ))
+                    .color(app.theme.text_secondary),
                 );
             }
             ui.text_edit_singleline(&mut state.loader_version);
