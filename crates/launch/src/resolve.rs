@@ -205,6 +205,9 @@ impl DependencyResolver {
         mc_version: &str,
         forge_version: &str,
     ) -> Result<Component, LaunchError> {
+        let forge_version = forge_version
+            .strip_suffix(&format!("-{mc_version}"))
+            .unwrap_or(forge_version);
         let full_ver = if forge_version.contains(mc_version) {
             forge_version.to_string()
         } else {
@@ -564,20 +567,31 @@ impl DependencyResolver {
                 let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
                 let resp = self.http.get(url).send().await?.text().await?;
                 let prefix = format!("<version>{mc_version}-");
+                let mc_suffix = format!("-{mc_version}");
                 let mut versions = Vec::new();
                 for line in resp.lines() {
                     let trimmed = line.trim();
                     if trimmed.starts_with(&prefix) && trimmed.ends_with("</version>") {
-                        let ver = trimmed
+                        let mut ver = trimmed
                             .strip_prefix(&prefix)
                             .and_then(|s| s.strip_suffix("</version>"))
                             .unwrap_or("");
+                        if let Some(clean) = ver.strip_suffix(&mc_suffix) {
+                            ver = clean;
+                        }
                         if !ver.is_empty() && !versions.contains(&ver.to_string()) {
                             versions.push(ver.to_string());
                         }
                     }
                 }
-                versions.reverse();
+
+                fn parse_version_key(v: &str) -> Vec<u64> {
+                    v.split(|c: char| !c.is_numeric())
+                        .filter_map(|s| s.parse::<u64>().ok())
+                        .collect()
+                }
+
+                versions.sort_by(|a, b| parse_version_key(b).cmp(&parse_version_key(a)));
 
                 if versions.is_empty() {
                     if let Ok(promo_resp) = self
@@ -1261,6 +1275,10 @@ mod tests {
         let forge_versions_1_20_1 = resolver.fetch_loader_versions("forge", "1.20.1").await.unwrap();
         assert!(!forge_versions_1_20_1.is_empty(), "Forge versions should not be empty for 1.20.1");
         assert!(forge_versions_1_20_1.contains(&"47.4.22".to_string()) || forge_versions_1_20_1.iter().any(|v| v.starts_with("47.")));
+
+        let forge_versions_1_8_9 = resolver.fetch_loader_versions("forge", "1.8.9").await.unwrap();
+        assert!(!forge_versions_1_8_9.is_empty(), "Forge versions should not be empty for 1.8.9");
+        assert_eq!(forge_versions_1_8_9[0], "11.15.1.2318", "Newest Forge 1.8.9 version should be 11.15.1.2318");
 
         let neoforge_versions_1_20_4 = resolver.fetch_loader_versions("neoforge", "1.20.4").await.unwrap();
         assert!(!neoforge_versions_1_20_4.is_empty(), "NeoForge versions should not be empty for 1.20.4");

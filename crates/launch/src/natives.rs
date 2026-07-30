@@ -1,32 +1,9 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use zip::ZipArchive;
 
+use crate::download::DownloadManager;
 use crate::{LaunchError, Library};
-
-fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
-    let parts: Vec<&str> = lib.name.split(':').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let group = parts[0].replace('.', "/");
-    let artifact = parts[1];
-    let version = parts[2];
-    let classifier = parts.get(3);
-
-    let filename = classifier.map_or_else(
-        || format!("{artifact}-{version}.jar"),
-        |cls| format!("{artifact}-{version}-{cls}.jar"),
-    );
-
-    Some(
-        PathBuf::from(&group)
-            .join(artifact)
-            .join(version)
-            .join(filename),
-    )
-}
 
 /// Helper to check if a file extension matches a dynamic library (.dll, .so, .dylib).
 pub fn is_native_binary(path: &Path) -> bool {
@@ -73,7 +50,7 @@ pub fn extract_natives(
     let mut total_extracted_files = 0;
 
     for lib in native_libraries {
-        if let Some(relative) = local_path_for_library(lib) {
+        if let Some(relative) = DownloadManager::local_path_for_library(lib) {
             let jar_path = libraries_dir.join(&relative);
             if jar_path.exists() {
                 tracing::info!(

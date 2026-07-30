@@ -118,7 +118,8 @@ impl DownloadManager {
         }
     }
 
-    fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
+    #[must_use]
+    pub fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
         let parts: Vec<&str> = lib.name.split(':').collect();
         if parts.len() < 3 {
             return None;

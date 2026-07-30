@@ -181,15 +181,7 @@ pub fn build_command(
         cmd.arg(&processed);
     }
 
-    let is_mc_1_6_or_newer = !profile.mc_version.starts_with("1.0")
-        && !profile.mc_version.starts_with("1.1")
-        && !profile.mc_version.starts_with("1.2")
-        && !profile.mc_version.starts_with("1.3")
-        && !profile.mc_version.starts_with("1.4")
-        && !profile.mc_version.starts_with("1.5");
-
     if !has_tweak_class
-        && is_mc_1_6_or_newer
         && (profile.main_class == "net.minecraft.launchwrapper.Launch"
             || profile.traits.iter().any(|t| t == "legacyFML"))
     {
