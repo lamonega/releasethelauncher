@@ -88,10 +88,11 @@ pub fn extract_natives(
                     .unwrap_or(&[]);
                 let extracted = extract_jar_to_dir(&jar_path, natives_dir, excludes)?;
                 total_extracted_files += extracted.len();
-                tracing::debug!(
+                let example_files: Vec<&str> = extracted.iter().take(5).map(|s| s.as_str()).collect();
+                tracing::info!(
                     library = %lib.name,
                     files_extracted = extracted.len(),
-                    files = ?extracted,
+                    example_files = ?example_files,
                     "Extracted files from native JAR"
                 );
             } else {

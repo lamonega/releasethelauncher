@@ -211,20 +211,25 @@ impl DependencyResolver {
             format!("{mc_version}-{forge_version}")
         };
 
-        let urls = vec![
-            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-install-profile.json"),
-            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{mc_version}/{forge_version}/forge-{mc_version}-install-profile.json"),
-            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/install-profile.json"),
-        ];
-
         let mut libraries = Vec::new();
         let mut main_class = None;
+        let mut tweakers = Vec::new();
+        let mut traits = vec!["legacyFML".to_string()];
 
-        for url in urls {
+        let meta_urls = vec![
+            format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{forge_version}.json"),
+            format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{full_ver}.json"),
+            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-install-profile.json"),
+            format!("{FORGE_MAVEN}/net/minecraftforge/forge/{mc_version}/{forge_version}/forge-{mc_version}-install-profile.json"),
+        ];
+
+        for url in meta_urls {
             if let Ok(resp_res) = self.http.get(&url).send().await {
                 if resp_res.status().is_success() {
                     if let Ok(resp) = resp_res.json::<serde_json::Value>().await {
-                        if let Some(data) = resp.get("data") {
+                        if let Some(main) = resp.get("mainClass").and_then(|v| v.as_str()) {
+                            main_class = Some(main.to_string());
+                        } else if let Some(data) = resp.get("data") {
                             if let Some(mc_main) = data
                                 .get("MINECRAFT_MAIN_CLASS")
                                 .and_then(|v| v.get("client"))
@@ -234,22 +239,89 @@ impl DependencyResolver {
                                 }
                             }
                         }
+
                         if let Some(libs) = resp
-                            .get("versionInfo")
-                            .and_then(|v| v.get("libraries"))
+                            .get("libraries")
+                            .or_else(|| resp.get("versionInfo").and_then(|v| v.get("libraries")))
                             .and_then(|v| v.as_array())
                         {
                             for lib in libs {
                                 libraries.extend(parse_library(lib));
                             }
                         }
-                        break;
+
+                        if let Some(tweaks) = resp.get("+tweakers").and_then(|v| v.as_array()) {
+                            for tw in tweaks {
+                                if let Some(s) = tw.as_str() {
+                                    tweakers.push(s.to_string());
+                                }
+                            }
+                        }
+
+                        if let Some(tr_arr) = resp.get("+traits").and_then(|v| v.as_array()) {
+                            for tr in tr_arr {
+                                if let Some(s) = tr.as_str() {
+                                    if !traits.contains(&s.to_string()) {
+                                        traits.push(s.to_string());
+                                    }
+                                }
+                            }
+                        }
+
+                        if !libraries.is_empty() {
+                            break;
+                        }
                     }
                 }
             }
         }
 
-        if libraries.is_empty() {
+        let is_launchwrapper = main_class
+            .as_deref()
+            .unwrap_or("net.minecraft.launchwrapper.Launch")
+            == "net.minecraft.launchwrapper.Launch"
+            || traits.iter().any(|t| t == "legacyFML");
+
+        if is_launchwrapper {
+            if main_class.is_none() {
+                main_class = Some("net.minecraft.launchwrapper.Launch".to_string());
+            }
+
+            if !libraries.iter().any(|l| l.name.contains("launchwrapper")) {
+                libraries.push(crate::Library {
+                    name: "net.minecraft:launchwrapper:1.12".to_string(),
+                    url: Some(
+                        "https://libraries.minecraft.net/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar"
+                            .to_string(),
+                    ),
+                    sha1: None,
+                    size: None,
+                    is_native: false,
+                    rules: vec![],
+                    extract: None,
+                });
+            }
+
+            if !libraries.iter().any(|l| l.name.contains("asm-all")) {
+                libraries.push(crate::Library {
+                    name: "org.ow2.asm:asm-all:5.0.3".to_string(),
+                    url: Some(
+                        "https://libraries.minecraft.net/org/ow2/asm/asm-all/5.0.3/asm-all-5.0.3.jar"
+                            .to_string(),
+                    ),
+                    sha1: None,
+                    size: None,
+                    is_native: false,
+                    rules: vec![],
+                    extract: None,
+                });
+            }
+        }
+
+        if !libraries
+            .iter()
+            .any(|l| l.name.contains("net.minecraftforge:forge"))
+        {
             let forge_jar_url = format!(
                 "{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-universal.jar"
             );
@@ -262,9 +334,6 @@ impl DependencyResolver {
                 rules: vec![],
                 extract: None,
             });
-            if main_class.is_none() {
-                main_class = Some("net.minecraft.launchwrapper.Launch".to_string());
-            }
         }
 
         Ok(Component {
@@ -284,7 +353,8 @@ impl DependencyResolver {
             version_file: VersionFile {
                 main_class,
                 libraries,
-                traits: vec!["legacyFML".to_string()],
+                tweakers,
+                traits,
                 ..VersionFile::default()
             },
         })

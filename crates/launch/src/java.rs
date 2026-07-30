@@ -137,6 +137,7 @@ pub fn resolve_java(
             r"C:\Program Files\Java\jdk-23\bin\javaw.exe",
             r"C:\Program Files\Java\jdk-22\bin\javaw.exe",
             r"C:\Program Files\Java\jdk-21\bin\javaw.exe",
+            r"C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\bin\javaw.exe",
             r"C:\Program Files\Java\jdk-21\bin\java.exe",
             r"C:\Program Files\Java\jdk-17\bin\javaw.exe",
             r"C:\Program Files\Java\jdk-17\bin\java.exe",
@@ -158,11 +159,10 @@ pub fn resolve_java(
         let req_info = if compatible_java_majors.is_empty() {
             String::new()
         } else {
-            let min_req = compatible_java_majors.iter().copied().min().unwrap_or(8);
-            format!(" (required Java {min_req}+)")
+            format!(" Required versions: {:?}.", compatible_java_majors)
         };
         Err(LaunchError::JavaNotFound(format!(
-            "No Java installation found{req_info}. Set JAVA_HOME or add java to PATH."
+            "No suitable Java installation found.{req_info} Set JAVA_HOME, install the required JDK, or add Java to PATH."
         )))
     }
 }
@@ -321,12 +321,17 @@ fn check_version_compatibility(
     if compatible_java_majors.is_empty() {
         Ok(java_path.to_path_buf())
     } else {
-        let required = compatible_java_majors.iter().copied().max().unwrap_or(8);
-        if major >= required {
+        let min_required = compatible_java_majors.iter().copied().min().unwrap_or(8);
+        if major >= min_required {
             Ok(java_path.to_path_buf())
         } else {
+            let compatible = compatible_java_majors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             Err(LaunchError::JavaNotFound(format!(
-                "Minecraft requires Java {required}+ (found Java {major} at {})",
+                "Minecraft requires one of Java versions [{compatible}] (found Java {major} at {})",
                 java_path.display()
             )))
         }
@@ -474,10 +479,10 @@ mod tests {
 
         // Incompatible version lower than required
         let err = check_version_compatibility(21, dummy_path, &[25]).unwrap_err();
-        assert!(err.to_string().contains("Minecraft requires Java 25+ (found Java 21 at /usr/bin/java)"));
+        assert!(err.to_string().contains("Minecraft requires one of Java versions [25] (found Java 21 at /usr/bin/java)"));
 
         let err8 = check_version_compatibility(8, dummy_path, &[17]).unwrap_err();
-        assert!(err8.to_string().contains("Minecraft requires Java 17+ (found Java 8 at /usr/bin/java)"));
+        assert!(err8.to_string().contains("Minecraft requires one of Java versions [17] (found Java 8 at /usr/bin/java)"));
     }
 }
 

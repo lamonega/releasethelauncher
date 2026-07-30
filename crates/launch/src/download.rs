@@ -141,8 +141,15 @@ impl DownloadManager {
             })
             .collect();
 
+        let native_count = applicable.iter().filter(|lib| lib.is_native).count();
+        info!(
+            total = applicable.len(),
+            native = native_count,
+            regular = applicable.len() - native_count,
+            "Applicable libraries for current platform"
+        );
+
         if applicable.is_empty() {
-            debug!("No applicable libraries to download for current platform");
             return Ok(());
         }
 
@@ -296,10 +303,12 @@ impl DownloadManager {
                         LaunchError::Launch(err_msg)
                     })?;
 
-                    downloaded_b.fetch_add(resp.len() as u64, Ordering::SeqCst);
-                    debug!(
+                    let file_size = resp.len() as u64;
+                    downloaded_b.fetch_add(file_size, Ordering::SeqCst);
+                    info!(
                         name = %lib_name,
                         is_native = is_native,
+                        size = file_size,
                         path = %full_local_path.display(),
                         "Library downloaded successfully"
                     );
