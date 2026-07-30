@@ -23,6 +23,43 @@ pub struct DownloadManager {
     cache_dir: PathBuf,
 }
 
+#[must_use]
+pub fn library_filename(lib: &Library) -> String {
+    let parts: Vec<&str> = lib.name.split(':').collect();
+    if parts.len() < 3 {
+        return format!("{}.jar", lib.name);
+    }
+    let artifact = parts[1];
+    let mut version = parts[2];
+    let classifier_raw = parts.get(3).copied();
+
+    let (classifier, mut ext) = if let Some(cls) = classifier_raw {
+        if let Some((c, e)) = cls.split_once('@') {
+            (Some(c), e)
+        } else {
+            (Some(cls), "jar")
+        }
+    } else if let Some((v, e)) = version.split_once('@') {
+        version = v;
+        (None, e)
+    } else {
+        (None, "jar")
+    };
+
+    if ext == "jar" {
+        if let Some(ref url) = lib.url {
+            if url.ends_with(".zip") {
+                ext = "zip";
+            }
+        }
+    }
+
+    classifier.map_or_else(
+        || format!("{artifact}-{version}.{ext}"),
+        |cls| format!("{artifact}-{version}-{cls}.{ext}"),
+    )
+}
+
 impl DownloadManager {
     #[must_use]
     pub fn new(cache_dir: PathBuf) -> Self {
@@ -42,7 +79,7 @@ impl DownloadManager {
     fn maven_url_for_library(lib: &Library) -> Option<String> {
         if let Some(ref url) = lib.url {
             if url.starts_with("http://") || url.starts_with("https://") {
-                if url.ends_with(".jar") {
+                if url.ends_with(".jar") || url.ends_with(".zip") {
                     return Some(url.clone());
                 }
                 let parts: Vec<&str> = lib.name.split(':').collect();
@@ -50,11 +87,7 @@ impl DownloadManager {
                     let group = parts[0].replace('.', "/");
                     let artifact = parts[1];
                     let version = parts[2];
-                    let classifier = parts.get(3);
-                    let filename = classifier.map_or_else(
-                        || format!("{artifact}-{version}.jar"),
-                        |cls| format!("{artifact}-{version}-{cls}.jar"),
-                    );
+                    let filename = library_filename(lib);
                     let path = format!("{group}/{artifact}/{version}/{filename}");
                     return Some(format!("{}/{path}", url.trim_end_matches('/')));
                 }
@@ -70,12 +103,7 @@ impl DownloadManager {
         let group = parts[0].replace('.', "/");
         let artifact = parts[1];
         let version = parts[2];
-        let classifier = parts.get(3);
-
-        let filename = classifier.map_or_else(
-            || format!("{artifact}-{version}.jar"),
-            |cls| format!("{artifact}-{version}-{cls}.jar"),
-        );
+        let filename = library_filename(lib);
 
         let path = format!("{group}/{artifact}/{version}/{filename}");
 
@@ -99,12 +127,7 @@ impl DownloadManager {
         let group = parts[0].replace('.', "/");
         let artifact = parts[1];
         let version = parts[2];
-        let classifier = parts.get(3);
-
-        let filename = classifier.map_or_else(
-            || format!("{artifact}-{version}.jar"),
-            |cls| format!("{artifact}-{version}-{cls}.jar"),
-        );
+        let filename = library_filename(lib);
 
         Some(
             PathBuf::from(&group)

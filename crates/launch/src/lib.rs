@@ -13,7 +13,7 @@ use thiserror::Error;
 pub use command::{
     build_command, launch_game, run_post_launch_command, run_pre_launch_command, PlayerAuth,
 };
-pub use download::DownloadManager;
+pub use download::{library_filename, DownloadManager};
 pub use natives::{extract_natives, is_native_binary, verify_natives_dir};
 pub use profile::{assemble_launch_profile, AssetIndex, LaunchProfile};
 pub use resolve::DependencyResolver;

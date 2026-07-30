@@ -1279,4 +1279,37 @@ mod tests {
         assert_eq!(default_java_major_for_version("1.21"), 21);
         assert_eq!(default_java_major_for_version("26.1"), 21);
     }
+
+    #[tokio::test]
+    async fn test_resolve_1_5_2_forge() {
+        let mut resolver = DependencyResolver::new();
+        resolver.fetch_manifest().await.unwrap();
+        let vanilla = resolver.fetch_vanilla_component("1.5.2").await.unwrap();
+        let forge = resolver.fetch_forge_component("1.5.2", "7.8.1.738").await.unwrap();
+        
+        eprintln!("VANILLA MAIN CLASS: {:?}", vanilla.version_file.main_class);
+        eprintln!("FORGE MAIN CLASS: {:?}", forge.version_file.main_class);
+        eprintln!("FORGE LIBRARIES: {:#?}", forge.version_file.libraries);
+
+        let profile = assemble_launch_profile(&[vanilla, forge]).unwrap();
+        eprintln!("ASSEMBLED MAIN CLASS: {}", profile.main_class);
+        eprintln!("ASSEMBLED JAVA MAJORS: {:?}", profile.compatible_java_majors);
+        eprintln!("ASSEMBLED GAME ARGS: {}", profile.game_args_template);
+        eprintln!("ASSEMBLED LIBRARIES: {:#?}", profile.libraries);
+
+        let player = crate::command::PlayerAuth {
+            name: "Steve".to_string(),
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            access_token: "0".to_string(),
+        };
+        let instance_dir = std::path::PathBuf::from("C:\\tmp\\test_1_5_2");
+        let java_path = std::path::PathBuf::from("C:\\Program Files\\Java\\jre8\\bin\\java.exe");
+        let cmd = crate::command::build_command(&profile, &instance_dir, &java_path, &player, "1G", "2G");
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        eprintln!("FINAL COMMAND ARGS: {:#?}", args);
+    }
 }

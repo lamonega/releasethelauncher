@@ -225,35 +225,20 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
             if !seen.insert(lib.name.clone()) {
                 continue;
             }
-            let path = parts[0].replace('.', "/");
+            let group = parts[0].replace('.', "/");
             let artifact = parts[1];
-            let mut version = parts[2];
-            let classifier_raw = parts.get(3).copied();
+            let version = parts[2];
+            let filename = crate::download::library_filename(lib);
 
-            let (classifier, ext) = if let Some(cls) = classifier_raw {
-                if let Some((c, e)) = cls.split_once('@') {
-                    (Some(c), e)
-                } else {
-                    (Some(cls), "jar")
-                }
-            } else if let Some((v, e)) = version.split_once('@') {
-                version = v;
-                (None, e)
-            } else {
-                (None, "jar")
-            };
-
-            let filename = classifier.map_or_else(
-                || format!("{artifact}-{version}.{ext}"),
-                |cls| format!("{artifact}-{version}-{cls}.{ext}"),
-            );
             let jar_path = libraries_dir
-                .join(&path)
+                .join(&group)
                 .join(artifact)
                 .join(version)
                 .join(filename);
 
-            let is_jarmod = lib.name.contains("@zip") || lib.name.contains("net.minecraftforge:forge");
+            let is_jarmod = lib.name.contains("@zip")
+                || lib.name.contains("net.minecraftforge:forge")
+                || lib.url.as_deref().unwrap_or("").ends_with(".zip");
             if is_jarmod {
                 classpath.insert(0, jar_path.display().to_string());
             } else {
