@@ -5,8 +5,6 @@ use thiserror::Error;
 
 use crate::Token;
 
-/// Default MSA OAuth client ID. This is a public client ID used by `PrismLauncher`.
-/// Users can override this by providing their own `client_id`.
 const DEFAULT_MSA_CLIENT_ID: &str = "16e109ad-0414-46dc-8d0f-8d3d4201563c";
 
 #[derive(Error, Debug)]

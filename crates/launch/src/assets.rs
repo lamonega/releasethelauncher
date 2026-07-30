@@ -10,6 +10,7 @@ use crate::LaunchError;
 #[derive(Debug, Deserialize)]
 pub struct AssetIndexJson {
     objects: HashMap<String, AssetObject>,
+    #[serde(rename = "virtual", alias = "virtual_map")]
     virtual_map: Option<bool>,
     map_to_resources: Option<bool>,
 }
@@ -102,9 +103,14 @@ impl AssetManager {
         }
 
         let target_dir = if asset_index.map_to_resources.unwrap_or(false) {
-            instance_minecraft_dir.to_path_buf()
-        } else {
             instance_minecraft_dir.join("resources")
+        } else {
+            instance_minecraft_dir
+                .parent()
+                .unwrap_or(instance_minecraft_dir)
+                .join("assets")
+                .join("virtual")
+                .join("legacy")
         };
 
         for (name, obj) in &asset_index.objects {

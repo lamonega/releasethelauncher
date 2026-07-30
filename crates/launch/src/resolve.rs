@@ -788,7 +788,13 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         .get("javaVersion")
         .and_then(|jv| jv.get("majorVersion"))
         .and_then(serde_json::Value::as_u64)
-        .map_or_else(|| vec![17, 21, 25], |v| vec![v as u32]);
+        .map(|v| vec![v as u32])
+        .unwrap_or_default();
+
+    let version_type = value
+        .get("type")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
 
     VersionFile {
         main_class,
@@ -799,7 +805,50 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         asset_index,
         client_download,
         compatible_java_majors,
+        version_type,
         ..VersionFile::default()
+    }
+}
+
+/// Derives the expected Java major version for a Minecraft version when the
+/// version JSON does not include a `javaVersion` field (pre-1.17 releases).
+///
+/// Mapping mirrors PrismLauncher's component metadata:
+/// - Classic / Alpha / Beta / pre-1.7 / 1.7.x - 1.16.x → Java 8
+/// - 1.17.x → Java 16 (minimum) / 17 (recommended)
+/// - 1.18.x - 1.20.4 → Java 17
+/// - 1.20.5+ / 1.21.x → Java 21
+/// - Modern snapshots (24.x, 25.x, 26.x) → Java 21
+#[must_use]
+pub fn default_java_major_for_version(mc_version: &str) -> u32 {
+    // Modern snapshot IDs like "24w14a", "25w12a", "26.2" etc.
+    // They don't start with "1." so we treat them as modern.
+    if !mc_version.starts_with("1.") {
+        // Check for numeric snapshot prefix (e.g. "26.1", "25.3")
+        let first_num: u32 = mc_version
+            .split('.')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if first_num >= 21 {
+            return 21;
+        }
+        // Lettered snapshots like "24w14a" → modern, use 21
+        return 21;
+    }
+
+    // Parse the minor version from "1.X" or "1.X.Y"
+    let minor: u32 = mc_version
+        .strip_prefix("1.")
+        .and_then(|s| s.split('.').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    match minor {
+        0..=16 => 8,   // 1.0 – 1.16.x: Java 8
+        17 => 17,       // 1.17.x: Java 17 (16 minimum, 17 recommended)
+        18..=20 => 17,  // 1.18 – 1.20.4: Java 17
+        _ => 21,        // 1.21+: Java 21
     }
 }
 
@@ -1196,5 +1245,18 @@ mod tests {
         let neoforge_versions_1_20_4 = resolver.fetch_loader_versions("neoforge", "1.20.4").await.unwrap();
         assert!(!neoforge_versions_1_20_4.is_empty(), "NeoForge versions should not be empty for 1.20.4");
         assert!(neoforge_versions_1_20_4.iter().all(|v| v.starts_with("20.4.")));
+    }
+
+    #[test]
+    fn test_default_java_major_for_version() {
+        assert_eq!(default_java_major_for_version("1.7.10"), 8);
+        assert_eq!(default_java_major_for_version("1.8.9"), 8);
+        assert_eq!(default_java_major_for_version("1.12.2"), 8);
+        assert_eq!(default_java_major_for_version("1.16.5"), 8);
+        assert_eq!(default_java_major_for_version("1.17.1"), 17);
+        assert_eq!(default_java_major_for_version("1.18.2"), 17);
+        assert_eq!(default_java_major_for_version("1.20.1"), 17);
+        assert_eq!(default_java_major_for_version("1.21"), 21);
+        assert_eq!(default_java_major_for_version("26.1"), 21);
     }
 }

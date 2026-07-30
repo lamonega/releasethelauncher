@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{ClientDownload, Component, LaunchError, Library};
+use crate::resolve::default_java_major_for_version;
+
 
 fn maven_key(name: &str) -> String {
     let parts: Vec<&str> = name.split(':').collect();
@@ -97,7 +99,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     let mut native_map: HashMap<String, Library> = HashMap::new();
     let mut main_class = None;
     let mut mc_version = String::new();
-    let mc_version_type = "release".to_string();
+    let mut mc_version_type = String::new();
     let mut jvm_args = Vec::new();
     let mut game_args_template = String::new();
     let mut all_traits = Vec::new();
@@ -108,6 +110,12 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     for component in components {
         if component.uid == "net.minecraft" {
             mc_version.clone_from(&component.version);
+        }
+        // Propagate version_type from component (release/snapshot/old_beta/old_alpha)
+        if mc_version_type.is_empty() {
+            if let Some(ref vt) = component.version_file.version_type {
+                mc_version_type = vt.clone();
+            }
         }
         if let Some(ref mc) = component.version_file.main_class {
             if component.uid != "net.minecraft" || main_class.is_none() {
@@ -154,7 +162,24 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     }
 
     if compatible_java_majors.is_empty() {
-        compatible_java_majors = vec![17, 21, 25];
+        let major = default_java_major_for_version(&mc_version);
+        compatible_java_majors = vec![major];
+    }
+
+    // If no asset index was found in any component (e.g. Beta/Alpha versions),
+    // fall back to the "legacy" index used by Mojang for pre-1.6 assets.
+    if asset_index.id.is_empty() {
+        asset_index = AssetIndex {
+            id: "legacy".to_string(),
+            url: "https://s3.amazonaws.com/Minecraft.Download/indexes/legacy.json".to_string(),
+            sha1: None,
+            size: 0,
+        };
+    }
+
+    // If version_type was never set, infer it from the version string
+    if mc_version_type.is_empty() {
+        mc_version_type = "release".to_string();
     }
 
     Ok(LaunchProfile {

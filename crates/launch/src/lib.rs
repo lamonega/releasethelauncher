@@ -105,6 +105,7 @@ pub struct VersionFile {
     pub tweakers: Vec<String>,
     pub asset_index: Option<AssetIndex>,
     pub client_download: Option<ClientDownload>,
+    pub version_type: Option<String>,
 }
 
 impl Default for VersionFile {
@@ -120,6 +121,7 @@ impl Default for VersionFile {
             tweakers: Vec::new(),
             asset_index: None,
             client_download: None,
+            version_type: None,
         }
     }
 }

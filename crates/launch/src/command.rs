@@ -66,6 +66,7 @@ fn replace_placeholders(
         ("auth_uuid", player.uuid.as_str()),
         ("auth_access_token", token),
         ("auth_session_id", token),
+        ("auth_session", token),    // legacy: used in minecraftArguments (pre-1.13)
         ("user_type", user_type),
         ("version_name", profile.mc_version.as_str()),
         ("version_type", profile.mc_version_type.as_str()),

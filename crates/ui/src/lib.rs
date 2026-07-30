@@ -1113,6 +1113,12 @@ async fn download_assets(
     let send = |msg: UiMessage| send_msg(queue, ctx, msg);
 
     if asset_index.url.is_empty() {
+        send_log(
+            queue,
+            ctx,
+            crate::log::LogLevel::Warn,
+            "Asset index URL is empty, skipping asset download",
+        );
         return;
     }
 
@@ -1150,6 +1156,34 @@ async fn download_assets(
                 send(UiMessage::DownloadError(format!(
                     "Failed to download assets: {e}"
                 )));
+                return;
+            }
+
+            // Reconstruct virtual/legacy assets after downloading all objects.
+            // This is required for MC 1.6-1.12 (virtual: true → assets/virtual/<id>/)
+            // and for pre-1.6 / Beta / Alpha (map_to_resources: true → .minecraft/resources/).
+            // Mirrors PrismLauncher's ReconstructAssets::executeTask().
+            send(UiMessage::Status("Reconstructing virtual assets...".to_string()));
+            match asset_mgr.parse_asset_index(&index_path) {
+                Ok(parsed_index) => {
+                    let mc_dir = instance_root.join(".minecraft");
+                    if let Err(e) = asset_mgr.reconstruct_virtual_assets(&mc_dir, &parsed_index) {
+                        send_log(
+                            queue,
+                            ctx,
+                            crate::log::LogLevel::Warn,
+                            format!("Failed to reconstruct virtual assets: {e}"),
+                        );
+                    }
+                }
+                Err(e) => {
+                    send_log(
+                        queue,
+                        ctx,
+                        crate::log::LogLevel::Warn,
+                        format!("Failed to parse asset index for virtual reconstruction: {e}"),
+                    );
+                }
             }
         }
         Err(e) => {
