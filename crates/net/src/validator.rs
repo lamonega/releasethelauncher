@@ -88,3 +88,22 @@ impl ChecksumValidator for Sha1Validator {
         Ok(hex)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sha1_validator_success() {
+        let mut validator = Box::new(Sha1Validator::new(Some("2fd4e1c67a2d28fced849ee1bb76e7391b93eb12".to_string())));
+        validator.update(b"The quick brown fox jumps over the lazy dog");
+        assert!(validator.finalize().is_ok());
+    }
+
+    #[test]
+    fn test_sha256_validator_success() {
+        let mut validator = Box::new(Sha256Validator::new(Some("d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592".to_string())));
+        validator.update(b"The quick brown fox jumps over the lazy dog");
+        assert!(validator.finalize().is_ok());
+    }
+}

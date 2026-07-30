@@ -1,0 +1,399 @@
+pub mod fabric;
+pub mod forge;
+pub mod mojang;
+pub mod neoforge;
+pub mod parsers;
+pub mod quilt;
+
+use crate::{Component, LaunchError, Requirement, VersionFile};
+use reqwest::Client;
+
+pub use parsers::{default_java_major_for_version, parse_library, parse_version_json};
+
+pub struct DependencyResolver {
+    pub(crate) http: Client,
+    manifest: Option<mojang::VersionManifest>,
+}
+
+impl Default for DependencyResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DependencyResolver {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            http: Client::new(),
+            manifest: None,
+        }
+    }
+
+    /// # Errors
+    /// Returns an error if the HTTP request or JSON parsing fails.
+    pub async fn fetch_manifest(&mut self) -> Result<(), LaunchError> {
+        let manifest = mojang::fetch_manifest(&self.http).await?;
+        self.manifest = Some(manifest);
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn get_version_url(&self, version_id: &str) -> Option<String> {
+        self.manifest.as_ref().and_then(|m| {
+            m.versions
+                .iter()
+                .find(|v| v.id == version_id)
+                .map(|v| v.url.clone())
+        })
+    }
+
+    #[must_use]
+    pub fn available_versions(&self) -> Vec<String> {
+        self.manifest.as_ref().map_or_else(Vec::new, |m| {
+            m.versions.iter().map(|v| v.id.clone()).collect()
+        })
+    }
+
+    #[must_use]
+    pub fn available_versions_with_types(&self) -> Vec<(String, String)> {
+        self.manifest.as_ref().map_or_else(Vec::new, |m| {
+            m.versions
+                .iter()
+                .map(|v| (v.id.clone(), v.version_type.clone()))
+                .collect()
+        })
+    }
+
+    /// # Errors
+    /// Returns an error if the HTTP request or JSON parsing fails.
+    pub async fn fetch_version_metadata(&self, url: &str) -> Result<VersionFile, LaunchError> {
+        mojang::fetch_version_metadata(&self.http, url).await
+    }
+
+    /// # Errors
+    /// Returns an error if the version is not found or the request fails.
+    pub async fn fetch_vanilla_component(
+        &self,
+        version_id: &str,
+    ) -> Result<Component, LaunchError> {
+        mojang::fetch_vanilla_component(&self.http, self.manifest.as_ref(), version_id).await
+    }
+
+    /// # Errors
+    /// Returns an error if the Fabric metadata request fails.
+    pub async fn fetch_fabric_component(
+        &self,
+        mc_version: &str,
+        loader_version: Option<&str>,
+    ) -> Result<Component, LaunchError> {
+        fabric::fetch_fabric_component(&self.http, mc_version, loader_version).await
+    }
+
+    /// # Errors
+    /// Returns an error if the Forge metadata request fails.
+    pub async fn fetch_forge_component(
+        &self,
+        mc_version: &str,
+        forge_version: &str,
+    ) -> Result<Component, LaunchError> {
+        forge::fetch_forge_component(&self.http, mc_version, forge_version).await
+    }
+
+    /// # Errors
+    /// Returns an error if the `NeoForge` metadata request fails.
+    pub async fn fetch_neoforge_component(
+        &self,
+        mc_version: &str,
+        neoforge_version: &str,
+    ) -> Result<Component, LaunchError> {
+        neoforge::fetch_neoforge_component(&self.http, mc_version, neoforge_version).await
+    }
+
+    /// # Errors
+    /// Returns an error if the Quilt metadata request fails.
+    pub async fn fetch_quilt_component(
+        &self,
+        mc_version: &str,
+        loader_version: Option<&str>,
+    ) -> Result<Component, LaunchError> {
+        quilt::fetch_quilt_component(&self.http, mc_version, loader_version).await
+    }
+
+    /// # Errors
+    /// Returns an error if fetching metadata for the specified loader fails.
+    pub async fn fetch_loader_versions(
+        &self,
+        loader_type: &str,
+        mc_version: &str,
+    ) -> Result<Vec<String>, LaunchError> {
+        match loader_type.to_lowercase().as_str() {
+            "fabric" => fabric::fetch_fabric_loader_versions(&self.http, mc_version).await,
+            "quilt" => quilt::fetch_quilt_loader_versions(&self.http, mc_version).await,
+            "forge" => forge::fetch_forge_loader_versions(&self.http, mc_version).await,
+            "neoforge" => neoforge::fetch_neoforge_loader_versions(&self.http, mc_version).await,
+            _ => Ok(Vec::new()),
+        }
+    }
+}
+
+/// # Errors
+/// Returns an error if a dependency fetch fails.
+pub async fn resolve_dependencies(
+    resolver: &mut DependencyResolver,
+    components: Vec<Component>,
+) -> Result<Vec<Component>, LaunchError> {
+    let mut resolved_deps: std::collections::HashMap<String, Component> =
+        std::collections::HashMap::new();
+
+    for component in components {
+        resolved_deps.insert(component.uid.clone(), component);
+    }
+
+    for _ in 0..50 {
+        let new_reqs: Vec<Requirement> = resolved_deps
+            .values()
+            .flat_map(|c| c.dependencies.clone())
+            .filter(|req| !resolved_deps.contains_key(&req.uid))
+            .collect();
+
+        if new_reqs.is_empty() {
+            break;
+        }
+
+        for req in new_reqs {
+            if resolved_deps.contains_key(&req.uid) {
+                continue;
+            }
+
+            let version = req
+                .equals
+                .clone()
+                .or_else(|| req.suggests.clone())
+                .unwrap_or_default();
+
+            if req.uid == "net.fabricmc.intermediary" {
+                let url = format!("{}/versions/intermediary/{version}", fabric::FABRIC_META_URL);
+                if let Ok(resp) = resolver.http.get(&url).send().await {
+                    if let Ok(versions) = resp.json::<Vec<serde_json::Value>>().await {
+                        if let Some(latest) = versions.first() {
+                            let loader_version = latest
+                                .get("version")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&version)
+                                .to_string();
+                            resolved_deps.insert(
+                                req.uid.clone(),
+                                Component {
+                                    uid: req.uid.clone(),
+                                    version: loader_version,
+                                    is_locked: false,
+                                    dependencies: Vec::new(),
+                                    conflicts: Vec::new(),
+                                    version_file: VersionFile::default(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(resolved_deps.into_values().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::profile::assemble_launch_profile;
+    use crate::{Component, Library, Rule, RuleOs, VersionFile};
+    use super::*;
+
+    #[test]
+    fn parse_library_new_format_native() {
+        let json = serde_json::json!({
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
+                    "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
+                    "size": 165442,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                }
+            },
+            "name": "org.lwjgl:lwjgl:3.3.3:natives-windows",
+            "rules": [{"action": "allow", "os": {"name": "windows"}}]
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_native);
+        assert_eq!(result[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
+        assert!(result[0].url.is_some());
+    }
+
+    #[test]
+    fn parse_library_new_format_regular() {
+        let json = serde_json::json!({
+            "downloads": {
+                "artifact": {
+                    "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
+                    "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
+                    "size": 785029,
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                }
+            },
+            "name": "org.lwjgl:lwjgl:3.3.3"
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_native);
+    }
+
+    #[test]
+    fn parse_version_json_1206() {
+        let json = serde_json::json!({
+            "libraries": [
+                {
+                    "downloads": {
+                        "artifact": {
+                            "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
+                            "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
+                            "size": 785029,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                        }
+                    },
+                    "name": "org.lwjgl:lwjgl:3.3.3"
+                },
+                {
+                    "downloads": {
+                        "artifact": {
+                            "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
+                            "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
+                            "size": 165442,
+                            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                        }
+                    },
+                    "name": "org.lwjgl:lwjgl:3.3.3:natives-windows",
+                    "rules": [{"action": "allow", "os": {"name": "windows"}}]
+                }
+            ]
+        });
+
+        let vf = parse_version_json(&json);
+        let natives: Vec<&Library> = vf.libraries.iter().filter(|l| l.is_native).collect();
+        assert_eq!(natives.len(), 1);
+        assert_eq!(natives[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
+        assert!(natives[0].url.is_some());
+    }
+
+    #[test]
+    fn assemble_profile_with_natives() {
+        let native_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.3:natives-windows".to_string(),
+            url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar".to_string()),
+            sha1: Some("a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540".to_string()),
+            size: Some(165442),
+            is_native: true,
+            rules: vec![Rule {
+                action: "allow".to_string(),
+                os: Some(RuleOs {
+                    name: Some("windows".to_string()),
+                    arch: None,
+                }),
+                features: std::collections::HashMap::new(),
+            }],
+            extract: None,
+        };
+        let regular_lib = Library {
+            name: "org.lwjgl:lwjgl:3.3.3".to_string(),
+            url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar".to_string()),
+            sha1: Some("29589b5f87ed335a6c7e7ee6a5775f81f97ecb84".to_string()),
+            size: Some(785029),
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+        let vf = VersionFile {
+            libraries: vec![regular_lib, native_lib],
+            ..VersionFile::default()
+        };
+        let component = Component {
+            uid: "net.minecraft".to_string(),
+            version: "1.20.6".to_string(),
+            is_locked: true,
+            dependencies: vec![],
+            conflicts: vec![],
+            version_file: vf,
+        };
+        let profile = assemble_launch_profile(&[component]).unwrap();
+        assert!(!profile.native_libraries.is_empty());
+        assert_eq!(profile.native_libraries.len(), 1);
+    }
+
+    #[test]
+    fn parse_library_old_format() {
+        let json = serde_json::json!({
+            "name": "org.lwjgl:lwjgl:3.3.3",
+            "natives": {
+                "windows": "natives-windows",
+                "linux": "natives-linux",
+                "osx": "natives-osx"
+            },
+            "downloads": {
+                "artifact": {
+                    "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
+                },
+                "classifiers": {
+                    "natives-windows": {
+                        "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
+                    }
+                }
+            }
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 2);
+        assert!(!result[0].is_native);
+        assert!(result[1].is_native);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_loader_versions() {
+        let resolver = DependencyResolver::new();
+        let fabric_versions = resolver.fetch_loader_versions("fabric", "1.20.1").await.unwrap();
+        assert!(!fabric_versions.is_empty());
+
+        let forge_versions_1_20_1 = resolver.fetch_loader_versions("forge", "1.20.1").await.unwrap();
+        assert!(!forge_versions_1_20_1.is_empty());
+
+        let forge_versions_1_8_9 = resolver.fetch_loader_versions("forge", "1.8.9").await.unwrap();
+        assert!(!forge_versions_1_8_9.is_empty());
+
+        let neoforge_versions_1_20_4 = resolver.fetch_loader_versions("neoforge", "1.20.4").await.unwrap();
+        assert!(!neoforge_versions_1_20_4.is_empty());
+    }
+
+    #[test]
+    fn test_default_java_major_for_version() {
+        assert_eq!(default_java_major_for_version("1.7.10"), 8);
+        assert_eq!(default_java_major_for_version("1.8.9"), 8);
+        assert_eq!(default_java_major_for_version("1.12.2"), 8);
+        assert_eq!(default_java_major_for_version("1.16.5"), 8);
+        assert_eq!(default_java_major_for_version("1.17.1"), 17);
+        assert_eq!(default_java_major_for_version("1.18.2"), 17);
+        assert_eq!(default_java_major_for_version("1.20.1"), 17);
+        assert_eq!(default_java_major_for_version("1.21"), 21);
+        assert_eq!(default_java_major_for_version("26.1"), 21);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_1_5_2_forge() {
+        let mut resolver = DependencyResolver::new();
+        resolver.fetch_manifest().await.unwrap();
+        let vanilla = resolver.fetch_vanilla_component("1.5.2").await.unwrap();
+        let forge = resolver.fetch_forge_component("1.5.2", "7.8.1.738").await.unwrap();
+        let profile = assemble_launch_profile(&[vanilla, forge]).unwrap();
+        assert_eq!(profile.main_class, "net.minecraft.launchwrapper.Launch");
+    }
+}

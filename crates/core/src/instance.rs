@@ -35,16 +35,20 @@ pub struct InstanceManager {
 }
 
 impl InstanceManager {
+    #[must_use]
+    pub fn new(instances_dir: PathBuf) -> Self {
+        Self {
+            instances_dir,
+            instances: HashMap::new(),
+        }
+    }
+
     /// Discovers all valid instances in the given directory.
     ///
     /// # Errors
     ///
     /// Returns [`CoreError::Io`] if reading the directory or instance config fails,
     /// or [`CoreError::Toml`] if parsing an instance config fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a directory entry's file name cannot be converted to a string.
     pub fn discover(instances_dir: PathBuf) -> Result<Self, CoreError> {
         let mut instances = HashMap::new();
         if instances_dir.exists() {
@@ -55,7 +59,9 @@ impl InstanceManager {
                     let config_path = path.join("instance.toml");
                     if config_path.exists() {
                         let settings = InstanceSettings::load(&config_path)?;
-                        let id = path.file_name().unwrap().to_string_lossy().to_string();
+                        let id = path
+                            .file_name()
+                            .map_or_else(|| "unknown".to_string(), |n| n.to_string_lossy().to_string());
                         instances.insert(
                             id.clone(),
                             Instance {
@@ -80,10 +86,6 @@ impl InstanceManager {
     ///
     /// Returns [`CoreError::InstanceAlreadyExists`] if an instance with the same name already exists,
     /// or [`CoreError::Io`] if creating directories or writing the config fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the instance cannot be retrieved from the internal map after insertion.
     pub fn create(
         &mut self,
         name: &str,
@@ -119,7 +121,7 @@ impl InstanceManager {
             settings,
         };
         self.instances.insert(id.clone(), instance);
-        Ok(self.instances.get(&id).unwrap())
+        self.instances.get(&id).ok_or_else(|| CoreError::InstanceNotFound(id))
     }
 
     /// Deletes the instance with the given ID, removing it from disk.
@@ -128,15 +130,11 @@ impl InstanceManager {
     ///
     /// Returns [`CoreError::InstanceNotFound`] if no instance with the given ID exists,
     /// or [`CoreError::Io`] if removing the instance directory fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the instance exists in the map but cannot be retrieved.
     pub fn delete(&mut self, id: &InstanceId) -> Result<(), CoreError> {
-        if !self.instances.contains_key(id) {
-            return Err(CoreError::InstanceNotFound(id.clone()));
-        }
-        let instance = self.instances.get(id).unwrap();
+        let instance = self
+            .instances
+            .get(id)
+            .ok_or_else(|| CoreError::InstanceNotFound(id.clone()))?;
         fs::remove_dir_all(&instance.root)?;
         self.instances.remove(id);
         Ok(())
@@ -187,5 +185,31 @@ impl InstanceManager {
         let config_path = instance.root.join("instance.toml");
         instance.settings.save(&config_path)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ModLoader;
+
+    #[test]
+    fn test_instance_manager_create_and_delete() {
+        let temp_dir = std::env::temp_dir().join(format!("rtl_test_inst_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let mut manager = InstanceManager::new(temp_dir.clone());
+
+        let settings = InstanceSettings::new("test-instance".to_string(), "1.20.1".to_string(), ModLoader::Vanilla);
+        let inst = manager.create("test-instance", settings).unwrap();
+        assert_eq!(inst.id, "test-instance");
+        assert!(inst.root.exists());
+
+        assert!(manager.get(&"test-instance".to_string()).is_some());
+        assert_eq!(manager.list().len(), 1);
+
+        manager.delete(&"test-instance".to_string()).unwrap();
+        assert!(manager.get(&"test-instance".to_string()).is_none());
+        assert_eq!(manager.list().len(), 0);
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

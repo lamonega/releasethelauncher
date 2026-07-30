@@ -374,3 +374,44 @@ fn extract_manifest_version(content: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_fabric_mod_json() {
+        let json = r#"{
+            "id": "examplemod",
+            "name": "Example Mod",
+            "version": "1.0.0",
+            "description": "An example mod"
+        }"#;
+        let details = parse_fabric_mod_json(json).unwrap();
+        assert_eq!(details.mod_id, "examplemod");
+        assert_eq!(details.name, "Example Mod");
+        assert_eq!(details.version, "1.0.0");
+    }
+
+    #[test]
+    fn test_parse_mcmod_info() {
+        let json = r#"[
+            {
+                "modid": "legacy_mod",
+                "name": "Legacy Mod",
+                "version": "2.0.0",
+                "mcversion": "1.12.2"
+            }
+        ]"#;
+        let details = parse_mcmod_info(json).unwrap();
+        assert_eq!(details.mod_id, "legacy_mod");
+        assert_eq!(details.version, "2.0.0");
+        assert_eq!(details.mc_version.as_deref(), Some("1.12.2"));
+    }
+
+    #[test]
+    fn test_extract_manifest_version() {
+        let manifest = "Manifest-Version: 1.0\nImplementation-Version: 3.2.1\n";
+        assert_eq!(extract_manifest_version(manifest), Some("3.2.1".to_string()));
+    }
+}

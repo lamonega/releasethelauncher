@@ -15,11 +15,11 @@ pub enum ModLoader {
 impl fmt::Display for ModLoader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ModLoader::Vanilla => write!(f, "Vanilla"),
-            ModLoader::Fabric { loader_version } => write!(f, "Fabric {loader_version}"),
-            ModLoader::Quilt { loader_version } => write!(f, "Quilt {loader_version}"),
-            ModLoader::Forge { loader_version } => write!(f, "Forge {loader_version}"),
-            ModLoader::NeoForge { loader_version } => write!(f, "NeoForge {loader_version}"),
+            Self::Vanilla => write!(f, "Vanilla"),
+            Self::Fabric { loader_version } => write!(f, "Fabric {loader_version}"),
+            Self::Quilt { loader_version } => write!(f, "Quilt {loader_version}"),
+            Self::Forge { loader_version } => write!(f, "Forge {loader_version}"),
+            Self::NeoForge { loader_version } => write!(f, "NeoForge {loader_version}"),
         }
     }
 }
@@ -44,22 +44,13 @@ const fn default_close_after_launch() -> bool {
     false
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JavaSettings {
     pub path: Option<String>,
     pub memory_min: Option<String>,
     pub memory_max: Option<String>,
 }
 
-impl Default for JavaSettings {
-    fn default() -> Self {
-        Self {
-            path: None,
-            memory_min: None,
-            memory_max: None,
-        }
-    }
-}
 
 impl InstanceSettings {
     #[must_use = "Creates a new InstanceSettings with default Java settings"]

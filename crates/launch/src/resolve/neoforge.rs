@@ -1,0 +1,96 @@
+use crate::{Component, LaunchError, Requirement, VersionFile};
+use super::parsers::parse_library;
+use reqwest::Client;
+
+pub const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
+
+pub async fn fetch_neoforge_component(
+    client: &Client,
+    mc_version: &str,
+    neoforge_version: &str,
+) -> Result<Component, LaunchError> {
+    let url = format!(
+        "{NEOFORGE_MAVEN}/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-install-profile.json"
+    );
+    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
+    let mut libraries = Vec::new();
+    let mut main_class = None;
+
+    if let Some(data) = resp.get("data") {
+        if let Some(mc_main) = data
+            .get("MINECRAFT_MAIN_CLASS")
+            .and_then(|v| v.get("client"))
+        {
+            if let Some(s) = mc_main.as_str() {
+                main_class = Some(s.to_string());
+            }
+        }
+    }
+    if let Some(libs) = resp
+        .get("versionInfo")
+        .and_then(|v| v.get("libraries"))
+        .and_then(|v| v.as_array())
+    {
+        for lib in libs {
+            libraries.extend(parse_library(lib));
+        }
+    }
+
+    Ok(Component {
+        uid: "net.neoforged".to_string(),
+        version: neoforge_version.to_string(),
+        is_locked: true,
+        dependencies: vec![Requirement {
+            uid: "net.minecraft".to_string(),
+            suggests: Some(mc_version.to_string()),
+            equals: Some(mc_version.to_string()),
+        }],
+        conflicts: vec![
+            "net.minecraftforge".into(),
+            "net.fabricmc.fabric-loader".into(),
+            "org.quiltmc".into(),
+        ],
+        version_file: VersionFile {
+            main_class,
+            libraries,
+            ..VersionFile::default()
+        },
+    })
+}
+
+pub async fn fetch_neoforge_loader_versions(
+    client: &Client,
+    mc_version: &str,
+) -> Result<Vec<String>, LaunchError> {
+    let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+    let resp = client.get(url).send().await?.text().await?;
+    let neoforge_prefix = if let Some(stripped) = mc_version.strip_prefix("1.") {
+        let parts: Vec<&str> = stripped.split('.').collect();
+        if parts.len() >= 2 {
+            format!("{}.{}.", parts[0], parts[1])
+        } else if parts.len() == 1 {
+            format!("{}.0.", parts[0])
+        } else {
+            mc_version.to_string()
+        }
+    } else {
+        mc_version.to_string()
+    };
+
+    let tag_prefix = format!("<version>{neoforge_prefix}");
+    let mut versions = Vec::new();
+    for line in resp.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&tag_prefix) && trimmed.ends_with("</version>") {
+            let ver = trimmed
+                .strip_prefix("<version>")
+                .and_then(|s| s.strip_suffix("</version>"))
+                .unwrap_or("");
+            if !ver.is_empty() && !versions.contains(&ver.to_string()) {
+                versions.push(ver.to_string());
+            }
+        }
+    }
+    versions.reverse();
+    Ok(versions)
+}

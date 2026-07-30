@@ -240,6 +240,10 @@ impl ModrinthProvider {
     /// # Errors
     ///
     /// Returns an error if reading `modrinth.index.json` or downloading fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a task join fails.
     pub async fn download_modpack_files(
         &self,
         target_dir: &Path,
@@ -266,7 +270,7 @@ impl ModrinthProvider {
         let mut total_bytes: u64 = 0;
 
         for file_obj in files {
-            let size = file_obj.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let size = file_obj.get("file_size").and_then(serde_json::Value::as_u64).unwrap_or(0);
             total_bytes += size;
 
             if let Some(path_str) = file_obj.get("path").and_then(|p| p.as_str()) {
@@ -294,7 +298,7 @@ impl ModrinthProvider {
                 .get("path")
                 .and_then(|p| p.as_str())
                 .map(ToString::to_string);
-            let size = file_obj.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let size = file_obj.get("file_size").and_then(serde_json::Value::as_u64).unwrap_or(0);
 
             if let (Some(url), Some(path_str)) = (downloads, rel_path) {
                 let dest = target_dir.join(".minecraft").join(&path_str);
@@ -311,13 +315,14 @@ impl ModrinthProvider {
 
                 tasks.push(tokio::spawn(async move {
                     if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
-                        let _permit = sem.acquire().await.unwrap();
+                        let Ok(_permit) = sem.acquire().await else { return; };
                         if let Ok(resp) = client.get(&url).send().await {
                             if resp.status().is_success() {
                                 if let Ok(bytes) = resp.bytes().await {
                                     if let Some(parent) = dest.parent() {
                                         let _ = fs::create_dir_all(parent);
                                     }
+
                                     let tmp = dest.with_extension("tmp");
                                     let _ = fs::write(&tmp, &bytes);
                                     let _ = fs::rename(&tmp, &dest);
@@ -392,8 +397,7 @@ impl ModrinthProvider {
                 .get("dependencies")
                 .and_then(|d| d.get("minecraft"))
                 .and_then(|v| v.as_str())
-                .map(ToString::to_string)
-                .unwrap_or(fallback_mc);
+                .map_or(fallback_mc, ToString::to_string);
 
             let loader = if index
                 .get("dependencies")
