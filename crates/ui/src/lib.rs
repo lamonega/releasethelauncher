@@ -801,8 +801,8 @@ async fn do_launch(params: LaunchParams) {
     let queue_out = params.queue.clone();
     let ctx_out = params.ctx.clone();
     let target_out = instance_target.clone();
-    if let Some(stdout) = stdout {
-        tokio::spawn(async move {
+    let out_handle = if let Some(stdout) = stdout {
+        Some(tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut reader = tokio::io::BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
@@ -816,31 +816,58 @@ async fn do_launch(params: LaunchParams) {
                 }
                 ctx_out.request_repaint();
             }
-        });
-    }
+        }))
+    } else {
+        None
+    };
 
     let queue_err = params.queue.clone();
     let ctx_err = params.ctx.clone();
     let target_err = instance_target;
-    if let Some(stderr) = stderr {
-        tokio::spawn(async move {
+    let err_handle = if let Some(stderr) = stderr {
+        Some(tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut reader = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
+                let level = if line.contains("ERROR")
+                    || line.contains("Error")
+                    || line.contains("EXCEPTION")
+                    || line.contains("Exception")
+                    || line.contains("FATAL")
+                    || line.contains("Fatal")
+                    || line.contains("SEVERE")
+                    || line.contains("Severe")
+                {
+                    crate::log::LogLevel::Error
+                } else if line.contains("WARN") || line.contains("Warn") || line.contains("WARNING") {
+                    crate::log::LogLevel::Warn
+                } else {
+                    crate::log::LogLevel::Info
+                };
                 if let Ok(mut q) = queue_err.lock() {
                     q.push(UiMessage::Log(crate::log::LogEntry {
                         timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                        level: crate::log::LogLevel::Error,
+                        level,
                         message: line,
                         target: target_err.clone(),
                     }));
                 }
                 ctx_err.request_repaint();
             }
-        });
+        }))
+    } else {
+        None
+    };
+
+    let status = child.wait().await;
+    if let Some(h) = out_handle {
+        let _ = h.await;
+    }
+    if let Some(h) = err_handle {
+        let _ = h.await;
     }
 
-    match child.wait().await {
+    match status {
         Ok(status) => {
             let msg = format!("Game process exited with status: {status}");
             let level = if status.success() {
@@ -1101,6 +1128,12 @@ fn extract_natives_files(
         send(UiMessage::DownloadError(format!(
             "Failed to extract natives: {e}"
         )));
+    } else {
+        let count = release_the_launcher_launch::natives::verify_natives_dir(&natives_dir);
+        send_log(
+            crate::log::LogLevel::Info,
+            format!("Extracted {count} native dynamic library binaries to {}", natives_dir.display()),
+        );
     }
 }
 
