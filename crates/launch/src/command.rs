@@ -181,7 +181,15 @@ pub fn build_command(
         cmd.arg(&processed);
     }
 
+    let is_mc_1_6_or_newer = !profile.mc_version.starts_with("1.0")
+        && !profile.mc_version.starts_with("1.1")
+        && !profile.mc_version.starts_with("1.2")
+        && !profile.mc_version.starts_with("1.3")
+        && !profile.mc_version.starts_with("1.4")
+        && !profile.mc_version.starts_with("1.5");
+
     if !has_tweak_class
+        && is_mc_1_6_or_newer
         && (profile.main_class == "net.minecraft.launchwrapper.Launch"
             || profile.traits.iter().any(|t| t == "legacyFML"))
     {
@@ -219,18 +227,38 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
             }
             let path = parts[0].replace('.', "/");
             let artifact = parts[1];
-            let version = parts[2];
-            let classifier = parts.get(3);
+            let mut version = parts[2];
+            let classifier_raw = parts.get(3).copied();
+
+            let (classifier, ext) = if let Some(cls) = classifier_raw {
+                if let Some((c, e)) = cls.split_once('@') {
+                    (Some(c), e)
+                } else {
+                    (Some(cls), "jar")
+                }
+            } else if let Some((v, e)) = version.split_once('@') {
+                version = v;
+                (None, e)
+            } else {
+                (None, "jar")
+            };
+
             let filename = classifier.map_or_else(
-                || format!("{artifact}-{version}.jar"),
-                |cls| format!("{artifact}-{version}-{cls}.jar"),
+                || format!("{artifact}-{version}.{ext}"),
+                |cls| format!("{artifact}-{version}-{cls}.{ext}"),
             );
             let jar_path = libraries_dir
                 .join(&path)
                 .join(artifact)
                 .join(version)
                 .join(filename);
-            classpath.push(jar_path.display().to_string());
+
+            let is_jarmod = lib.name.contains("@zip") || lib.name.contains("net.minecraftforge:forge");
+            if is_jarmod {
+                classpath.insert(0, jar_path.display().to_string());
+            } else {
+                classpath.push(jar_path.display().to_string());
+            }
         }
     }
     classpath

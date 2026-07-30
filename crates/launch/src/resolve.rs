@@ -250,6 +250,12 @@ impl DependencyResolver {
                             }
                         }
 
+                        if let Some(jar_mods) = resp.get("jarMods").and_then(|v| v.as_array()) {
+                            for jm in jar_mods {
+                                libraries.extend(parse_library(jm));
+                            }
+                        }
+
                         if let Some(tweaks) = resp.get("+tweakers").and_then(|v| v.as_array()) {
                             for tw in tweaks {
                                 if let Some(s) = tw.as_str() {
@@ -276,11 +282,19 @@ impl DependencyResolver {
             }
         }
 
-        let is_launchwrapper = main_class
-            .as_deref()
-            .unwrap_or("net.minecraft.launchwrapper.Launch")
-            == "net.minecraft.launchwrapper.Launch"
-            || traits.iter().any(|t| t == "legacyFML");
+        let is_mc_1_6_or_newer = !mc_version.starts_with("1.0")
+            && !mc_version.starts_with("1.1")
+            && !mc_version.starts_with("1.2")
+            && !mc_version.starts_with("1.3")
+            && !mc_version.starts_with("1.4")
+            && !mc_version.starts_with("1.5");
+
+        let is_launchwrapper = is_mc_1_6_or_newer
+            && (main_class
+                .as_deref()
+                .unwrap_or("net.minecraft.launchwrapper.Launch")
+                == "net.minecraft.launchwrapper.Launch"
+                || traits.iter().any(|t| t == "legacyFML"));
 
         if is_launchwrapper {
             if main_class.is_none() {
@@ -707,6 +721,12 @@ fn parse_version_json(value: &serde_json::Value) -> VersionFile {
                 tweakers.push(tweaker.to_string());
             }
             libraries.extend(parse_library(lib));
+        }
+    }
+
+    if let Some(jar_mods) = value.get("jarMods").and_then(|v| v.as_array()) {
+        for jm in jar_mods {
+            libraries.extend(parse_library(jm));
         }
     }
 
