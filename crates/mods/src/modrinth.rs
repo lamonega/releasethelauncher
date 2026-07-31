@@ -776,7 +776,7 @@ impl ModProvider for ModrinthProvider {
 
         fs::create_dir_all(target_dir)?;
         let path = target_dir.join(&version.filename);
-        let tmp_path = path.with_extension("tmp");
+        let tmp_path = path.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
 
         let mut file = fs::File::create(&tmp_path)?;
 
