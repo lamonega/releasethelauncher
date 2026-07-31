@@ -3577,8 +3577,12 @@ dependencies = [
 name = "release-the-launcher-core"
 version = "0.6.0"
 dependencies = [
+ "hex",
+ "release-the-launcher-constants",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2",
  "thiserror 1.0.69",
  "toml",
  "zip",
