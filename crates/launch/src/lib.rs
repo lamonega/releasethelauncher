@@ -70,14 +70,14 @@ pub struct Library {
     pub extract: Option<Extract>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Rule {
     pub action: String,
     pub os: Option<RuleOs>,
     pub features: std::collections::HashMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RuleOs {
     pub name: Option<String>,
     pub arch: Option<String>,

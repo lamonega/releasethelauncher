@@ -12,7 +12,7 @@ pub struct PlayerAuth {
     pub access_token: String,
 }
 
-pub fn clean_environment(cmd: &mut tokio::process::Command) {
+pub fn clean_environment(cmd: &mut std::process::Command) {
     for var in [
         "_JAVA_OPTIONS",
         "_JAVA_TOOL_OPTIONS",
@@ -25,7 +25,7 @@ pub fn clean_environment(cmd: &mut tokio::process::Command) {
     }
 }
 
-pub fn set_game_env(cmd: &mut tokio::process::Command, instance_root: &Path, mc_version: &str) {
+pub fn set_game_env(cmd: &mut std::process::Command, instance_root: &Path, mc_version: &str) {
     cmd.env("INST_DIR", instance_root.display().to_string());
     cmd.env(
         "INST_MC_DIR",
@@ -93,8 +93,8 @@ pub fn build_command(
     player: &PlayerAuth,
     memory_min: &str,
     memory_max: &str,
-) -> tokio::process::Command {
-    let mut cmd = tokio::process::Command::new(java_path);
+) -> std::process::Command {
+    let mut cmd = std::process::Command::new(java_path);
     cmd.current_dir(instance_dir);
 
     clean_environment(&mut cmd);
@@ -185,17 +185,23 @@ pub fn build_command(
         && (profile.main_class == "net.minecraft.launchwrapper.Launch"
             || profile.traits.iter().any(|t| t == "legacyFML"))
     {
-        let tweak = if profile.mc_version.starts_with("1.8")
-            || profile.mc_version.starts_with("1.9")
-            || profile.mc_version.starts_with("1.10")
-            || profile.mc_version.starts_with("1.11")
-            || profile.mc_version.starts_with("1.12")
-        {
-            "net.minecraftforge.fml.common.launcher.FMLTweaker"
+        if profile.tweakers.is_empty() {
+            let tweak = if profile.mc_version.starts_with("1.8")
+                || profile.mc_version.starts_with("1.9")
+                || profile.mc_version.starts_with("1.10")
+                || profile.mc_version.starts_with("1.11")
+                || profile.mc_version.starts_with("1.12")
+            {
+                "net.minecraftforge.fml.common.launcher.FMLTweaker"
+            } else {
+                "cpw.mods.fml.common.launcher.FMLTweaker"
+            };
+            cmd.arg("--tweakClass").arg(tweak);
         } else {
-            "cpw.mods.fml.common.launcher.FMLTweaker"
-        };
-        cmd.arg("--tweakClass").arg(tweak);
+            for tweak in &profile.tweakers {
+                cmd.arg("--tweakClass").arg(tweak);
+            }
+        }
     }
 
     cmd.arg("--width").arg("854");
@@ -245,13 +251,17 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
 
 /// # Errors
 /// Returns an error if the process fails to spawn or wait.
-pub async fn launch_game(command: &mut tokio::process::Command) -> Result<ExitStatus, LaunchError> {
-    command
-        .spawn()
-        .map_err(|e| LaunchError::Launch(e.to_string()))?
-        .wait()
-        .await
-        .map_err(|e| LaunchError::Launch(e.to_string()))
+pub async fn launch_game(command: &mut std::process::Command) -> Result<ExitStatus, LaunchError> {
+    let mut command = std::mem::replace(command, std::process::Command::new(""));
+    tokio::task::spawn_blocking(move || {
+        command
+            .spawn()
+            .map_err(|e| LaunchError::Launch(e.to_string()))?
+            .wait()
+            .map_err(|e| LaunchError::Launch(e.to_string()))
+    })
+    .await
+    .map_err(|e| LaunchError::Launch(e.to_string()))?
 }
 
 /// # Errors
@@ -350,6 +360,7 @@ mod tests {
             ],
             game_args_template: String::new(),
             traits: Vec::new(),
+            tweakers: Vec::new(),
             compatible_java_majors: vec![17],
         };
 
@@ -363,7 +374,6 @@ mod tests {
 
         let cmd = build_command(&profile, &instance_dir, &java_path, &player, "1G", "2G");
         let args: Vec<String> = cmd
-            .as_std()
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();

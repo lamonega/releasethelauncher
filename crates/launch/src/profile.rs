@@ -65,6 +65,7 @@ pub struct LaunchProfile {
     pub jvm_args: Vec<String>,
     pub game_args_template: String,
     pub traits: Vec<String>,
+    pub tweakers: Vec<String>,
     pub compatible_java_majors: Vec<u32>,
 }
 
@@ -80,9 +81,19 @@ fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
     let key = maven_key(&lib.name);
     let version = maven_version(&lib.name).to_string();
     match map.get(&key) {
+        Some(existing) if existing.rules != lib.rules => {
+            // Platform variants of the same artifact (e.g. lwjgl 2.9.0 vs the
+            // 2.9.1-nightly build that is osx-only): keep both, the per-OS rule
+            // filtering picks the right one later.
+            map.insert(
+                format!("{key}#{}", maven_version(&existing.name)),
+                existing.clone(),
+            );
+            map.remove(&key);
+            map.insert(format!("{key}#{version}"), lib.clone());
+        }
         Some(existing) => {
-            let existing_ver = maven_version(&existing.name);
-            if is_higher_version(&version, existing_ver) {
+            if is_higher_version(&version, maven_version(&existing.name)) {
                 map.insert(key, lib.clone());
             }
         }
@@ -103,6 +114,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     let mut jvm_args = Vec::new();
     let mut game_args_template = String::new();
     let mut all_traits = Vec::new();
+    let mut all_tweakers = Vec::new();
     let mut compatible_java_majors = Vec::new();
     let mut asset_index = AssetIndex::default();
     let mut client_download = None;
@@ -154,6 +166,11 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
                 all_traits.push(t.clone());
             }
         }
+        for t in &component.version_file.tweakers {
+            if !all_tweakers.contains(t) {
+                all_tweakers.push(t.clone());
+            }
+        }
         for j in &component.version_file.compatible_java_majors {
             if !compatible_java_majors.contains(j) {
                 compatible_java_majors.push(*j);
@@ -193,6 +210,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         jvm_args,
         game_args_template,
         traits: all_traits,
+        tweakers: all_tweakers,
         compatible_java_majors,
     })
 }

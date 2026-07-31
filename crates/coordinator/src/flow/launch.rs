@@ -112,11 +112,11 @@ pub async fn do_launch(params: LaunchParams) {
         return;
     };
 
-    let mut cmd = build_launch_command(
+    let cmd = build_launch_command(
         &params, &profile, &java_path, player_name, player_uuid, access_token,
     );
 
-    spawn_and_monitor_game(&params, &mut cmd).await;
+    spawn_and_monitor_game(&params, cmd).await;
 }
 
 fn build_launch_command(
@@ -126,7 +126,7 @@ fn build_launch_command(
     player_name: &str,
     player_uuid: &str,
     access_token: &str,
-) -> tokio::process::Command {
+) -> std::process::Command {
     send_log(
         &params.queue,
         LogLevel::Info,
@@ -149,7 +149,7 @@ fn build_launch_command(
     send_log(
         &params.queue,
         LogLevel::Info,
-        format!("Java Command Line: {:?}", cmd.as_std()),
+        format!("Java Command Line: {:?}", cmd),
     );
 
     cmd
@@ -273,50 +273,22 @@ async fn download_client_jar(params: &LaunchParams, profile: &LaunchProfile) -> 
     Ok(())
 }
 
-async fn spawn_and_monitor_game(
-    params: &LaunchParams,
-    cmd: &mut tokio::process::Command,
-) {
-    let send = |msg: Event| push_event(&params.queue, msg);
-    send(Event::Status("Launching game...".to_string()));
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+/// Spawns the game and streams its output. Reading happens on std threads:
+/// tokio's child pipes on Windows lose everything but the first stderr line
+/// when the process dies right after writing (javaw crash after ~67 of 950
+/// bytes); sync reads drain the pipe before the OS cancels the pending I/O.
+async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Command) {
+    push_event(&params.queue, Event::Status("Launching game...".to_string()));
 
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            let msg = format!("Failed to spawn process: {e}");
-            send_log(&params.queue, LogLevel::Error, &msg);
-            send(Event::DownloadError(msg));
-            return;
-        }
-    };
+    let queue = params.queue.clone();
+    let instance_id = params.instance_id.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        spawn_and_stream_output(cmd, &queue, &instance_id)
+    })
+    .await
+    .unwrap_or(Err("Log streaming task failed".to_string()));
 
-    send(Event::DownloadComplete("Game is running".to_string()));
-    send_log(
-        &params.queue,
-        LogLevel::Info,
-        "Game process started successfully. Streaming logs...",
-    );
-
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-
-    let (out_handle, err_handle) = spawn_log_streams(
-        &params.queue,
-        &format!("instance:{}", params.instance_id),
-        stdout,
-        stderr,
-    );
-
-    let status = child.wait().await;
-    if let Some(h) = out_handle {
-        let _ = h.await;
-    }
-    if let Some(h) = err_handle {
-        let _ = h.await;
-    }
-
-    match status {
+    match result {
         Ok(status) => {
             let msg = format!("Game process exited with status: {status}");
             let level = if status.success() {
@@ -325,12 +297,12 @@ async fn spawn_and_monitor_game(
                 LogLevel::Error
             };
             send_log(&params.queue, level, &msg);
-            send(Event::DownloadComplete(msg));
+            push_event(&params.queue, Event::DownloadComplete(msg));
         }
         Err(e) => {
-            let msg = format!("Failed to wait for game process: {e}");
+            let msg = format!("Failed to run game process: {e}");
             send_log(&params.queue, LogLevel::Error, &msg);
-            send(Event::DownloadError(msg));
+            push_event(&params.queue, Event::DownloadError(msg));
         }
     }
 
@@ -341,72 +313,81 @@ async fn spawn_and_monitor_game(
     }
 }
 
-fn spawn_log_streams(
+fn spawn_and_stream_output(
+    mut cmd: std::process::Command,
     queue: &Queue,
-    instance_target: &str,
-    stdout: Option<tokio::process::ChildStdout>,
-    stderr: Option<tokio::process::ChildStderr>,
-) -> (
-    Option<tokio::task::JoinHandle<()>>,
-    Option<tokio::task::JoinHandle<()>>,
-) {
-    let target = instance_target.to_string();
-    let queue_out = Arc::clone(queue);
-    let target_out = target.clone();
-    let out_handle = stdout.map(|stdout| {
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                push_event(
-                    &queue_out,
-                    Event::Log(crate::log::LogEntry {
-                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                        level: LogLevel::Info,
-                        message: line,
-                        target: target_out.clone(),
-                    }),
-                );
-            }
-        })
-    });
+    instance_id: &str,
+) -> Result<std::process::ExitStatus, String> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
-    let queue_err = Arc::clone(queue);
-    let target_err = target;
-    let err_handle = stderr.map(|stderr| {
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let level = if line.contains("ERROR")
-                    || line.contains("Error")
-                    || line.contains("EXCEPTION")
-                    || line.contains("Exception")
-                    || line.contains("FATAL")
-                    || line.contains("Fatal")
-                    || line.contains("SEVERE")
-                    || line.contains("Severe")
-                {
-                    LogLevel::Error
-                } else if line.contains("WARN") || line.contains("Warn") || line.contains("WARNING") {
-                    LogLevel::Warn
-                } else {
-                    LogLevel::Info
-                };
-                push_event(
-                    &queue_err,
-                    Event::Log(crate::log::LogEntry {
-                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                        level,
-                        message: line,
-                        target: target_err.clone(),
-                    }),
-                );
-            }
-        })
-    });
+    push_event(queue, Event::DownloadComplete("Game is running".to_string()));
+    send_log(
+        queue,
+        LogLevel::Info,
+        "Game process started successfully. Streaming logs...",
+    );
 
-    (out_handle, err_handle)
+    let target = format!("instance:{instance_id}");
+    let mut readers = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        readers.push(spawn_line_reader(out, Arc::clone(queue), target.clone(), true));
+    }
+    if let Some(err) = child.stderr.take() {
+        readers.push(spawn_line_reader(err, Arc::clone(queue), target.clone(), false));
+    }
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    for reader in readers {
+        let _ = reader.join();
+    }
+    Ok(status)
+}
+
+fn spawn_line_reader<R: std::io::Read + Send + 'static>(
+    stream: R,
+    queue: Queue,
+    target: String,
+    is_stdout: bool,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            let level = if is_stdout {
+                LogLevel::Info
+            } else {
+                stderr_level(&line)
+            };
+            push_event(
+                &queue,
+                Event::Log(crate::log::LogEntry {
+                    timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                    level,
+                    message: line,
+                    target: target.clone(),
+                }),
+            );
+        }
+    })
+}
+
+fn stderr_level(line: &str) -> LogLevel {
+    if line.contains("ERROR")
+        || line.contains("Error")
+        || line.contains("EXCEPTION")
+        || line.contains("Exception")
+        || line.contains("FATAL")
+        || line.contains("Fatal")
+        || line.contains("SEVERE")
+        || line.contains("Severe")
+    {
+        LogLevel::Error
+    } else if line.contains("WARN") || line.contains("Warn") || line.contains("WARNING") {
+        LogLevel::Warn
+    } else {
+        LogLevel::Info
+    }
 }
 
 async fn download_modpack_mods(params: &LaunchParams) {

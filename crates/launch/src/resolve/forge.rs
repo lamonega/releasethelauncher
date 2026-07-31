@@ -146,6 +146,90 @@ async fn fetch_forge_metadata(
             }
         }
     }
+
+    if tweakers.is_empty() && main_class.is_none() {
+        fetch_legacy_installer_metadata(client, mc_version, forge_version, main_class, libraries, tweakers).await;
+    }
+}
+
+/// Legacy Forge (pre-1.6) publishes its launch metadata only inside the installer jar
+/// (`install_profile.json`). Falls back to it when the metadata endpoints come up empty.
+async fn fetch_legacy_installer_metadata(
+    client: &Client,
+    mc_version: &str,
+    forge_version: &str,
+    main_class: &mut Option<String>,
+    libraries: &mut Vec<crate::Library>,
+    tweakers: &mut Vec<String>,
+) {
+    let full_ver = format!("{mc_version}-{forge_version}");
+    let urls = [
+        format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar"),
+        format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar"),
+    ];
+    for url in urls {
+        let Ok(resp) = client.get(&url).send().await else { continue };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let Ok(bytes) = resp.bytes().await else { continue };
+        let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())) else {
+            continue;
+        };
+        let Ok(mut entry) = archive.by_name("install_profile.json") else { continue };
+        let mut content = String::new();
+        if std::io::Read::read_to_string(&mut entry, &mut content).is_err() {
+            continue;
+        }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            parse_installer_version_info(&json, main_class, libraries, tweakers);
+        }
+        return;
+    }
+}
+
+fn parse_installer_version_info(
+    json: &serde_json::Value,
+    main_class: &mut Option<String>,
+    libraries: &mut Vec<crate::Library>,
+    tweakers: &mut Vec<String>,
+) {
+    let info = json.get("versionInfo").unwrap_or(json);
+
+    if main_class.is_none() {
+        if let Some(mc) = info.get("mainClass").and_then(|v| v.as_str()) {
+            *main_class = Some(mc.to_string());
+        }
+    }
+
+    if let Some(libs) = info.get("libraries").and_then(|v| v.as_array()) {
+        for lib in libs {
+            for parsed in parse_library(lib) {
+                // ponytail: "net.minecraftforge:minecraftforge" is the old universal-jar
+                // artifact name, 404 on today's maven; ensure_forge_compatibility adds
+                // the modern universal.zip for it instead.
+                if parsed.name.starts_with("net.minecraftforge:minecraftforge") {
+                    continue;
+                }
+                if !libraries.iter().any(|l| l.name == parsed.name) {
+                    libraries.push(parsed);
+                }
+            }
+        }
+    }
+
+    if let Some(args) = info.get("minecraftArguments").and_then(|v| v.as_str()) {
+        let mut parts = args.split_whitespace();
+        while let Some(arg) = parts.next() {
+            if arg == "--tweakClass" {
+                if let Some(tweak) = parts.next() {
+                    if !tweakers.contains(&tweak.to_string()) {
+                        tweakers.push(tweak.to_string());
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn ensure_forge_compatibility(
@@ -281,4 +365,62 @@ pub async fn fetch_forge_loader_versions(
         }
     }
     Ok(versions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_install_profile() -> serde_json::Value {
+        // Trimmed from the real forge-1.5.2-7.8.1.738-installer.jar install_profile.json
+        serde_json::json!({
+            "install": {},
+            "versionInfo": {
+                "id": "1.5.2-7.8.1.738",
+                "mainClass": "net.minecraft.launchwrapper.Launch",
+                "minecraftArguments": "${auth_player_name} ${auth_session} --gameDir ${game_directory} --assetsDir ${game_assets} --tweakClass net.minecraftforge.legacy._1_5_2.LibraryFixerTweaker",
+                "libraries": [
+                    { "name": "net.minecraftforge:minecraftforge:7.8.1.738", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "org.scala-lang:scala-library:2.10.0-custom", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "net.sourceforge.argo:argo:3.2-small", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "org.bouncycastle:bcprov-jdk15on:148", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "com.google.guava:guava:14.0-rc3", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "net.minecraftforge:legacyfixer:1.0", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "org.ow2.asm:asm-all:4.1" },
+                    { "name": "net.minecraft:launchwrapper:1.5" }
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn parses_installer_version_info() {
+        let mut main_class = None;
+        let mut libraries = vec![crate::Library {
+            name: "org.ow2.asm:asm-all:4.1".to_string(),
+            url: None,
+            sha1: None,
+            size: None,
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        }];
+        let mut tweakers = Vec::new();
+
+        parse_installer_version_info(&sample_install_profile(), &mut main_class, &mut libraries, &mut tweakers);
+
+        assert_eq!(main_class.as_deref(), Some("net.minecraft.launchwrapper.Launch"));
+        assert_eq!(
+            tweakers,
+            vec!["net.minecraftforge.legacy._1_5_2.LibraryFixerTweaker"]
+        );
+        let names: Vec<&str> = libraries.iter().map(|l| l.name.as_str()).collect();
+        assert!(names.contains(&"net.minecraftforge:legacyfixer:1.0"));
+        assert!(names.contains(&"org.scala-lang:scala-library:2.10.0-custom"));
+        assert!(names.contains(&"net.sourceforge.argo:argo:3.2-small"));
+        assert!(names.contains(&"org.bouncycastle:bcprov-jdk15on:148"));
+        assert!(names.contains(&"com.google.guava:guava:14.0-rc3"));
+        assert!(!names.contains(&"net.minecraftforge:minecraftforge:7.8.1.738"));
+        assert_eq!(names.iter().filter(|n| **n == "org.ow2.asm:asm-all:4.1").count(), 1);
+    }
 }
