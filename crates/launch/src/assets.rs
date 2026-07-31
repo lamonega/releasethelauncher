@@ -18,7 +18,6 @@ pub struct AssetIndexJson {
 #[derive(Debug, Deserialize)]
 struct AssetObject {
     hash: String,
-    _size: u64,
 }
 
 pub struct AssetManager {
@@ -126,5 +125,26 @@ impl AssetManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_legacy_index_without_size_field() {
+        // pre-1.6 indexes carry only `hash` per object (no `size`/`_size`).
+        let dir = tempfile::tempdir().unwrap();
+        let index = dir.path().join("pre-1.6.json");
+        std::fs::write(
+            &index,
+            r#"{"map_to_resources": true, "objects": {"icon_16x16.png": {"hash": "bdf48ef6b5d0d23bbb02e17d04865216179f510a"}}}"#,
+        )
+        .unwrap();
+        let mgr = AssetManager::new(dir.path());
+        let parsed = mgr.parse_asset_index(&index).unwrap();
+        assert!(parsed.map_to_resources.unwrap_or(false));
+        assert_eq!(parsed.objects.len(), 1);
     }
 }
