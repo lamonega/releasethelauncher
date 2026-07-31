@@ -8,7 +8,7 @@ struct FmlLibSeed {
     sha1: &'static str,
 }
 
-// ponytail: fallback for jars that have no usable hash in fmlversion.properties
+// fallback for jars that have no usable hash in fmlversion.properties
 // (missing/placeholder). Only 1.5.2 has a checksum-verified copy
 // (Prism Launcher mirror / web.archive.org snapshot; the sha1 matches what FML 5.2.23.738
 // expects — the file served by files.minecraftforge.net today differs and

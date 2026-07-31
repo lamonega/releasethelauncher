@@ -9,6 +9,7 @@ use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
 pub use parsers::{default_java_major_for_version, parse_library, parse_version_json};
+use release_the_launcher_constants::urls;
 
 pub struct DependencyResolver {
     pub(crate) http: Client,
@@ -178,11 +179,11 @@ pub async fn resolve_dependencies(
                 .unwrap_or_default();
 
             let url = if version.is_empty() {
-                format!("https://meta.prismlauncher.org/v1/{}/index.json", req.uid)
+                format!("{}/{}/index.json", urls::PRISM_META_BASE, req.uid)
             } else {
                 format!(
-                    "https://meta.prismlauncher.org/v1/{}/{version}.json",
-                    req.uid
+                    "{}/{}/{version}.json",
+                    urls::PRISM_META_BASE, req.uid
                 )
             };
 

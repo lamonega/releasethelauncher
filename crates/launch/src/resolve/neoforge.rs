@@ -2,7 +2,7 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-use super::prism::PRISM_META_BASE;
+use release_the_launcher_constants::urls::PRISM_META_BASE;
 
 #[must_use]
 pub fn neoforge_prism_meta_url() -> String {

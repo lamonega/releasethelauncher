@@ -10,7 +10,7 @@ const INSTANCE: &str =
 
 fn read_lines<R: std::io::Read>(r: R) -> usize {
     use std::io::BufRead;
-    // ponytail: keep filter_map, NOT map_while (clippy's suggestion): on
+    // keep filter_map, NOT map_while (clippy's suggestion): on
     // Windows a mid-stream broken-pipe Err is followed by buffered lines, and
     // map_while stops at the first Err, silently dropping them.
     #[allow(clippy::lines_filter_map_ok)]

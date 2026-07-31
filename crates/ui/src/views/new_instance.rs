@@ -656,7 +656,7 @@ fn show_modrinth_result_actions(
     }
 }
 
-#[allow(clippy::too_many_lines)] // ponytail: egui table builder, splitting adds nothing
+#[allow(clippy::too_many_lines)] // egui table builder, splitting adds nothing
 fn show_modrinth_version_list(
     app: &App,
     ui: &mut egui::Ui,

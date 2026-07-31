@@ -86,7 +86,7 @@ fn replace_placeholders(
 }
 
 #[must_use]
-#[allow(clippy::too_many_lines)] // ponytail: flat java arg builder, splitting adds nothing
+#[allow(clippy::too_many_lines)] // flat java arg builder, splitting adds nothing
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,
