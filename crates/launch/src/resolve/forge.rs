@@ -2,7 +2,7 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub const FORGE_MAVEN: &str = release_the_launcher_constants::urls::FORGE_MAVEN;
+use release_the_launcher_constants::urls;
 
 fn parse_version_key(v: &str) -> Vec<u64> {
     v.split(|c: char| !c.is_numeric())
@@ -176,7 +176,7 @@ async fn fetch_legacy_installer_metadata(
 ) {
     let full_ver = format!("{mc_version}-{forge_version}");
     let urls = [
-        format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar"),
+        format!("{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar", urls::FORGE_MAVEN),
         format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar"),
     ];
     for url in urls {
@@ -312,7 +312,8 @@ fn ensure_forge_compatibility(
         .any(|l| l.name.contains("net.minecraftforge:forge"))
     {
         let forge_jar_url = format!(
-            "{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-universal.jar"
+            "{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-universal.jar",
+            urls::FORGE_MAVEN
         );
         libraries.push(crate::Library {
             name: format!("net.minecraftforge:forge:{full_ver}"),

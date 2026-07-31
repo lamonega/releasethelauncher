@@ -7,13 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::platform;
 use crate::{LaunchError, Library};
-
 use release_the_launcher_constants::urls;
-
-const MOJANG_LIBRARIES: &str = urls::MOJANG_LIBRARIES;
-const FORGE_MAVEN: &str = urls::FORGE_MAVEN;
-const FABRIC_MAVEN: &str = urls::FABRIC_MAVEN;
-const NEOFORGE_MAVEN: &str = urls::NEOFORGE_MAVEN;
 
 pub struct DownloadManager {
     http: Client,
@@ -125,13 +119,13 @@ impl DownloadManager {
         let path = format!("{group}/{artifact}/{version}/{filename}");
 
         if lib.name.contains("net.minecraftforge") || lib.name.contains("cpw.mods") {
-            Some(format!("{FORGE_MAVEN}/{path}"))
+            Some(format!("{}/{path}", urls::FORGE_MAVEN))
         } else if lib.name.contains("net.fabricmc") {
-            Some(format!("{FABRIC_MAVEN}/{path}"))
+            Some(format!("{}/{path}", urls::FABRIC_MAVEN))
         } else if lib.name.contains("net.neoforged") {
-            Some(format!("{NEOFORGE_MAVEN}/{path}"))
+            Some(format!("{}/{path}", urls::NEOFORGE_MAVEN))
         } else {
-            Some(format!("{MOJANG_LIBRARIES}/{path}"))
+            Some(format!("{}/{path}", urls::MOJANG_LIBRARIES))
         }
     }
 
