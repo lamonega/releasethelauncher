@@ -1,6 +1,4 @@
 use reqwest::Client;
-use sha1::Digest;
-use sha1::Sha1;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -174,8 +172,6 @@ impl DownloadManager {
         let progress_cb = Arc::new(progress);
 
         let mut tasks = Vec::new();
-        let total = applicable.len();
-
         for lib in applicable {
             let Some(local_path) = Self::local_path_for_library(lib) else {
                 warn!(
@@ -222,68 +218,23 @@ impl DownloadManager {
                 );
             }
 
-            let sem = semaphore.clone();
-            let http = self.http.clone();
-            let sha1 = lib.sha1.clone();
-            let total_b = total_bytes.clone();
-            let downloaded_b = downloaded_bytes.clone();
-            let progress_ref = progress_cb.clone();
-            let lib_name = lib.name.clone();
-            let is_native = lib.is_native;
-
-            tasks.push(tokio::spawn(async move {
-                if !exists_ok {
-                    let (total_add, downloaded_add) = perform_library_download(
-                        &http,
-                        &url,
-                        &lib_name,
-                        is_native,
-                        sha1.as_deref(),
-                        &full_local_path,
-                        &sem,
-                    )
-                    .await?;
-                    total_b.fetch_add(total_add, Ordering::SeqCst);
-                    downloaded_b.fetch_add(downloaded_add, Ordering::SeqCst);
-                }
-
-                let cur = downloaded_b.load(Ordering::SeqCst);
-                let tot = total_b.load(Ordering::SeqCst);
-                progress_ref(cur, tot.max(cur), &display_name);
-
-                Ok::<(), LaunchError>(())
+            tasks.push(spawn_library_download_task(LibraryDownloadTaskParams {
+                sem: semaphore.clone(),
+                http: self.http.clone(),
+                url,
+                lib_name: lib.name.clone(),
+                is_native: lib.is_native,
+                sha1: lib.sha1.clone(),
+                full_local_path,
+                exists_ok,
+                display_name,
+                total_bytes: total_bytes.clone(),
+                downloaded_bytes: downloaded_bytes.clone(),
+                progress_cb: progress_cb.clone(),
             }));
         }
 
-        // ponytail: wait for EVERY download before returning. An early return
-        // on the first failure raced the remaining spawned downloads against
-        // natives extraction, which then ran with half-written jars (1.7.10's
-        // twitch natives 404 permanently on the CDN and triggered it).
-        let mut failures = Vec::new();
-        for task in tasks {
-            match task.await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => failures.push(e),
-                Err(e) => failures.push(LaunchError::Launch(format!(
-                    "Join error during library download: {e}"
-                ))),
-            }
-        }
-        if !failures.is_empty() {
-            return Err(LaunchError::Launch(format!(
-                "{} of {} libraries failed to download: {}",
-                failures.len(),
-                total,
-                failures
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            )));
-        }
-
-        info!("All applicable libraries processed successfully");
-        Ok(())
+        await_download_tasks(tasks).await
     }
 
     fn calculate_initial_downloaded(&self, applicable: &[&Library]) -> u64 {
@@ -299,6 +250,73 @@ impl DownloadManager {
         }
         initial_downloaded
     }
+}
+
+type ProgressCb = Arc<dyn Fn(u64, u64, &str) + Send + Sync>;
+
+struct LibraryDownloadTaskParams {
+    sem: Arc<Semaphore>,
+    http: Client,
+    url: String,
+    lib_name: String,
+    is_native: bool,
+    sha1: Option<String>,
+    full_local_path: PathBuf,
+    exists_ok: bool,
+    display_name: String,
+    total_bytes: Arc<AtomicU64>,
+    downloaded_bytes: Arc<AtomicU64>,
+    progress_cb: ProgressCb,
+}
+
+fn spawn_library_download_task(
+    p: LibraryDownloadTaskParams,
+) -> tokio::task::JoinHandle<Result<(), LaunchError>> {
+    tokio::spawn(async move {
+        if !p.exists_ok {
+            let (total_add, downloaded_add) = perform_library_download(
+                &p.http,
+                &p.url,
+                &p.lib_name,
+                p.is_native,
+                p.sha1.as_deref(),
+                &p.full_local_path,
+                &p.sem,
+            )
+            .await?;
+            p.total_bytes.fetch_add(total_add, Ordering::SeqCst);
+            p.downloaded_bytes
+                .fetch_add(downloaded_add, Ordering::SeqCst);
+        }
+
+        let cur = p.downloaded_bytes.load(Ordering::SeqCst);
+        let tot = p.total_bytes.load(Ordering::SeqCst);
+        (p.progress_cb)(cur, tot.max(cur), &p.display_name);
+
+        Ok::<(), LaunchError>(())
+    })
+}
+
+async fn await_download_tasks(
+    tasks: Vec<tokio::task::JoinHandle<Result<(), LaunchError>>>,
+) -> Result<(), LaunchError> {
+    let mut failures = Vec::new();
+    for task in tasks {
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e),
+            Err(e) => failures.push(LaunchError::Launch(format!(
+                "Join error during library download: {e}"
+            ))),
+        }
+    }
+
+    if let Some(first_err) = failures.into_iter().next() {
+        return Err(first_err);
+    }
+
+    info!("All applicable libraries processed successfully");
+    Ok(())
 }
 
 fn filter_applicable_libraries(libraries: &[Library]) -> Vec<&Library> {
@@ -371,9 +389,7 @@ async fn perform_library_download(
     })?;
 
     if let Some(expected) = sha1 {
-        let mut hasher = Sha1::new();
-        hasher.update(&resp);
-        let computed = hex::encode(hasher.finalize());
+        let computed = release_the_launcher_core::hash::compute_sha1_bytes(&resp);
         if !computed.eq_ignore_ascii_case(expected) {
             let err_msg = format!("SHA1 mismatch for library '{lib_name}' from '{url}': expected {expected}, got {computed}");
             error!(name = %lib_name, is_native = is_native, url = %url, expected = %expected, computed = %computed, "Checksum mismatch");
@@ -571,9 +587,7 @@ impl DownloadManager {
         })?;
 
         if let Some(expected) = expected_sha1 {
-            let mut hasher = Sha1::new();
-            hasher.update(&resp);
-            let computed = hex::encode(hasher.finalize());
+            let computed = release_the_launcher_core::hash::compute_sha1_bytes(&resp);
             if !computed.eq_ignore_ascii_case(expected) {
                 error!(url = %url, expected = %expected, computed = %computed, "SHA1 mismatch");
                 return Err(LaunchError::Launch(format!(

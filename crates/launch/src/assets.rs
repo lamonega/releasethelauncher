@@ -1,6 +1,4 @@
 use serde::Deserialize;
-use sha1::Digest;
-use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -62,9 +60,7 @@ impl AssetManager {
         let resp = http.get(url).send().await?.bytes().await?;
 
         if let Some(expected_sha1) = sha1 {
-            let mut hasher = Sha1::new();
-            hasher.update(&resp);
-            let computed = hex::encode(hasher.finalize());
+            let computed = release_the_launcher_core::hash::compute_sha1_bytes(&resp);
             if computed != expected_sha1 {
                 return Err(LaunchError::Launch(format!(
                     "Asset index SHA1 mismatch: expected {expected_sha1}, got {computed}"

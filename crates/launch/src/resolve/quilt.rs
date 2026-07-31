@@ -14,24 +14,23 @@ pub async fn fetch_quilt_component(
     mc_version: &str,
     loader_version: Option<&str>,
 ) -> Result<Component, LaunchError> {
-    let chosen_loader_version = match loader_version {
-        Some(lv) => lv.to_string(),
-        None => {
-            let index_resp: serde_json::Value = client
-                .get(format!("{QUILT_PRISM_META_URL}/index.json"))
-                .send()
-                .await?
-                .json()
-                .await?;
-            index_resp
-                .get("versions")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.get("version"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("0.26.13")
-                .to_string()
-        }
+    let chosen_loader_version = if let Some(lv) = loader_version {
+        lv.to_string()
+    } else {
+        let index_resp: serde_json::Value = client
+            .get(format!("{QUILT_PRISM_META_URL}/index.json"))
+            .send()
+            .await?
+            .json()
+            .await?;
+        index_resp
+            .get("versions")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.get("version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.26.13")
+            .to_string()
     };
 
     let loader_url = format!("{QUILT_PRISM_META_URL}/{chosen_loader_version}.json");

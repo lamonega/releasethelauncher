@@ -3594,6 +3594,8 @@ version = "0.6.0"
 dependencies = [
  "dirs",
  "hex",
+ "release-the-launcher-constants",
+ "release-the-launcher-core",
  "release-the-launcher-net",
  "reqwest",
  "serde",
@@ -3615,6 +3617,8 @@ dependencies = [
  "async-trait",
  "futures",
  "hex",
+ "release-the-launcher-constants",
+ "release-the-launcher-core",
  "reqwest",
  "serde",
  "serde_json",

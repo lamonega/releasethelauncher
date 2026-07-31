@@ -12,7 +12,9 @@ use crate::{
     ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
 };
 
-const BASE_URL: &str = "https://api.modrinth.com/v2";
+use release_the_launcher_constants::urls;
+
+const BASE_URL: &str = urls::MODRINTH_API_URL;
 
 enum HasherChoice {
     Sha1(sha1::Sha1),
@@ -795,23 +797,53 @@ fn unpack_structured_mod_archive_if_needed(path: &Path, target_dir: &Path) -> Pa
     if path
         .extension()
         .and_then(|s| s.to_str())
-        .map(|s| s.to_lowercase())
+        .map(str::to_lowercase)
         .as_deref()
         != Some("zip")
     {
         return path.to_path_buf();
     }
 
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return path.to_path_buf(),
+    let Ok(file) = fs::File::open(path) else {
+        return path.to_path_buf();
     };
 
-    let mut archive = match zip::ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return path.to_path_buf(),
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return path.to_path_buf();
     };
 
+    let (has_jar_dir, has_resources_dir, has_mods_dir) = detect_archive_structure(&mut archive);
+
+    if !has_jar_dir && !has_resources_dir && !has_mods_dir {
+        return path.to_path_buf();
+    }
+
+    let parent_mc_dir = target_dir.parent().unwrap_or(target_dir);
+    let resources_dest = parent_mc_dir.join("resources");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("mod");
+    let new_jar_path = target_dir.join(format!("{stem}.jar"));
+
+    if has_jar_dir {
+        repack_jar_entries(&mut archive, &new_jar_path);
+    }
+    if has_resources_dir {
+        extract_resource_entries(&mut archive, &resources_dest);
+    }
+    if has_mods_dir {
+        extract_mod_entries(&mut archive, target_dir);
+    }
+
+    let _ = fs::remove_file(path);
+    if has_jar_dir {
+        new_jar_path
+    } else {
+        target_dir.to_path_buf()
+    }
+}
+
+fn detect_archive_structure<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> (bool, bool, bool) {
     let mut has_jar_dir = false;
     let mut has_resources_dir = false;
     let mut has_mods_dir = false;
@@ -834,93 +866,73 @@ fn unpack_structured_mod_archive_if_needed(path: &Path, target_dir: &Path) -> Pa
         }
     }
 
-    if !has_jar_dir && !has_resources_dir && !has_mods_dir {
-        return path.to_path_buf();
+    (has_jar_dir, has_resources_dir, has_mods_dir)
+}
+
+fn repack_jar_entries<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    new_jar_path: &Path,
+) {
+    let Ok(jar_file) = fs::File::create(new_jar_path) else {
+        return;
+    };
+    let mut zip_writer = zip::ZipWriter::new(jar_file);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    for i in 0..archive.len() {
+        if let Ok(mut zip_entry) = archive.by_index(i) {
+            let name = zip_entry.name().to_string();
+            let prefix = if name.starts_with("Jar/") {
+                Some("Jar/")
+            } else if name.starts_with("jar/") {
+                Some("jar/")
+            } else if name.starts_with("minecraft/") {
+                Some("minecraft/")
+            } else {
+                None
+            };
+
+            if let Some(pfx) = prefix {
+                let inner_name = &name[pfx.len()..];
+                if !inner_name.is_empty() {
+                    if zip_entry.is_dir() {
+                        let _ = zip_writer.add_directory(inner_name, options);
+                    } else if zip_writer.start_file(inner_name, options).is_ok() {
+                        let mut buffer = Vec::new();
+                        if std::io::Read::read_to_end(&mut zip_entry, &mut buffer).is_ok() {
+                            let _ = std::io::Write::write_all(&mut zip_writer, &buffer);
+                        }
+                    }
+                }
+            }
+        }
     }
+    let _ = zip_writer.finish();
+}
 
-    let parent_mc_dir = target_dir.parent().unwrap_or(target_dir);
-    let resources_dest = parent_mc_dir.join("resources");
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("mod");
-    let new_jar_path = target_dir.join(format!("{stem}.jar"));
+fn extract_resource_entries<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    resources_dest: &Path,
+) {
+    for i in 0..archive.len() {
+        if let Ok(mut zip_entry) = archive.by_index(i) {
+            let name = zip_entry.name().to_string();
+            let prefix = if name.starts_with("Resources/") {
+                Some("Resources/")
+            } else if name.starts_with("resources/") {
+                Some("resources/")
+            } else {
+                None
+            };
 
-    if has_jar_dir {
-        if let Ok(jar_file) = fs::File::create(&new_jar_path) {
-            let mut zip_writer = zip::ZipWriter::new(jar_file);
-            let options = zip::write::FileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated);
-
-            for i in 0..archive.len() {
-                if let Ok(mut zip_entry) = archive.by_index(i) {
-                    let name = zip_entry.name().to_string();
-                    let prefix = if name.starts_with("Jar/") {
-                        Some("Jar/")
-                    } else if name.starts_with("jar/") {
-                        Some("jar/")
-                    } else if name.starts_with("minecraft/") {
-                        Some("minecraft/")
+            if let Some(pfx) = prefix {
+                let inner_name = &name[pfx.len()..];
+                if !inner_name.is_empty() {
+                    let out_path = resources_dest.join(inner_name);
+                    if zip_entry.is_dir() {
+                        let _ = fs::create_dir_all(&out_path);
                     } else {
-                        None
-                    };
-
-                    if let Some(pfx) = prefix {
-                        let inner_name = &name[pfx.len()..];
-                        if !inner_name.is_empty() {
-                            if zip_entry.is_dir() {
-                                let _ = zip_writer.add_directory(inner_name, options);
-                            } else if zip_writer.start_file(inner_name, options).is_ok() {
-                                let mut buffer = Vec::new();
-                                if std::io::Read::read_to_end(&mut zip_entry, &mut buffer).is_ok() {
-                                    let _ = std::io::Write::write_all(&mut zip_writer, &buffer);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            let _ = zip_writer.finish();
-        }
-    }
-
-    if has_resources_dir {
-        for i in 0..archive.len() {
-            if let Ok(mut zip_entry) = archive.by_index(i) {
-                let name = zip_entry.name().to_string();
-                let prefix = if name.starts_with("Resources/") {
-                    Some("Resources/")
-                } else if name.starts_with("resources/") {
-                    Some("resources/")
-                } else {
-                    None
-                };
-
-                if let Some(pfx) = prefix {
-                    let inner_name = &name[pfx.len()..];
-                    if !inner_name.is_empty() {
-                        let out_path = resources_dest.join(inner_name);
-                        if zip_entry.is_dir() {
-                            let _ = fs::create_dir_all(&out_path);
-                        } else {
-                            if let Some(parent) = out_path.parent() {
-                                let _ = fs::create_dir_all(parent);
-                            }
-                            if let Ok(mut out_file) = fs::File::create(&out_path) {
-                                let _ = std::io::copy(&mut zip_entry, &mut out_file);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if has_mods_dir {
-        for i in 0..archive.len() {
-            if let Ok(mut zip_entry) = archive.by_index(i) {
-                let name = zip_entry.name().to_string();
-                if name.starts_with("mods/") && !zip_entry.is_dir() {
-                    let inner_name = &name[5..];
-                    if !inner_name.is_empty() {
-                        let out_path = target_dir.join(inner_name);
                         if let Some(parent) = out_path.parent() {
                             let _ = fs::create_dir_all(parent);
                         }
@@ -932,11 +944,27 @@ fn unpack_structured_mod_archive_if_needed(path: &Path, target_dir: &Path) -> Pa
             }
         }
     }
+}
 
-    let _ = fs::remove_file(path);
-    if has_jar_dir {
-        new_jar_path
-    } else {
-        path.to_path_buf()
+fn extract_mod_entries<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    target_dir: &Path,
+) {
+    for i in 0..archive.len() {
+        if let Ok(mut zip_entry) = archive.by_index(i) {
+            let name = zip_entry.name().to_string();
+            if name.starts_with("mods/") && !zip_entry.is_dir() {
+                let inner_name = &name[5..];
+                if !inner_name.is_empty() {
+                    let out_path = target_dir.join(inner_name);
+                    if let Some(parent) = out_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    if let Ok(mut out_file) = fs::File::create(&out_path) {
+                        let _ = std::io::copy(&mut zip_entry, &mut out_file);
+                    }
+                }
+            }
+        }
     }
 }

@@ -105,119 +105,135 @@ fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
 /// # Errors
 /// Returns an error if the components are inconsistent.
 pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile, LaunchError> {
-    let mut libraries_map: HashMap<String, Library> = HashMap::new();
-    let mut native_map: HashMap<String, Library> = HashMap::new();
-    let mut main_class = None;
-    let mut mc_version = String::new();
-    let mut mc_version_type = String::new();
-    let mut jvm_args = Vec::new();
-    let mut game_args_template = String::new();
-    let mut all_traits = Vec::new();
-    let mut all_tweakers = Vec::new();
-    let mut compatible_java_majors = Vec::new();
-    let mut asset_index = AssetIndex::default();
-    let mut client_download = None;
+    let mut acc = ComponentAccumulator::default();
 
     for component in components {
-        if component.uid == "net.minecraft" {
-            mc_version.clone_from(&component.version);
-        }
-        // Propagate version_type from component (release/snapshot/old_beta/old_alpha)
-        if mc_version_type.is_empty() {
-            if let Some(ref vt) = component.version_file.version_type {
-                mc_version_type.clone_from(vt);
-            }
-        }
-        if let Some(ref mc) = component.version_file.main_class {
-            if component.uid != "net.minecraft" || main_class.is_none() {
-                main_class = Some(mc.clone());
-            }
-        }
-        if component.version_file.minecraft_args.is_some() && game_args_template.is_empty() {
-            game_args_template = component
-                .version_file
-                .minecraft_args
-                .clone()
-                .unwrap_or_default();
-        }
-        if let Some(ai) = &component.version_file.asset_index {
-            if asset_index.id.is_empty() {
-                asset_index = ai.clone();
-            }
-        }
-        if client_download.is_none() {
-            client_download.clone_from(&component.version_file.client_download);
-        }
-        for lib in &component.version_file.libraries {
-            if lib.is_native {
-                upsert_library(&mut native_map, lib);
-            } else {
-                upsert_library(&mut libraries_map, lib);
-            }
-        }
-        for arg in &component.version_file.jvm_args {
-            if !jvm_args.contains(arg) {
-                jvm_args.push(arg.clone());
-            }
-        }
-        for t in &component.version_file.traits {
-            if !all_traits.contains(t) {
-                all_traits.push(t.clone());
-            }
-        }
-        for t in &component.version_file.tweakers {
-            if !all_tweakers.contains(t) {
-                all_tweakers.push(t.clone());
-            }
-        }
-        for j in &component.version_file.compatible_java_majors {
-            if !compatible_java_majors.contains(j) {
-                compatible_java_majors.push(*j);
-            }
-        }
+        acc.process(component);
     }
 
+    let mut compatible_java_majors = acc.compatible_java_majors;
     if compatible_java_majors.is_empty() {
-        let major = default_java_major_for_version(&mc_version);
+        let major = default_java_major_for_version(&acc.mc_version);
         compatible_java_majors = vec![major];
     }
 
-    // If no asset index was found in any component (e.g. Beta/Alpha versions),
-    // fall back to the "legacy" index used by Mojang for pre-1.6 assets.
-    if asset_index.id.is_empty() {
-        asset_index = AssetIndex {
+    let asset_index = if acc.asset_index.id.is_empty() {
+        AssetIndex {
             id: "legacy".to_string(),
-            url: "https://s3.amazonaws.com/Minecraft.Download/indexes/legacy.json".to_string(),
+            url: format!(
+                "{}/legacy.json",
+                release_the_launcher_constants::urls::S3_MINECRAFT_INDEXES
+            ),
             sha1: None,
             size: 0,
-        };
-    }
+        }
+    } else {
+        acc.asset_index
+    };
 
-    // If version_type was never set, infer it from the version string
-    if mc_version_type.is_empty() {
-        mc_version_type = "release".to_string();
-    }
+    let mc_version_type = if acc.mc_version_type.is_empty() {
+        "release".to_string()
+    } else {
+        acc.mc_version_type
+    };
 
-    let default_main_class = if all_traits.contains(&"legacyLaunch".to_string()) {
+    let default_main_class = if acc.all_traits.contains(&"legacyLaunch".to_string()) {
         "net.minecraft.client.Minecraft".to_string()
     } else {
         "net.minecraft.client.main.Main".to_string()
     };
 
     Ok(LaunchProfile {
-        mc_version,
+        mc_version: acc.mc_version,
         mc_version_type,
-        main_class: main_class.unwrap_or(default_main_class),
-        libraries: libraries_map.into_values().collect(),
-        native_libraries: native_map.into_values().collect(),
+        main_class: acc.main_class.unwrap_or(default_main_class),
+        libraries: acc.libraries_map.into_values().collect(),
+        native_libraries: acc.native_map.into_values().collect(),
         asset_index,
-        client_download,
-        jvm_args,
-        game_args_template,
-        traits: all_traits,
-        tweakers: all_tweakers,
+        client_download: acc.client_download,
+        jvm_args: acc.jvm_args,
+        game_args_template: acc.game_args_template,
+        traits: acc.all_traits,
+        tweakers: acc.all_tweakers,
         compatible_java_majors,
     })
+}
+
+#[derive(Default)]
+struct ComponentAccumulator {
+    libraries_map: HashMap<String, Library>,
+    native_map: HashMap<String, Library>,
+    main_class: Option<String>,
+    mc_version: String,
+    mc_version_type: String,
+    jvm_args: Vec<String>,
+    game_args_template: String,
+    all_traits: Vec<String>,
+    all_tweakers: Vec<String>,
+    compatible_java_majors: Vec<u32>,
+    asset_index: AssetIndex,
+    client_download: Option<ClientDownload>,
+}
+
+impl ComponentAccumulator {
+    fn process(&mut self, component: &Component) {
+        if component.uid == "net.minecraft" {
+            self.mc_version.clone_from(&component.version);
+        }
+        if self.mc_version_type.is_empty() {
+            if let Some(ref vt) = component.version_file.version_type {
+                self.mc_version_type.clone_from(vt);
+            }
+        }
+        if let Some(ref mc) = component.version_file.main_class {
+            if component.uid != "net.minecraft" || self.main_class.is_none() {
+                self.main_class = Some(mc.clone());
+            }
+        }
+        if component.version_file.minecraft_args.is_some() && self.game_args_template.is_empty() {
+            self.game_args_template = component
+                .version_file
+                .minecraft_args
+                .clone()
+                .unwrap_or_default();
+        }
+        if let Some(ai) = &component.version_file.asset_index {
+            if self.asset_index.id.is_empty() {
+                self.asset_index = ai.clone();
+            }
+        }
+        if self.client_download.is_none() {
+            self.client_download
+                .clone_from(&component.version_file.client_download);
+        }
+        for lib in &component.version_file.libraries {
+            if lib.is_native {
+                upsert_library(&mut self.native_map, lib);
+            } else {
+                upsert_library(&mut self.libraries_map, lib);
+            }
+        }
+        for arg in &component.version_file.jvm_args {
+            if !self.jvm_args.contains(arg) {
+                self.jvm_args.push(arg.clone());
+            }
+        }
+        for t in &component.version_file.traits {
+            if !self.all_traits.contains(t) {
+                self.all_traits.push(t.clone());
+            }
+        }
+        for t in &component.version_file.tweakers {
+            if !self.all_tweakers.contains(t) {
+                self.all_tweakers.push(t.clone());
+            }
+        }
+        for j in &component.version_file.compatible_java_majors {
+            if !self.compatible_java_majors.contains(j) {
+                self.compatible_java_majors.push(*j);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

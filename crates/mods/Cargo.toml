@@ -18,3 +18,5 @@ tokio = { version = "1", features = ["full"] }
 urlencoding = "2"
 futures = "0.3"
 hex = "0.4"
+release-the-launcher-constants = { path = "../constants" }
+release-the-launcher-core = { path = "../core" }

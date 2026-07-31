@@ -1,11 +1,8 @@
-use std::io::Read;
 use std::path::Path;
 
 use crate::download::DownloadManager;
 use crate::{LaunchError, LaunchProfile};
 use reqwest::Client;
-use sha1::{Digest, Sha1};
-use zip::ZipArchive;
 
 struct FmlLibSeed {
     sha1: &'static str,
@@ -48,7 +45,7 @@ pub async fn ensure_fml_deobfuscation_data(
     }
     let mc = &profile.mc_version;
     let seed = FML_LIB_SEEDS.iter().find(|(m, _)| m == mc).map(|(_, s)| s);
-    let expected = deobfuscation_hash_from_jar(profile, instance_root)?
+    let expected = deobfuscation_hash_from_jar(profile, instance_root)
         .or_else(|| seed.map(|s| s.sha1.to_string()));
     let Some(expected) = expected else {
         return Ok(());
@@ -78,11 +75,11 @@ pub async fn ensure_fml_deobfuscation_data(
     };
 
     let bytes = match bytes_opt {
-        Some(b) if hex::encode(Sha1::digest(&b)) == expected => b,
+        Some(b) if release_the_launcher_core::hash::compute_sha1_bytes(&b) == expected => b,
         _ => {
             let resp = client.get(&fallback_url).send().await?;
             let b = resp.bytes().await?;
-            let actual = hex::encode(Sha1::digest(&b));
+            let actual = release_the_launcher_core::hash::compute_sha1_bytes(&b);
             if actual != expected {
                 return Err(LaunchError::Launch(format!(
                     "FML library {file_name} checksum mismatch: got {actual}, expected {expected}"
@@ -100,32 +97,20 @@ pub async fn ensure_fml_deobfuscation_data(
 /// Expected deobfuscation checksum from the universal jar's
 /// `fmlversion.properties`. Pre-1.6 maven jars carry a `${deobf.checksum}`
 /// placeholder (the installer substitutes it), which reads as `None`.
-fn deobfuscation_hash_from_jar(
-    profile: &LaunchProfile,
-    instance_root: &Path,
-) -> Result<Option<String>, LaunchError> {
-    let Some(lib) = profile
+fn deobfuscation_hash_from_jar(profile: &LaunchProfile, instance_root: &Path) -> Option<String> {
+    let lib = profile
         .libraries
         .iter()
-        .find(|l| l.name.contains("net.minecraftforge:forge"))
-    else {
-        return Ok(None);
-    };
-    let Some(rel) = DownloadManager::local_path_for_library(lib) else {
-        return Ok(None);
-    };
-    let Ok(file) = std::fs::File::open(instance_root.join("libraries").join(rel)) else {
-        return Ok(None);
-    };
-    let Ok(mut archive) = ZipArchive::new(file) else {
-        return Ok(None);
-    };
-    let Ok(mut props) = archive.by_name("fmlversion.properties") else {
-        return Ok(None);
-    };
-    let mut content = String::new();
-    props.read_to_string(&mut content)?;
-    Ok(parse_deobfuscation_hash(&content))
+        .find(|l| l.name.contains("net.minecraftforge:forge"))?;
+    let rel = DownloadManager::local_path_for_library(lib)?;
+    let jar_path = instance_root.join("libraries").join(rel);
+    let bytes = release_the_launcher_core::archive::read_zip_entry_bytes(
+        &jar_path,
+        "fmlversion.properties",
+    )
+    .ok()?;
+    let content = String::from_utf8_lossy(&bytes);
+    parse_deobfuscation_hash(&content)
 }
 
 fn parse_deobfuscation_hash(content: &str) -> Option<String> {
@@ -140,8 +125,8 @@ fn parse_deobfuscation_hash(content: &str) -> Option<String> {
 }
 
 fn sha1_file(path: &Path) -> Result<Option<String>, LaunchError> {
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(hex::encode(Sha1::digest(&bytes)))),
+    match release_the_launcher_core::hash::compute_sha1_file(path) {
+        Ok(hash) => Ok(Some(hash)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }

@@ -1,7 +1,4 @@
-use std::fs;
-use std::io::Read;
 use std::path::Path;
-use zip::ZipArchive;
 
 use crate::ModDetails;
 
@@ -15,61 +12,59 @@ use crate::ModDetails;
 ///
 /// Panics if the JAR file name has no stem (no file name before the extension).
 pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, crate::ModsError> {
-    let file = fs::File::open(jar_path)?;
-    let mut archive = ZipArchive::new(file)?;
-
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-
-        if name == "fabric.mod.json" {
-            let mut content = String::new();
-            entry.read_to_string(&mut content)?;
-            return parse_fabric_mod_json(&content);
-        }
-
-        if name == "META-INF/mods.toml" || name == "META-INF/neoforge.mods.toml" {
-            let mut content = String::new();
-            entry.read_to_string(&mut content)?;
-            return parse_mods_toml(&content);
-        }
-
-        if name == "quilt.mod.json" {
-            let mut content = String::new();
-            entry.read_to_string(&mut content)?;
-            return parse_quilt_mod_json(&content);
-        }
-
-        if name == "mcmod.info" {
-            let mut content = String::new();
-            entry.read_to_string(&mut content)?;
-            return parse_mcmod_info(&content);
-        }
+    if let Ok(bytes) =
+        release_the_launcher_core::archive::read_zip_entry_bytes(jar_path, "fabric.mod.json")
+    {
+        let content = String::from_utf8_lossy(&bytes);
+        return parse_fabric_mod_json(&content);
     }
 
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
+    if let Ok(bytes) =
+        release_the_launcher_core::archive::read_zip_entry_bytes(jar_path, "META-INF/mods.toml")
+            .or_else(|_| {
+                release_the_launcher_core::archive::read_zip_entry_bytes(
+                    jar_path,
+                    "META-INF/neoforge.mods.toml",
+                )
+            })
+    {
+        let content = String::from_utf8_lossy(&bytes);
+        return parse_mods_toml(&content);
+    }
 
-        if name == "META-INF/MANIFEST.MF" {
-            let mut content = String::new();
-            entry.read_to_string(&mut content)?;
-            if let Some(version) = extract_manifest_version(&content) {
-                let stem = jar_path.file_stem().map_or_else(
-                    || "unknown".to_string(),
-                    |s| s.to_string_lossy().to_string(),
-                );
-                return Ok(ModDetails {
-                    mod_id: stem.clone(),
-                    name: stem,
-                    version,
-                    mc_version: None,
-                    description: String::new(),
-                    authors: Vec::new(),
-                    dependencies: Vec::new(),
-                    side: None,
-                });
-            }
+    if let Ok(bytes) =
+        release_the_launcher_core::archive::read_zip_entry_bytes(jar_path, "quilt.mod.json")
+    {
+        let content = String::from_utf8_lossy(&bytes);
+        return parse_quilt_mod_json(&content);
+    }
+
+    if let Ok(bytes) =
+        release_the_launcher_core::archive::read_zip_entry_bytes(jar_path, "mcmod.info")
+    {
+        let content = String::from_utf8_lossy(&bytes);
+        return parse_mcmod_info(&content);
+    }
+
+    if let Ok(bytes) =
+        release_the_launcher_core::archive::read_zip_entry_bytes(jar_path, "META-INF/MANIFEST.MF")
+    {
+        let content = String::from_utf8_lossy(&bytes);
+        if let Some(version) = extract_manifest_version(&content) {
+            let stem = jar_path.file_stem().map_or_else(
+                || "unknown".to_string(),
+                |s| s.to_string_lossy().to_string(),
+            );
+            return Ok(ModDetails {
+                mod_id: stem.clone(),
+                name: stem,
+                version,
+                mc_version: None,
+                description: String::new(),
+                authors: Vec::new(),
+                dependencies: Vec::new(),
+                side: None,
+            });
         }
     }
 
