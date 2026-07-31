@@ -66,7 +66,7 @@ fn replace_placeholders(
         ("auth_uuid", player.uuid.as_str()),
         ("auth_access_token", token),
         ("auth_session_id", token),
-        ("auth_session", token),    // legacy: used in minecraftArguments (pre-1.13)
+        ("auth_session", token), // legacy: used in minecraftArguments (pre-1.13)
         ("user_type", user_type),
         ("version_name", profile.mc_version.as_str()),
         ("version_type", profile.mc_version_type.as_str()),
@@ -86,6 +86,7 @@ fn replace_placeholders(
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)] // ponytail: flat java arg builder, splitting adds nothing
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -152,7 +153,12 @@ pub fn build_command(
         cmd.arg("-cp").arg(&cp_str);
     }
     let java_major = crate::java::detect_java_major_version(java_path).unwrap_or(8);
-    if java_major >= 9 && !profile.jvm_args.iter().any(|a| a.contains("java.base/java.net")) {
+    if java_major >= 9
+        && !profile
+            .jvm_args
+            .iter()
+            .any(|a| a.contains("java.base/java.net"))
+    {
         cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
     }
 
@@ -214,7 +220,11 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
     let mut classpath = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let libraries_dir = instance_dir.join("libraries");
-    for lib in profile.libraries.iter().chain(profile.native_libraries.iter()) {
+    for lib in profile
+        .libraries
+        .iter()
+        .chain(profile.native_libraries.iter())
+    {
         if !platform::should_include_library(lib) {
             continue;
         }
@@ -414,4 +424,3 @@ mod tests {
         );
     }
 }
-

@@ -1,5 +1,5 @@
-use crate::{Component, LaunchError, Requirement, VersionFile};
 use super::parsers::parse_library;
+use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
 pub const FABRIC_META_URL: &str = "https://meta.fabricmc.net/v2";
@@ -23,9 +23,9 @@ pub async fn fetch_fabric_component(
             .await?
             .json()
             .await?;
-        let latest = versions.last().ok_or_else(|| {
-            LaunchError::VersionNotFound("No Fabric loader version found".into())
-        })?;
+        let latest = versions
+            .last()
+            .ok_or_else(|| LaunchError::VersionNotFound("No Fabric loader version found".into()))?;
         let loader_ver = latest
             .get("loader")
             .and_then(|v| v.get("version"))

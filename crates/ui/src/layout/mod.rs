@@ -63,7 +63,9 @@ impl eframe::App for LauncherApp {
             &mut self.detail_tab_state,
             ctx,
         ) {
-            self.app.current_view = View::ModBrowser { instance_id: mod_browser_id };
+            self.app.current_view = View::ModBrowser {
+                instance_id: mod_browser_id,
+            };
         }
         if let Some(view) = navigate_to {
             self.app.current_view = view;

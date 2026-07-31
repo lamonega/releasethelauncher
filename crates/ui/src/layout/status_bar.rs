@@ -25,8 +25,14 @@ pub fn show(ctx: &egui::Context, app: &App) {
                     ui.spinner();
                     ui.label(message.as_str());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(pct) = app.download_state.completed.saturating_mul(100).checked_div(app.download_state.total) {
-                            let progress = f32::from(u16::try_from(pct).unwrap_or(u16::MAX)) / 100.0;
+                        if let Some(pct) = app
+                            .download_state
+                            .completed
+                            .saturating_mul(100)
+                            .checked_div(app.download_state.total)
+                        {
+                            let progress =
+                                f32::from(u16::try_from(pct).unwrap_or(u16::MAX)) / 100.0;
                             ui.add(
                                 egui::ProgressBar::new(progress)
                                     .text(format!("{pct}%"))

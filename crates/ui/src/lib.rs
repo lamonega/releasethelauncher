@@ -3,8 +3,8 @@ pub mod theme;
 pub mod views;
 
 pub use layout::LauncherApp;
-pub use release_the_launcher_core::log;
 pub use release_the_launcher_coordinator::Event as UiMessage;
+pub use release_the_launcher_core::log;
 pub use theme::icons;
 
 use release_the_launcher_coordinator::log::LogLevel;
@@ -116,7 +116,8 @@ impl App {
     }
 
     pub fn fetch_loader_versions(&self, loader_type: &str, mc_version: &str) {
-        self.coordinator.fetch_loader_versions(loader_type, mc_version);
+        self.coordinator
+            .fetch_loader_versions(loader_type, mc_version);
     }
 
     pub fn search_modrinth_modpacks(&self, query: String, mc_version: String, loader: String) {

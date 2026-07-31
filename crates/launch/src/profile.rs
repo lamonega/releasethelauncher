@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{ClientDownload, Component, LaunchError, Library};
 use crate::resolve::default_java_major_for_version;
-
+use crate::{ClientDownload, Component, LaunchError, Library};
 
 fn maven_key(name: &str) -> String {
     let parts: Vec<&str> = name.split(':').collect();
@@ -249,12 +248,18 @@ mod tests {
 
         // Test vanilla first, fabric second
         let profile1 = assemble_launch_profile(&[vanilla.clone(), fabric.clone()]).unwrap();
-        assert_eq!(profile1.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            profile1.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
         assert_eq!(profile1.compatible_java_majors, vec![25]);
 
         // Test fabric first, vanilla second
         let profile2 = assemble_launch_profile(&[fabric, vanilla]).unwrap();
-        assert_eq!(profile2.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            profile2.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
         assert_eq!(profile2.compatible_java_majors, vec![25]);
     }
 }

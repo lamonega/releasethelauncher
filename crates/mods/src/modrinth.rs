@@ -270,7 +270,10 @@ impl ModrinthProvider {
         let mut total_bytes: u64 = 0;
 
         for file_obj in files {
-            let size = file_obj.get("file_size").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let size = file_obj
+                .get("file_size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
             total_bytes += size;
 
             if let Some(path_str) = file_obj.get("path").and_then(|p| p.as_str()) {
@@ -282,7 +285,8 @@ impl ModrinthProvider {
         }
 
         let total_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
-        let downloaded_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
+        let downloaded_b =
+            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
         let progress_cb = std::sync::Arc::new(progress);
         let mut tasks = Vec::new();
@@ -298,7 +302,10 @@ impl ModrinthProvider {
                 .get("path")
                 .and_then(|p| p.as_str())
                 .map(ToString::to_string);
-            let size = file_obj.get("file_size").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let size = file_obj
+                .get("file_size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
 
             if let (Some(url), Some(path_str)) = (downloads, rel_path) {
                 let dest = target_dir.join(".minecraft").join(&path_str);
@@ -315,7 +322,9 @@ impl ModrinthProvider {
 
                 tasks.push(tokio::spawn(async move {
                     if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
-                        let Ok(_permit) = sem.acquire().await else { return; };
+                        let Ok(_permit) = sem.acquire().await else {
+                            return;
+                        };
                         if let Ok(resp) = client.get(&url).send().await {
                             if resp.status().is_success() {
                                 if let Ok(bytes) = resp.bytes().await {

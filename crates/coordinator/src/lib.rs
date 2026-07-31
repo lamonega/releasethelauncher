@@ -1,4 +1,3 @@
-
 pub mod flow;
 
 use std::path::PathBuf;
@@ -84,12 +83,14 @@ impl Coordinator {
         std::fs::create_dir_all(&config_dir).ok();
         std::fs::create_dir_all(&instances_dir).ok();
 
-        let instance_manager = InstanceManager::discover(instances_dir.clone()).unwrap_or_else(|e| {
-            tracing::warn!("Failed to discover instances: {e}");
-            let fallback = std::env::temp_dir().join("release-the-launcher-instances");
-            let _ = std::fs::create_dir_all(&fallback);
-            InstanceManager::discover(fallback).unwrap_or_else(|_| InstanceManager::new(instances_dir))
-        });
+        let instance_manager =
+            InstanceManager::discover(instances_dir.clone()).unwrap_or_else(|e| {
+                tracing::warn!("Failed to discover instances: {e}");
+                let fallback = std::env::temp_dir().join("release-the-launcher-instances");
+                let _ = std::fs::create_dir_all(&fallback);
+                InstanceManager::discover(fallback)
+                    .unwrap_or_else(|_| InstanceManager::new(instances_dir))
+            });
 
         let account_list = AccountList::load(&accounts_path);
         let global_settings = GlobalSettings::load(&settings_path);
@@ -157,7 +158,9 @@ impl Coordinator {
 
     pub fn launch_instance(&self, instance_id: &str) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
 
         let account_data = extract_account_data(&self.account_list);
 
@@ -226,25 +229,33 @@ impl Coordinator {
 
     pub fn fetch_versions_list(&self) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::launch::fetch_versions_list(&queue, &handle);
     }
 
     pub fn fetch_loader_versions(&self, loader_type: &str, mc_version: &str) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::launch::fetch_loader_versions(&queue, &handle, loader_type, mc_version);
     }
 
     pub fn search_modpacks(&self, query: String, mc_version: String, loader: String) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::modrinth::search_modpacks(&queue, &handle, query, mc_version, loader);
     }
 
     pub fn search_mods(&self, query: String, mc_version: String, loader_name: String) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::modrinth::search_mods(&queue, &handle, query, mc_version, loader_name);
     }
 
@@ -256,13 +267,24 @@ impl Coordinator {
         loader_name: Option<String>,
     ) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
-        flow::modrinth::install_mod(&queue, &handle, project_id, mods_dir, mc_version, loader_name);
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
+        flow::modrinth::install_mod(
+            &queue,
+            &handle,
+            project_id,
+            mods_dir,
+            mc_version,
+            loader_name,
+        );
     }
 
     pub fn fetch_modpack_versions(&self, project_id: String) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::modrinth::fetch_modpack_versions(&queue, &handle, project_id);
     }
 
@@ -273,13 +295,23 @@ impl Coordinator {
         instances_dir: PathBuf,
     ) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
-        flow::modrinth::install_modpack_as_instance(&queue, &handle, project_id, version_id, instances_dir);
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
+        flow::modrinth::install_modpack_as_instance(
+            &queue,
+            &handle,
+            project_id,
+            version_id,
+            instances_dir,
+        );
     }
 
     pub fn start_ms_login(&self) {
         let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else { return };
+        let Some(handle) = self.tokio_handle.clone() else {
+            return;
+        };
         flow::msa::start_login(&queue, &handle);
     }
 }

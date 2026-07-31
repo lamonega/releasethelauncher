@@ -173,7 +173,10 @@ pub async fn resolve_dependencies(
                 .unwrap_or_default();
 
             if req.uid == "net.fabricmc.intermediary" {
-                let url = format!("{}/versions/intermediary/{version}", fabric::FABRIC_META_URL);
+                let url = format!(
+                    "{}/versions/intermediary/{version}",
+                    fabric::FABRIC_META_URL
+                );
                 if let Ok(resp) = resolver.http.get(&url).send().await {
                     if let Ok(versions) = resp.json::<Vec<serde_json::Value>>().await {
                         if let Some(latest) = versions.first() {
@@ -205,9 +208,9 @@ pub async fn resolve_dependencies(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::profile::assemble_launch_profile;
     use crate::{Component, Library, Rule, RuleOs, VersionFile};
-    use super::*;
 
     #[test]
     fn parse_library_new_format_native() {
@@ -307,7 +310,9 @@ mod tests {
         };
         let regular_lib = Library {
             name: "org.lwjgl:lwjgl:3.3.3".to_string(),
-            url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar".to_string()),
+            url: Some(
+                "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar".to_string(),
+            ),
             sha1: Some("29589b5f87ed335a6c7e7ee6a5775f81f97ecb84".to_string()),
             size: Some(785_029),
             is_native: false,
@@ -361,16 +366,28 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_loader_versions() {
         let resolver = DependencyResolver::new();
-        let fabric_versions = resolver.fetch_loader_versions("fabric", "1.20.1").await.unwrap();
+        let fabric_versions = resolver
+            .fetch_loader_versions("fabric", "1.20.1")
+            .await
+            .unwrap();
         assert!(!fabric_versions.is_empty());
 
-        let forge_versions_1_20_1 = resolver.fetch_loader_versions("forge", "1.20.1").await.unwrap();
+        let forge_versions_1_20_1 = resolver
+            .fetch_loader_versions("forge", "1.20.1")
+            .await
+            .unwrap();
         assert!(!forge_versions_1_20_1.is_empty());
 
-        let forge_versions_1_8_9 = resolver.fetch_loader_versions("forge", "1.8.9").await.unwrap();
+        let forge_versions_1_8_9 = resolver
+            .fetch_loader_versions("forge", "1.8.9")
+            .await
+            .unwrap();
         assert!(!forge_versions_1_8_9.is_empty());
 
-        let neoforge_versions_1_20_4 = resolver.fetch_loader_versions("neoforge", "1.20.4").await.unwrap();
+        let neoforge_versions_1_20_4 = resolver
+            .fetch_loader_versions("neoforge", "1.20.4")
+            .await
+            .unwrap();
         assert!(!neoforge_versions_1_20_4.is_empty());
     }
 
@@ -392,7 +409,10 @@ mod tests {
         let mut resolver = DependencyResolver::new();
         resolver.fetch_manifest().await.unwrap();
         let vanilla = resolver.fetch_vanilla_component("1.5.2").await.unwrap();
-        let forge = resolver.fetch_forge_component("1.5.2", "7.8.1.738").await.unwrap();
+        let forge = resolver
+            .fetch_forge_component("1.5.2", "7.8.1.738")
+            .await
+            .unwrap();
         let profile = assemble_launch_profile(&[vanilla, forge]).unwrap();
         assert_eq!(profile.main_class, "net.minecraft.launchwrapper.Launch");
     }

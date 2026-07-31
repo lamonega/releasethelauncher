@@ -51,7 +51,6 @@ pub struct JavaSettings {
     pub memory_max: Option<String>,
 }
 
-
 impl InstanceSettings {
     #[must_use = "Creates a new InstanceSettings with default Java settings"]
     pub fn new(name: String, minecraft_version: String, loader: ModLoader) -> Self {

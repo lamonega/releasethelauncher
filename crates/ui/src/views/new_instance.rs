@@ -94,7 +94,11 @@ fn process_messages(app: &mut App, state: &mut NewInstanceState) {
             },
             crate::UiMessage::VersionListResult(result) => match result {
                 Ok(versions) => {
-                    if let Some((latest, _)) = versions.iter().find(|(_, t)| t == "release").or_else(|| versions.first()) {
+                    if let Some((latest, _)) = versions
+                        .iter()
+                        .find(|(_, t)| t == "release")
+                        .or_else(|| versions.first())
+                    {
                         state.mc_version = latest.clone();
                     }
                     state.available_versions = versions;
@@ -140,17 +144,11 @@ fn handle_install_result(app: &mut App, state: &mut NewInstanceState, info: &str
         let loader_raw = parts[2];
         let loader = if loader_raw.starts_with("Fabric") {
             ModLoader::Fabric {
-                loader_version: loader_raw
-                    .strip_prefix("Fabric:")
-                    .unwrap_or("")
-                    .to_string(),
+                loader_version: loader_raw.strip_prefix("Fabric:").unwrap_or("").to_string(),
             }
         } else if loader_raw.starts_with("Forge") {
             ModLoader::Forge {
-                loader_version: loader_raw
-                    .strip_prefix("Forge:")
-                    .unwrap_or("")
-                    .to_string(),
+                loader_version: loader_raw.strip_prefix("Forge:").unwrap_or("").to_string(),
             }
         } else if loader_raw.starts_with("NeoForge") {
             ModLoader::NeoForge {
@@ -161,10 +159,7 @@ fn handle_install_result(app: &mut App, state: &mut NewInstanceState, info: &str
             }
         } else if loader_raw.starts_with("Quilt") {
             ModLoader::Quilt {
-                loader_version: loader_raw
-                    .strip_prefix("Quilt:")
-                    .unwrap_or("")
-                    .to_string(),
+                loader_version: loader_raw.strip_prefix("Quilt:").unwrap_or("").to_string(),
             }
         } else {
             ModLoader::Vanilla
@@ -221,7 +216,10 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         {
             app.log(
                 crate::log::LogLevel::Info,
-                &format!("UI: MC version filter - Betas: {}", state.manual_show_types[2]),
+                &format!(
+                    "UI: MC version filter - Betas: {}",
+                    state.manual_show_types[2]
+                ),
             );
         }
         if ui
@@ -288,7 +286,7 @@ fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     show_manual_create(app, ui, state);
 }
 
-fn show_manual_version(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_manual_version(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Minecraft Version:");
     if state.available_versions.is_empty() {
         if state.version_list_state == VersionListState::Loading {
@@ -331,7 +329,7 @@ fn show_manual_version(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstance
     }
 }
 
-fn show_manual_loader(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_manual_loader(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     if state.loader_type != LoaderType::Vanilla && !state.mc_version.is_empty() {
         let current_key = (state.loader_type.clone(), state.mc_version.clone());
         if state.last_fetched_loader_key.as_ref() != Some(&current_key) {
@@ -391,7 +389,7 @@ fn show_manual_loader(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceS
     }
 }
 
-fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState) {
     if ui
         .add(
             egui::Button::new(format!(" {} Create Instance", crate::icons::ADD))
@@ -423,7 +421,11 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceS
             loader,
         );
 
-        match app.coordinator.instance_manager.create(&state.name, settings) {
+        match app
+            .coordinator
+            .instance_manager
+            .create(&state.name, settings)
+        {
             Ok(_) => {
                 app.log(
                     crate::log::LogLevel::Info,
@@ -584,7 +586,12 @@ fn show_modrinth_results(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceSt
         });
 }
 
-fn show_modrinth_result_actions(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState, result: &ProjectSummary) {
+fn show_modrinth_result_actions(
+    app: &App,
+    ui: &mut egui::Ui,
+    state: &mut NewInstanceState,
+    result: &ProjectSummary,
+) {
     ui.horizontal(|ui| {
         if ui
             .button(format!(" {} Install Latest", crate::icons::ADD))
@@ -605,7 +612,11 @@ fn show_modrinth_result_actions(app: &App, ui: &mut egui::Ui, state: &mut NewIns
         }
 
         let is_expanded = state.expanded_project_id.as_deref() == Some(&result.id);
-        let expand_text = if is_expanded { "Hide Versions" } else { "Choose Version" };
+        let expand_text = if is_expanded {
+            "Hide Versions"
+        } else {
+            "Choose Version"
+        };
 
         if ui.button(expand_text).clicked() {
             if is_expanded {
@@ -630,22 +641,29 @@ fn show_modrinth_result_actions(app: &App, ui: &mut egui::Ui, state: &mut NewIns
 
     if state.expanded_project_id.as_deref() == Some(&result.id) {
         ui.add_space(app.theme.spacing.sm);
-                let versions = state.modpack_versions.get(&result.id).cloned();
-                let is_loading = state.loading_versions_for_project.as_deref() == Some(&result.id);
-                ui.indent("modpack_versions", |ui| {
-                    if is_loading {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(egui::RichText::new("Loading available versions...").size(14.0));
-                        });
-                    } else if let Some(v) = versions {
-                        show_modrinth_version_list(app, ui, state, result, &v);
-                    }
+        let versions = state.modpack_versions.get(&result.id).cloned();
+        let is_loading = state.loading_versions_for_project.as_deref() == Some(&result.id);
+        ui.indent("modpack_versions", |ui| {
+            if is_loading {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(egui::RichText::new("Loading available versions...").size(14.0));
                 });
+            } else if let Some(v) = versions {
+                show_modrinth_version_list(app, ui, state, result, &v);
+            }
+        });
     }
 }
 
-fn show_modrinth_version_list(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState, result: &ProjectSummary, versions: &[ModVersion]) {
+#[allow(clippy::too_many_lines)] // ponytail: egui table builder, splitting adds nothing
+fn show_modrinth_version_list(
+    app: &App,
+    ui: &mut egui::Ui,
+    state: &mut NewInstanceState,
+    result: &ProjectSummary,
+    versions: &[ModVersion],
+) {
     if versions.is_empty() {
         ui.label(egui::RichText::new("No versions found.").size(14.0));
     } else {
@@ -655,27 +673,37 @@ fn show_modrinth_version_list(app: &App, ui: &mut egui::Ui, state: &mut NewInsta
             ui.checkbox(&mut state.filter_types[1], "Betas");
             ui.checkbox(&mut state.filter_types[2], "Alphas");
             ui.add_space(10.0);
-            ui.add(egui::TextEdit::singleline(&mut state.version_search_query).hint_text("Search version...").desired_width(120.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut state.version_search_query)
+                    .hint_text("Search version...")
+                    .desired_width(120.0),
+            );
         });
         ui.add_space(app.theme.spacing.xs);
 
         let search_q = state.version_search_query.to_lowercase();
-        let filtered_versions: Vec<_> = versions.iter().filter(|ver| {
-            let type_match = match ver.release_type {
-                release_the_launcher_mods::ReleaseType::Release => state.filter_types[0],
-                release_the_launcher_mods::ReleaseType::Beta => state.filter_types[1],
-                release_the_launcher_mods::ReleaseType::Alpha => state.filter_types[2],
-            };
-            if !type_match {
-                return false;
-            }
-            if !search_q.is_empty() {
-                let matches_ver = ver.version_number.to_lowercase().contains(&search_q);
-                let matches_mc = ver.mc_versions.iter().any(|m| m.to_lowercase().contains(&search_q));
-                return matches_ver || matches_mc;
-            }
-            true
-        }).collect();
+        let filtered_versions: Vec<_> = versions
+            .iter()
+            .filter(|ver| {
+                let type_match = match ver.release_type {
+                    release_the_launcher_mods::ReleaseType::Release => state.filter_types[0],
+                    release_the_launcher_mods::ReleaseType::Beta => state.filter_types[1],
+                    release_the_launcher_mods::ReleaseType::Alpha => state.filter_types[2],
+                };
+                if !type_match {
+                    return false;
+                }
+                if !search_q.is_empty() {
+                    let matches_ver = ver.version_number.to_lowercase().contains(&search_q);
+                    let matches_mc = ver
+                        .mc_versions
+                        .iter()
+                        .any(|m| m.to_lowercase().contains(&search_q));
+                    return matches_ver || matches_mc;
+                }
+                true
+            })
+            .collect();
 
         if filtered_versions.is_empty() {
             ui.label("No matching versions found.");
@@ -696,14 +724,31 @@ fn show_modrinth_version_list(app: &App, ui: &mut egui::Ui, state: &mut NewInsta
                             ui.end_row();
 
                             for ver in filtered_versions {
-                                ui.label(egui::RichText::new(&ver.version_number).strong().size(14.0));
-                                ui.label(egui::RichText::new(ver.mc_versions.join(", ")).size(13.0));
+                                ui.label(
+                                    egui::RichText::new(&ver.version_number).strong().size(14.0),
+                                );
+                                ui.label(
+                                    egui::RichText::new(ver.mc_versions.join(", ")).size(13.0),
+                                );
                                 ui.label(egui::RichText::new(ver.loaders.join(", ")).size(13.0));
                                 ui.label(egui::RichText::new(ver.release_type.as_str()).size(13.0));
-                                if ui.add(egui::Button::new(egui::RichText::new("Install Version").strong().size(13.0)).fill(app.theme.accent)).clicked() {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Install Version")
+                                                .strong()
+                                                .size(13.0),
+                                        )
+                                        .fill(app.theme.accent),
+                                    )
+                                    .clicked()
+                                {
                                     app.log(
                                         crate::log::LogLevel::Info,
-                                        &format!("UI: Installing modpack '{}' version '{}'", result.name, ver.version_number),
+                                        &format!(
+                                            "UI: Installing modpack '{}' version '{}'",
+                                            result.name, ver.version_number
+                                        ),
                                     );
                                     state.installing_modpack_id = Some(result.id.clone());
                                     state.modrinth_status = format!(
@@ -725,8 +770,8 @@ fn show_modrinth_version_list(app: &App, ui: &mut egui::Ui, state: &mut NewInsta
                             }
                         });
                 });
+        }
     }
-}
 }
 
 pub struct NewInstanceState {

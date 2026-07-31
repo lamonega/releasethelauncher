@@ -25,7 +25,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     let instances: Vec<String> = app
-        .coordinator.instance_manager
+        .coordinator
+        .instance_manager
         .list()
         .iter()
         .map(|i| i.id.clone())

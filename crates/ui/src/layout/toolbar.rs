@@ -1,12 +1,7 @@
 use crate::theme;
 use crate::{App, LogLevel, View};
 
-pub fn show(
-    app: &App,
-    maximized: &mut bool,
-    ctx: &egui::Context,
-    navigate_to: &mut Option<View>,
-) {
+pub fn show(app: &App, maximized: &mut bool, ctx: &egui::Context, navigate_to: &mut Option<View>) {
     egui::TopBottomPanel::top("toolbar")
         .frame(
             egui::Frame::none()

@@ -1,5 +1,5 @@
-use crate::{Component, LaunchError, Requirement, VersionFile};
 use super::parsers::parse_library;
+use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
 pub const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
@@ -45,7 +45,13 @@ pub async fn fetch_forge_component(
     )
     .await;
 
-    ensure_forge_compatibility(mc_version, &full_ver, &mut main_class, &mut libraries, &traits);
+    ensure_forge_compatibility(
+        mc_version,
+        &full_ver,
+        &mut main_class,
+        &mut libraries,
+        &traits,
+    );
 
     Ok(Component {
         uid: "net.minecraftforge".to_string(),
@@ -148,7 +154,15 @@ async fn fetch_forge_metadata(
     }
 
     if tweakers.is_empty() && main_class.is_none() {
-        fetch_legacy_installer_metadata(client, mc_version, forge_version, main_class, libraries, tweakers).await;
+        fetch_legacy_installer_metadata(
+            client,
+            mc_version,
+            forge_version,
+            main_class,
+            libraries,
+            tweakers,
+        )
+        .await;
     }
 }
 
@@ -168,15 +182,21 @@ async fn fetch_legacy_installer_metadata(
         format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar"),
     ];
     for url in urls {
-        let Ok(resp) = client.get(&url).send().await else { continue };
+        let Ok(resp) = client.get(&url).send().await else {
+            continue;
+        };
         if !resp.status().is_success() {
             continue;
         }
-        let Ok(bytes) = resp.bytes().await else { continue };
+        let Ok(bytes) = resp.bytes().await else {
+            continue;
+        };
         let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())) else {
             continue;
         };
-        let Ok(mut entry) = archive.by_name("install_profile.json") else { continue };
+        let Ok(mut entry) = archive.by_name("install_profile.json") else {
+            continue;
+        };
         let mut content = String::new();
         if std::io::Read::read_to_string(&mut entry, &mut content).is_err() {
             continue;
@@ -407,9 +427,17 @@ mod tests {
         }];
         let mut tweakers = Vec::new();
 
-        parse_installer_version_info(&sample_install_profile(), &mut main_class, &mut libraries, &mut tweakers);
+        parse_installer_version_info(
+            &sample_install_profile(),
+            &mut main_class,
+            &mut libraries,
+            &mut tweakers,
+        );
 
-        assert_eq!(main_class.as_deref(), Some("net.minecraft.launchwrapper.Launch"));
+        assert_eq!(
+            main_class.as_deref(),
+            Some("net.minecraft.launchwrapper.Launch")
+        );
         assert_eq!(
             tweakers,
             vec!["net.minecraftforge.legacy._1_5_2.LibraryFixerTweaker"]
@@ -421,6 +449,12 @@ mod tests {
         assert!(names.contains(&"org.bouncycastle:bcprov-jdk15on:148"));
         assert!(names.contains(&"com.google.guava:guava:14.0-rc3"));
         assert!(!names.contains(&"net.minecraftforge:minecraftforge:7.8.1.738"));
-        assert_eq!(names.iter().filter(|n| **n == "org.ow2.asm:asm-all:4.1").count(), 1);
+        assert_eq!(
+            names
+                .iter()
+                .filter(|n| **n == "org.ow2.asm:asm-all:4.1")
+                .count(),
+            1
+        );
     }
 }

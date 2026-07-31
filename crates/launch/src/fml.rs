@@ -1,21 +1,26 @@
+use std::io::Read;
+use std::path::Path;
+
+use crate::download::DownloadManager;
 use crate::{LaunchError, LaunchProfile};
 use reqwest::Client;
 use sha1::{Digest, Sha1};
+use zip::ZipArchive;
 
 struct FmlLibSeed {
-    file_name: &'static str,
     sha1: &'static str,
     url: &'static str,
 }
 
-// ponytail: only 1.5.2 has a checksum-verified copy (web.archive.org snapshot
-// from 2021; the sha1 matches what FML 5.2.23.738 expects — the file served
-// by files.minecraftforge.net today differs and fails FML's check). Other
-// pre-1.6 versions need verified copies before they can be seeded here.
+// ponytail: fallback for jars that have no usable hash in fmlversion.properties
+// (missing/placeholder). Only 1.5.2 has a checksum-verified copy
+// (web.archive.org snapshot from 2021; the sha1 matches what FML 5.2.23.738
+// expects — the file served by files.minecraftforge.net today differs and
+// fails FML's check). The 1.5.x family is covered by auto-extraction from the
+// universal jar instead.
 const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
     "1.5.2",
     FmlLibSeed {
-        file_name: "deobfuscation_data_1.5.2.zip",
         sha1: "446e55cd986582c70fcf12cb27bc00114c5adfd9",
         url: "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs/deobfuscation_data_1.5.2.zip",
     },
@@ -23,34 +28,53 @@ const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
 
 /// FML (pre-1.6) downloads `deobfuscation_data_{mc}.zip` into its home
 /// (`~/.minecraft/lib` — FML of that era ignores `--gameDir`) on first launch
-/// and aborts on checksum mismatch. The upstream file changed since 2013, so
-/// legacy Forge cannot boot without seeding the correct copy. No-op for
-/// profiles that don't need it.
-pub async fn ensure_fml_deobfuscation_data(profile: &LaunchProfile) -> Result<(), LaunchError> {
+/// and aborts on checksum mismatch.
+///
+/// The upstream file changed since 2013; the expected checksum is read from
+/// `fmlversion.properties` inside the downloaded universal jar (baked in for
+/// the 1.5.x era), with the static table as fallback. No-op for profiles that
+/// don't need it.
+///
+/// # Errors
+///
+/// Returns an error if the checksum-verified seed cannot be downloaded or
+/// written to FML's home directory.
+pub async fn ensure_fml_deobfuscation_data(
+    profile: &LaunchProfile,
+    instance_root: &Path,
+) -> Result<(), LaunchError> {
     if !profile.traits.iter().any(|t| t == "legacyFML") {
         return Ok(());
     }
-    let Some(seed) = FML_LIB_SEEDS
-        .iter()
-        .find(|(mc, _)| *mc == profile.mc_version)
-        .map(|(_, s)| s)
-    else {
+    let mc = &profile.mc_version;
+    let seed = FML_LIB_SEEDS.iter().find(|(m, _)| m == mc).map(|(_, s)| s);
+    let expected = deobfuscation_hash_from_jar(profile, instance_root)?
+        .or_else(|| seed.map(|s| s.sha1.to_string()));
+    let Some(expected) = expected else {
         return Ok(());
     };
+    let file_name = format!("deobfuscation_data_{mc}.zip");
+    let url = seed.map_or_else(
+        || {
+            format!(
+                "https://web.archive.org/web/2id_/http://files.minecraftforge.net/fmllibs/{file_name}"
+            )
+        },
+        |s| s.url.to_string(),
+    );
     let lib_dir = dirs::home_dir()
         .ok_or_else(|| LaunchError::Launch("could not resolve home directory".into()))?
         .join(".minecraft")
         .join("lib");
-    let target = lib_dir.join(seed.file_name);
-    if sha1_file(&target)?.as_deref() == Some(seed.sha1) {
+    let target = lib_dir.join(&file_name);
+    if sha1_file(&target)?.as_deref() == Some(expected.as_str()) {
         return Ok(());
     }
-    let bytes = Client::new().get(seed.url).send().await?.bytes().await?;
+    let bytes = Client::new().get(url).send().await?.bytes().await?;
     let actual = hex::encode(Sha1::digest(&bytes));
-    if actual != seed.sha1 {
+    if actual != expected {
         return Err(LaunchError::Launch(format!(
-            "FML library {} checksum mismatch: got {actual}, expected {}",
-            seed.file_name, seed.sha1
+            "FML library {file_name} checksum mismatch: got {actual}, expected {expected}"
         )));
     }
     std::fs::create_dir_all(&lib_dir)?;
@@ -58,7 +82,49 @@ pub async fn ensure_fml_deobfuscation_data(profile: &LaunchProfile) -> Result<()
     Ok(())
 }
 
-fn sha1_file(path: &std::path::Path) -> Result<Option<String>, LaunchError> {
+/// Expected deobfuscation checksum from the universal jar's
+/// `fmlversion.properties`. Pre-1.6 maven jars carry a `${deobf.checksum}`
+/// placeholder (the installer substitutes it), which reads as `None`.
+fn deobfuscation_hash_from_jar(
+    profile: &LaunchProfile,
+    instance_root: &Path,
+) -> Result<Option<String>, LaunchError> {
+    let Some(lib) = profile
+        .libraries
+        .iter()
+        .find(|l| l.name.contains("net.minecraftforge:forge"))
+    else {
+        return Ok(None);
+    };
+    let Some(rel) = DownloadManager::local_path_for_library(lib) else {
+        return Ok(None);
+    };
+    let Ok(file) = std::fs::File::open(instance_root.join("libraries").join(rel)) else {
+        return Ok(None);
+    };
+    let Ok(mut archive) = ZipArchive::new(file) else {
+        return Ok(None);
+    };
+    let Ok(mut props) = archive.by_name("fmlversion.properties") else {
+        return Ok(None);
+    };
+    let mut content = String::new();
+    props.read_to_string(&mut content)?;
+    Ok(parse_deobfuscation_hash(&content))
+}
+
+fn parse_deobfuscation_hash(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find_map(|l| l.strip_prefix("fmlbuild.deobfuscation.hash="))
+        .map(str::trim)
+        .filter(|h| {
+            !h.starts_with("${") && h.len() == 40 && h.chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .map(str::to_string)
+}
+
+fn sha1_file(path: &Path) -> Result<Option<String>, LaunchError> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(hex::encode(Sha1::digest(&bytes)))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -94,7 +160,35 @@ mod tests {
             .find(|(mc, _)| *mc == "1.5.2")
             .map(|(_, s)| s)
             .expect("1.5.2 seed");
-        assert_eq!(seed.file_name, "deobfuscation_data_1.5.2.zip");
         assert_eq!(seed.sha1.len(), 40);
+    }
+
+    #[test]
+    fn parses_real_152_properties() {
+        let content = "\
+#Mon, 17 Jun 2013 09:33:39 -0600
+fmlbuild.major.number=5
+fmlbuild.build.number=738
+fmlbuild.deobfuscation.hash=446e55cd986582c70fcf12cb27bc00114c5adfd9
+";
+        assert_eq!(
+            parse_deobfuscation_hash(content).as_deref(),
+            Some("446e55cd986582c70fcf12cb27bc00114c5adfd9")
+        );
+    }
+
+    #[test]
+    fn rejects_installer_placeholder() {
+        let content = "fmlbuild.deobfuscation.hash=${deobf.checksum}\n";
+        assert_eq!(parse_deobfuscation_hash(content), None);
+    }
+
+    #[test]
+    fn rejects_missing_and_garbage() {
+        assert_eq!(parse_deobfuscation_hash("fmlbuild.mcversion=1.5.2\n"), None);
+        assert_eq!(
+            parse_deobfuscation_hash("fmlbuild.deobfuscation.hash=notahex\n"),
+            None
+        );
     }
 }

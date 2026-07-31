@@ -86,9 +86,7 @@ fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
                     release_the_launcher_auth::AuthState::Online => app.theme.log_colors.info,
                     release_the_launcher_auth::AuthState::Expired
                     | release_the_launcher_auth::AuthState::Gone => app.theme.log_colors.warn,
-                    release_the_launcher_auth::AuthState::Disabled => {
-                        app.theme.log_colors.error
-                    }
+                    release_the_launcher_auth::AuthState::Disabled => app.theme.log_colors.error,
                     release_the_launcher_auth::AuthState::Refreshing
                     | release_the_launcher_auth::AuthState::Offline => app.theme.text_secondary,
                 };
@@ -100,7 +98,9 @@ fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     if let Some(i) = select_idx {
-        let name = app.coordinator.account_list.accounts[i].display_name().to_string();
+        let name = app.coordinator.account_list.accounts[i]
+            .display_name()
+            .to_string();
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Selected account '{name}'"),
@@ -109,7 +109,9 @@ fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
         let _ = app.coordinator.account_list.save();
     }
     if let Some(i) = remove_idx {
-        let name = app.coordinator.account_list.accounts[i].display_name().to_string();
+        let name = app.coordinator.account_list.accounts[i]
+            .display_name()
+            .to_string();
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Removed account '{name}'"),

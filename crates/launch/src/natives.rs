@@ -66,7 +66,8 @@ pub fn extract_natives(
                     .map_or(&[][..], |e| e.exclude.as_slice());
                 let extracted = extract_jar_to_dir(&jar_path, natives_dir, excludes)?;
                 total_extracted_files += extracted.len();
-                let example_files: Vec<&str> = extracted.iter().take(5).map(String::as_str).collect();
+                let example_files: Vec<&str> =
+                    extracted.iter().take(5).map(String::as_str).collect();
                 tracing::info!(
                     library = %lib.name,
                     files_extracted = extracted.len(),
@@ -194,7 +195,6 @@ mod tests {
         let libraries_dir = temp_dir.join("libraries");
         let natives_dir = temp_dir.join("natives");
 
-
         let lib_dir = libraries_dir.join("org/lwjgl/lwjgl/lwjgl-platform/2.9.4");
         fs::create_dir_all(&lib_dir).unwrap();
 
@@ -206,21 +206,26 @@ mod tests {
         zip.start_file("lwjgl.dll", FileOptions::default()).unwrap();
         zip.write_all(b"dummy dll content").unwrap();
 
-        zip.start_file("lwjgl64.dll", FileOptions::default()).unwrap();
+        zip.start_file("lwjgl64.dll", FileOptions::default())
+            .unwrap();
         zip.write_all(b"dummy dll 64 content").unwrap();
 
-        zip.start_file("OpenAL32.dll", FileOptions::default()).unwrap();
+        zip.start_file("OpenAL32.dll", FileOptions::default())
+            .unwrap();
         zip.write_all(b"dummy openal 32 content").unwrap();
 
-        zip.start_file("OpenAL64.dll", FileOptions::default()).unwrap();
+        zip.start_file("OpenAL64.dll", FileOptions::default())
+            .unwrap();
         zip.write_all(b"dummy openal 64 content").unwrap();
 
         // META-INF should be excluded
-        zip.start_file("META-INF/MANIFEST.MF", FileOptions::default()).unwrap();
+        zip.start_file("META-INF/MANIFEST.MF", FileOptions::default())
+            .unwrap();
         zip.write_all(b"Manifest-Version: 1.0").unwrap();
 
         // Nested native binary
-        zip.start_file("x64/custom_native.dll", FileOptions::default()).unwrap();
+        zip.start_file("x64/custom_native.dll", FileOptions::default())
+            .unwrap();
         zip.write_all(b"dummy nested binary").unwrap();
 
         zip.finish().unwrap();

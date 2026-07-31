@@ -1,5 +1,5 @@
-use crate::{Component, LaunchError, VersionFile};
 use super::parsers::parse_version_json;
+use crate::{Component, LaunchError, VersionFile};
 use reqwest::Client;
 
 pub const VERSION_MANIFEST_URL: &str =
@@ -30,18 +30,17 @@ pub async fn fetch_manifest(client: &Client) -> Result<VersionManifest, LaunchEr
         .json()
         .await?;
 
-    let versions: Vec<VersionManifestEntry> =
-        resp["versions"].as_array().map_or(vec![], |arr| {
-            arr.iter()
-                .filter_map(|v| {
-                    Some(VersionManifestEntry {
-                        id: v["id"].as_str()?.to_string(),
-                        url: v["url"].as_str()?.to_string(),
-                        version_type: v["type"].as_str().unwrap_or("release").to_string(),
-                    })
+    let versions: Vec<VersionManifestEntry> = resp["versions"].as_array().map_or(vec![], |arr| {
+        arr.iter()
+            .filter_map(|v| {
+                Some(VersionManifestEntry {
+                    id: v["id"].as_str()?.to_string(),
+                    url: v["url"].as_str()?.to_string(),
+                    version_type: v["type"].as_str().unwrap_or("release").to_string(),
                 })
-                .collect()
-        });
+            })
+            .collect()
+    });
 
     Ok(VersionManifest { versions })
 }
@@ -51,7 +50,10 @@ pub async fn fetch_manifest(client: &Client) -> Result<VersionManifest, LaunchEr
 /// # Errors
 ///
 /// Returns [`LaunchError`] if the HTTP request fails.
-pub async fn fetch_version_metadata(client: &Client, url: &str) -> Result<VersionFile, LaunchError> {
+pub async fn fetch_version_metadata(
+    client: &Client,
+    url: &str,
+) -> Result<VersionFile, LaunchError> {
     let resp: serde_json::Value = client.get(url).send().await?.json().await?;
     Ok(parse_version_json(&resp))
 }
@@ -67,7 +69,12 @@ pub async fn fetch_vanilla_component(
     version_id: &str,
 ) -> Result<Component, LaunchError> {
     let url = manifest
-        .and_then(|m| m.versions.iter().find(|v| v.id == version_id).map(|v| v.url.clone()))
+        .and_then(|m| {
+            m.versions
+                .iter()
+                .find(|v| v.id == version_id)
+                .map(|v| v.url.clone())
+        })
         .ok_or_else(|| LaunchError::VersionNotFound(version_id.to_string()))?;
 
     let version_file = fetch_version_metadata(client, &url).await?;

@@ -13,7 +13,10 @@ async fn resolve_152_forge_738_profile() {
         .await
         .expect("forge 7.8.1.738");
 
-    eprintln!("=== FORGE COMPONENT LIBRARIES ({}) ===", forge.version_file.libraries.len());
+    eprintln!(
+        "=== FORGE COMPONENT LIBRARIES ({}) ===",
+        forge.version_file.libraries.len()
+    );
     for l in &forge.version_file.libraries {
         eprintln!("  {}", l.name);
     }
@@ -36,7 +39,9 @@ async fn resolve_152_forge_738_profile() {
     eprintln!("tweakers={:?}", profile.tweakers);
 
     assert!(
-        names.iter().any(|n| n.starts_with("org.lwjgl.lwjgl:lwjgl:2.9.0")),
+        names
+            .iter()
+            .any(|n| n.starts_with("org.lwjgl.lwjgl:lwjgl:2.9.0")),
         "lwjgl 2.9.0 missing from profile"
     );
     assert!(

@@ -57,7 +57,9 @@ pub fn show(
         )
     });
 
-    let Some((name, mc_version, loader_name, root_display, root_path, java_settings)) = instance_data else {
+    let Some((name, mc_version, loader_name, root_display, root_path, java_settings)) =
+        instance_data
+    else {
         ui.label("Instance not found.");
         app.current_view = View::InstanceList;
         return;
@@ -153,7 +155,10 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
                 crate::log::LogLevel::Info,
                 &format!("UI: Deleted instance '{}'", view.name),
             );
-            let _ = app.coordinator.instance_manager.delete(&view.id.to_string());
+            let _ = app
+                .coordinator
+                .instance_manager
+                .delete(&view.id.to_string());
             app.current_view = View::InstanceList;
             true
         }
@@ -171,7 +176,14 @@ fn show_tab_content(
 ) {
     match tab {
         DetailTab::Info => {
-            show_info(app, ui, view.root_display, view.loader_name, view.mc_version, view.java_settings);
+            show_info(
+                app,
+                ui,
+                view.root_display,
+                view.loader_name,
+                view.mc_version,
+                view.java_settings,
+            );
         }
         DetailTab::Config => {
             show_config(app, ui, view.id, tab_state);
@@ -181,9 +193,23 @@ fn show_tab_content(
         }
         DetailTab::Mods => {
             if view.loader_name == "Vanilla" {
-                show_info(app, ui, view.root_display, view.loader_name, view.mc_version, view.java_settings);
+                show_info(
+                    app,
+                    ui,
+                    view.root_display,
+                    view.loader_name,
+                    view.mc_version,
+                    view.java_settings,
+                );
             } else {
-                show_mods(app, ui, view.root_path, view.id, tab_state, open_mod_browser);
+                show_mods(
+                    app,
+                    ui,
+                    view.root_path,
+                    view.id,
+                    tab_state,
+                    open_mod_browser,
+                );
             }
         }
     }
@@ -280,12 +306,7 @@ fn show_info(
     });
 }
 
-fn show_config(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    id: &str,
-    tab_state: &mut DetailTabState,
-) {
+fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
     ui.label(egui::RichText::new("Instance Java & Memory Settings:").strong());
     ui.colored_label(
         app.theme.text_secondary,
@@ -354,12 +375,11 @@ fn show_config(
             Some(tab_state.config_memory_max.trim().to_string())
         };
 
-        if let Err(e) = app.coordinator.instance_manager.update_instance_java_settings(
-            id,
-            java_path,
-            memory_min,
-            memory_max,
-        ) {
+        if let Err(e) = app
+            .coordinator
+            .instance_manager
+            .update_instance_java_settings(id, java_path, memory_min, memory_max)
+        {
             app.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to save instance settings for '{id}': {e}"),
@@ -397,12 +417,18 @@ fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path: &st
         .collect();
 
     let disk_content = log_file_path.and_then(|p| std::fs::read_to_string(p).ok());
-    let has_disk_logs = disk_content
-        .as_ref()
-        .is_some_and(|c| !c.trim().is_empty());
+    let has_disk_logs = disk_content.as_ref().is_some_and(|c| !c.trim().is_empty());
     let has_buffer_logs = !buffer_entries.is_empty();
 
-    show_logs_header(app, ui, instance_id, &buffer_entries, disk_content.as_ref(), has_disk_logs, has_buffer_logs);
+    show_logs_header(
+        app,
+        ui,
+        instance_id,
+        &buffer_entries,
+        disk_content.as_ref(),
+        has_disk_logs,
+        has_buffer_logs,
+    );
 
     ui.add_space(app.theme.spacing.xs);
 
@@ -582,10 +608,7 @@ fn show_mods(
     if mods.is_empty() {
         ui.colored_label(app.theme.text_secondary, "No mods installed.");
     } else if filtered_mods.is_empty() {
-        ui.colored_label(
-            app.theme.text_secondary,
-            "No mods match search or filters.",
-        );
+        ui.colored_label(app.theme.text_secondary, "No mods match search or filters.");
     } else {
         let mut toggle_path = None;
         egui::ScrollArea::vertical()

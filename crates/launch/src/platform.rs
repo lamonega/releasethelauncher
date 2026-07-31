@@ -71,10 +71,18 @@ pub fn should_include_library(lib: &crate::Library) -> bool {
         if (classifier.contains("arm64") || classifier.contains("aarch64")) && arch != "aarch64" {
             return false;
         }
-        if (classifier.contains("x86_64") || classifier.contains("amd64") || classifier.contains("x64")) && arch != "x86_64" {
+        if (classifier.contains("x86_64")
+            || classifier.contains("amd64")
+            || classifier.contains("x64"))
+            && arch != "x86_64"
+        {
             return false;
         }
-        if (classifier.contains("x86") || classifier.contains("i386") || classifier.contains("i686")) && arch != "x86" {
+        if (classifier.contains("x86")
+            || classifier.contains("i386")
+            || classifier.contains("i686"))
+            && arch != "x86"
+        {
             return false;
         }
     }

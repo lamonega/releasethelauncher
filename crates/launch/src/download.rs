@@ -33,22 +33,29 @@ pub fn library_filename(lib: &Library) -> String {
     let classifier_raw = parts.get(3).copied();
 
     let (classifier, mut ext) = classifier_raw.map_or_else(
-        || if let Some((v, e)) = version.split_once('@') {
-            version = v;
-            (None, e)
-        } else {
-            (None, "jar")
+        || {
+            if let Some((v, e)) = version.split_once('@') {
+                version = v;
+                (None, e)
+            } else {
+                (None, "jar")
+            }
         },
-        |cls| if let Some((c, e)) = cls.split_once('@') {
-            (Some(c), e)
-        } else {
-            (Some(cls), "jar")
+        |cls| {
+            if let Some((c, e)) = cls.split_once('@') {
+                (Some(c), e)
+            } else {
+                (Some(cls), "jar")
+            }
         },
     );
 
     if ext == "jar" {
         if let Some(ref url) = lib.url {
-            if Path::new(url).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
+            if Path::new(url)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+            {
                 ext = "zip";
             }
         }
@@ -79,7 +86,10 @@ impl DownloadManager {
     fn maven_url_for_library(lib: &Library) -> Option<String> {
         if let Some(ref url) = lib.url {
             if url.starts_with("http://") || url.starts_with("https://") {
-                if Path::new(url).extension().is_some_and(|e| e.eq_ignore_ascii_case("jar") || e.eq_ignore_ascii_case("zip")) {
+                if Path::new(url)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("jar") || e.eq_ignore_ascii_case("zip"))
+                {
                     return Some(url.clone());
                 }
                 let parts: Vec<&str> = lib.name.split(':').collect();
@@ -222,7 +232,16 @@ impl DownloadManager {
 
             tasks.push(tokio::spawn(async move {
                 if !exists_ok {
-                    let (total_add, downloaded_add) = perform_library_download(&http, &url, &lib_name, is_native, sha1.as_deref(), &full_local_path, &sem).await?;
+                    let (total_add, downloaded_add) = perform_library_download(
+                        &http,
+                        &url,
+                        &lib_name,
+                        is_native,
+                        sha1.as_deref(),
+                        &full_local_path,
+                        &sem,
+                    )
+                    .await?;
                     total_b.fetch_add(total_add, Ordering::SeqCst);
                     downloaded_b.fetch_add(downloaded_add, Ordering::SeqCst);
                 }
@@ -236,9 +255,9 @@ impl DownloadManager {
         }
 
         for task in tasks {
-            task.await
-                .map_err(|e| LaunchError::Launch(format!("Join error during library download: {e}")))?
-                ?;
+            task.await.map_err(|e| {
+                LaunchError::Launch(format!("Join error during library download: {e}"))
+            })??;
         }
 
         info!("All applicable libraries processed successfully");
@@ -396,11 +415,11 @@ impl DownloadManager {
             let mut total_bytes: u64 = 0;
 
             for (_, obj) in objects {
-                let hash = obj
-                    .get("hash")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let size = obj.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                let hash = obj.get("hash").and_then(|v| v.as_str()).unwrap_or("");
+                let size = obj
+                    .get("size")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
                 total_bytes += size;
 
                 if !hash.is_empty() {
@@ -425,7 +444,10 @@ impl DownloadManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let size = obj.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                let size = obj
+                    .get("size")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
 
                 if hash.is_empty() {
                     let cur = downloaded_b.fetch_add(size, Ordering::SeqCst) + size;
@@ -541,14 +563,20 @@ impl DownloadManager {
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 error!(target = %target.display(), error = %e, "Dir creation failed");
-                LaunchError::Launch(format!("Failed to create parent directory for {}: {e}", target.display()))
+                LaunchError::Launch(format!(
+                    "Failed to create parent directory for {}: {e}",
+                    target.display()
+                ))
             })?;
         }
 
         let tmp = target.with_extension("tmp");
         std::fs::write(&tmp, &resp).map_err(|e| {
             error!(tmp = %tmp.display(), error = %e, "File write failed");
-            LaunchError::Launch(format!("Failed to write temporary file {}: {e}", tmp.display()))
+            LaunchError::Launch(format!(
+                "Failed to write temporary file {}: {e}",
+                tmp.display()
+            ))
         })?;
         std::fs::rename(&tmp, target).map_err(|e| {
             error!(tmp = %tmp.display(), target = %target.display(), error = %e, "File rename failed");
@@ -567,7 +595,14 @@ mod tests {
     struct TestDir(PathBuf);
     impl TestDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("rtl_test_{}_{}", name, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let path = std::env::temp_dir().join(format!(
+                "rtl_test_{}_{}",
+                name,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
             let _ = std::fs::create_dir_all(&path);
             Self(path)
         }
@@ -662,5 +697,3 @@ mod tests {
         assert_eq!(progress_called.load(Ordering::SeqCst), 1);
     }
 }
-
-

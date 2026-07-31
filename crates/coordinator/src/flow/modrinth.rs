@@ -95,7 +95,10 @@ pub fn install_mod(
             .map(|l| vec![l.to_lowercase()])
             .unwrap_or_default();
 
-        let result = match provider.get_versions(&project_id, &mc_versions, &loaders).await {
+        let result = match provider
+            .get_versions(&project_id, &mc_versions, &loaders)
+            .await
+        {
             Ok(versions) => {
                 if let Some(version) = versions.first() {
                     match provider.download_mod(version, &mods_dir).await {
@@ -117,11 +120,7 @@ pub fn install_mod(
     });
 }
 
-pub fn fetch_modpack_versions(
-    queue: &Queue,
-    handle: &tokio::runtime::Handle,
-    project_id: String,
-) {
+pub fn fetch_modpack_versions(queue: &Queue, handle: &tokio::runtime::Handle, project_id: String) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);

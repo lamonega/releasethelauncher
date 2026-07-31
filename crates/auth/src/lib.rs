@@ -1,5 +1,3 @@
-
-
 pub mod account_list;
 pub mod minecraft;
 pub mod msa;

@@ -30,25 +30,13 @@ pub fn show(
         View::InstanceDetail { id, tab } => {
             let id = id.clone();
             let tab = *tab;
-            show_instance_detail(
-                app,
-                ui,
-                &id,
-                tab,
-                detail_tab_state,
-                &mut open_mod_browser,
-            );
+            show_instance_detail(app, ui, &id, tab, detail_tab_state, &mut open_mod_browser);
         }
         View::AccountList => {
             crate::views::account_list::show(app, ui);
         }
         View::AccountLogin => {
-            show_account_login(
-                app,
-                ui,
-                login_username,
-                login_state,
-            );
+            show_account_login(app, ui, login_username, login_state);
         }
         View::NewInstance => {
             show_new_instance(app, ui, new_instance_state);

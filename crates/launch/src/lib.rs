@@ -1,5 +1,3 @@
-
-
 pub mod assets;
 pub mod command;
 pub mod download;
@@ -72,14 +70,14 @@ pub struct Library {
     pub extract: Option<Extract>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Rule {
     pub action: String,
     pub os: Option<RuleOs>,
     pub features: std::collections::HashMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuleOs {
     pub name: Option<String>,
     pub arch: Option<String>,
@@ -111,4 +109,3 @@ pub struct VersionFile {
     pub client_download: Option<ClientDownload>,
     pub version_type: Option<String>,
 }
-

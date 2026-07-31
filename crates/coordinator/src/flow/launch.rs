@@ -100,7 +100,9 @@ pub async fn do_launch(params: LaunchParams) {
 
     download_modpack_mods(&params).await;
 
-    let Ok(profile) = resolve_and_prepare_downloads(&params).await else { return };
+    let Ok(profile) = resolve_and_prepare_downloads(&params).await else {
+        return;
+    };
 
     send_log(&params.queue, LogLevel::Info, "Resolving Java runtime...");
     let Some(java_path) = resolve_java_path(
@@ -108,12 +110,21 @@ pub async fn do_launch(params: LaunchParams) {
         params.java_path_override.as_deref(),
         &profile.compatible_java_majors,
     ) else {
-        send_log(&params.queue, LogLevel::Error, "Failed to resolve Java path");
+        send_log(
+            &params.queue,
+            LogLevel::Error,
+            "Failed to resolve Java path",
+        );
         return;
     };
 
     let cmd = build_launch_command(
-        &params, &profile, &java_path, player_name, player_uuid, access_token,
+        &params,
+        &profile,
+        &java_path,
+        player_name,
+        player_uuid,
+        access_token,
     );
 
     spawn_and_monitor_game(&params, cmd).await;
@@ -149,7 +160,7 @@ fn build_launch_command(
     send_log(
         &params.queue,
         LogLevel::Info,
-        format!("Java Command Line: {:?}", cmd),
+        format!("Java Command Line: {cmd:?}"),
     );
 
     cmd
@@ -163,17 +174,16 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         "Resolving version components & manifests...",
     );
 
-    let components = match resolve_components(&params.queue, &params.loader, &params.mc_version)
-        .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            let msg = format!("Failed to resolve version components: {e}");
-            send_log(&params.queue, LogLevel::Error, &msg);
-            send(Event::DownloadError(msg));
-            return Err(());
-        }
-    };
+    let components =
+        match resolve_components(&params.queue, &params.loader, &params.mc_version).await {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("Failed to resolve version components: {e}");
+                send_log(&params.queue, LogLevel::Error, &msg);
+                send(Event::DownloadError(msg));
+                return Err(());
+            }
+        };
 
     send_log(
         &params.queue,
@@ -214,7 +224,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         LogLevel::Info,
         "Checking legacy FML runtime libraries...",
     );
-    if let Err(e) = ensure_fml_deobfuscation_data(&profile).await {
+    if let Err(e) = ensure_fml_deobfuscation_data(&profile, &params.instance_root).await {
         send_log(
             &params.queue,
             LogLevel::Error,
@@ -234,12 +244,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         LogLevel::Info,
         "Checking & downloading game assets...",
     );
-    download_assets(
-        &params.queue,
-        &params.instance_root,
-        &profile.asset_index,
-    )
-    .await;
+    download_assets(&params.queue, &params.instance_root, &profile.asset_index).await;
 
     download_client_jar(params, &profile).await?;
 
@@ -291,15 +296,17 @@ async fn download_client_jar(params: &LaunchParams, profile: &LaunchProfile) -> 
 /// when the process dies right after writing (javaw crash after ~67 of 950
 /// bytes); sync reads drain the pipe before the OS cancels the pending I/O.
 async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Command) {
-    push_event(&params.queue, Event::Status("Launching game...".to_string()));
+    push_event(
+        &params.queue,
+        Event::Status("Launching game...".to_string()),
+    );
 
     let queue = params.queue.clone();
     let instance_id = params.instance_id.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        spawn_and_stream_output(cmd, &queue, &instance_id)
-    })
-    .await
-    .unwrap_or(Err("Log streaming task failed".to_string()));
+    let result =
+        tokio::task::spawn_blocking(move || spawn_and_stream_output(cmd, &queue, &instance_id))
+            .await
+            .unwrap_or_else(|_| Err("Log streaming task failed".to_string()));
 
     match result {
         Ok(status) => {
@@ -334,7 +341,10 @@ fn spawn_and_stream_output(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
-    push_event(queue, Event::DownloadComplete("Game is running".to_string()));
+    push_event(
+        queue,
+        Event::DownloadComplete("Game is running".to_string()),
+    );
     send_log(
         queue,
         LogLevel::Info,
@@ -344,10 +354,15 @@ fn spawn_and_stream_output(
     let target = format!("instance:{instance_id}");
     let mut readers = Vec::new();
     if let Some(out) = child.stdout.take() {
-        readers.push(spawn_line_reader(out, Arc::clone(queue), target.clone(), true));
+        readers.push(spawn_line_reader(
+            out,
+            Arc::clone(queue),
+            target.clone(),
+            true,
+        ));
     }
     if let Some(err) = child.stderr.take() {
-        readers.push(spawn_line_reader(err, Arc::clone(queue), target.clone(), false));
+        readers.push(spawn_line_reader(err, Arc::clone(queue), target, false));
     }
 
     let status = child.wait().map_err(|e| e.to_string())?;
@@ -408,11 +423,7 @@ async fn download_modpack_mods(params: &LaunchParams) {
     if !index_path.exists() {
         return;
     }
-    send_log(
-        &params.queue,
-        LogLevel::Info,
-        "Downloading modpack mods...",
-    );
+    send_log(&params.queue, LogLevel::Info, "Downloading modpack mods...");
     let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
     let progress_queue = params.queue.clone();
     let _ = mod_manager
@@ -482,9 +493,7 @@ async fn resolve_components(
     let send = |msg: Event| push_event(queue, msg);
     let mut resolver = DependencyResolver::new();
 
-    send(Event::Status(
-        "Fetching version manifest...".to_string(),
-    ));
+    send(Event::Status("Fetching version manifest...".to_string()));
     if let Err(e) = resolver.fetch_manifest().await {
         let err_msg = format!("Failed to fetch version manifest: {e}");
         send(Event::DownloadError(err_msg.clone()));
@@ -568,11 +577,7 @@ async fn resolve_components(
     Ok(merged)
 }
 
-async fn download_game_files(
-    queue: &Queue,
-    instance_root: &Path,
-    profile: &LaunchProfile,
-) {
+async fn download_game_files(queue: &Queue, instance_root: &Path, profile: &LaunchProfile) {
     let send = |msg: Event| push_event(queue, msg);
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
 
@@ -604,11 +609,7 @@ async fn download_game_files(
     }
 }
 
-fn extract_natives_files(
-    queue: &Queue,
-    instance_root: &Path,
-    profile: &LaunchProfile,
-) {
+fn extract_natives_files(queue: &Queue, instance_root: &Path, profile: &LaunchProfile) {
     let send = |msg: Event| push_event(queue, msg);
     let send_log = |level: LogLevel, msg: String| {
         push_event(
@@ -658,11 +659,7 @@ fn extract_natives_files(
     }
 }
 
-async fn download_assets(
-    queue: &Queue,
-    instance_root: &Path,
-    asset_index: &AssetIndex,
-) {
+async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &AssetIndex) {
     let send = |msg: Event| push_event(queue, msg);
 
     if asset_index.url.is_empty() {
@@ -709,7 +706,9 @@ async fn download_assets(
                 return;
             }
 
-            send(Event::Status("Reconstructing virtual assets...".to_string()));
+            send(Event::Status(
+                "Reconstructing virtual assets...".to_string(),
+            ));
             match asset_mgr.parse_asset_index(&index_path) {
                 Ok(parsed_index) => {
                     let mc_dir = instance_root.join(".minecraft");
@@ -754,9 +753,7 @@ fn resolve_java_path(
             Some(path)
         }
         Err(e) => {
-            send(Event::DownloadError(format!(
-                "Java resolution failed: {e}"
-            )));
+            send(Event::DownloadError(format!("Java resolution failed: {e}")));
             None
         }
     }

@@ -230,19 +230,19 @@ pub fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
                 .and_then(|classifiers| classifiers.get(&classifier))
                 .map_or_else(
                     || (url.clone(), sha1.clone(), size),
-                    |class_info| (
-                        class_info
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string),
-                        class_info
-                            .get("sha1")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string),
-                        class_info
-                            .get("size")
-                            .and_then(serde_json::Value::as_u64),
-                    ),
+                    |class_info| {
+                        (
+                            class_info
+                                .get("url")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            class_info
+                                .get("sha1")
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                            class_info.get("size").and_then(serde_json::Value::as_u64),
+                        )
+                    },
                 );
             return vec![
                 Library {

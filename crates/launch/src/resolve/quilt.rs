@@ -1,5 +1,5 @@
-use crate::{Component, LaunchError, Requirement, VersionFile};
 use super::parsers::parse_library;
+use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
 pub const QUILT_META_URL: &str = "https://meta.quiltmc.org/v3";
@@ -23,9 +23,9 @@ pub async fn fetch_quilt_component(
             .await?
             .json()
             .await?;
-        let latest = versions.first().ok_or_else(|| {
-            LaunchError::VersionNotFound("No Quilt loader version found".into())
-        })?;
+        let latest = versions
+            .first()
+            .ok_or_else(|| LaunchError::VersionNotFound("No Quilt loader version found".into()))?;
         let loader_ver = latest
             .get("loader")
             .and_then(|v| v.get("version"))

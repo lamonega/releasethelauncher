@@ -64,9 +64,10 @@ impl InstanceManager {
                     let config_path = path.join("instance.toml");
                     if config_path.exists() {
                         let settings = InstanceSettings::load(&config_path)?;
-                        let id = path
-                            .file_name()
-                            .map_or_else(|| "unknown".to_string(), |n| n.to_string_lossy().to_string());
+                        let id = path.file_name().map_or_else(
+                            || "unknown".to_string(),
+                            |n| n.to_string_lossy().to_string(),
+                        );
                         instances.insert(
                             id.clone(),
                             Instance {
@@ -126,7 +127,9 @@ impl InstanceManager {
             settings,
         };
         self.instances.insert(id.clone(), instance);
-        self.instances.get(&id).ok_or(CoreError::InstanceNotFound(id))
+        self.instances
+            .get(&id)
+            .ok_or(CoreError::InstanceNotFound(id))
     }
 
     /// Deletes the instance with the given ID, removing it from disk.
@@ -204,7 +207,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
         let mut manager = InstanceManager::new(temp_dir.clone());
 
-        let settings = InstanceSettings::new("test-instance".to_string(), "1.20.1".to_string(), ModLoader::Vanilla);
+        let settings = InstanceSettings::new(
+            "test-instance".to_string(),
+            "1.20.1".to_string(),
+            ModLoader::Vanilla,
+        );
         let inst = manager.create("test-instance", settings).unwrap();
         assert_eq!(inst.id, "test-instance");
         assert!(inst.root.exists());

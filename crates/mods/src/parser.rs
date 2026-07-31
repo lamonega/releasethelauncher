@@ -412,6 +412,9 @@ mod tests {
     #[test]
     fn test_extract_manifest_version() {
         let manifest = "Manifest-Version: 1.0\nImplementation-Version: 3.2.1\n";
-        assert_eq!(extract_manifest_version(manifest), Some("3.2.1".to_string()));
+        assert_eq!(
+            extract_manifest_version(manifest),
+            Some("3.2.1".to_string())
+        );
     }
 }

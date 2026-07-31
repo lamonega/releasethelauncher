@@ -121,7 +121,9 @@ fn find_system_java(
     None
 }
 
-fn scan_common_java_paths(check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>) -> Option<PathBuf> {
+fn scan_common_java_paths(
+    check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>,
+) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let candidates = find_java_from_registry();
@@ -264,17 +266,26 @@ fn find_java_from_registry() -> Vec<PathBuf> {
                     }
 
                     for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
-                        if let Ok(version_key) = subkey.open_subkey_with_flags(&version_name, *view) {
+                        if let Ok(version_key) = subkey.open_subkey_with_flags(&version_name, *view)
+                        {
                             for value_name in &value_names {
-                                if let Ok(java_home) = version_key.get_value::<String, _>(value_name) {
+                                if let Ok(java_home) =
+                                    version_key.get_value::<String, _>(value_name)
+                                {
                                     add_java_bin_candidates(&java_home, &mut candidates);
                                 }
                             }
 
-                            for sub_version_name in version_key.enum_keys().filter_map(std::result::Result::ok) {
-                                if let Ok(nested_key) = version_key.open_subkey_with_flags(&sub_version_name, *view) {
+                            for sub_version_name in
+                                version_key.enum_keys().filter_map(std::result::Result::ok)
+                            {
+                                if let Ok(nested_key) =
+                                    version_key.open_subkey_with_flags(&sub_version_name, *view)
+                                {
                                     for value_name in &value_names {
-                                        if let Ok(java_home) = nested_key.get_value::<String, _>(value_name) {
+                                        if let Ok(java_home) =
+                                            nested_key.get_value::<String, _>(value_name)
+                                        {
                                             add_java_bin_candidates(&java_home, &mut candidates);
                                         }
                                     }
@@ -310,12 +321,17 @@ fn add_java_bin_candidates(java_home: &str, candidates: &mut Vec<PathBuf>) {
 /// # Errors
 ///
 /// Returns [`LaunchError::JavaNotFound`] if the version cannot be determined or is incompatible.
-pub fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
+pub fn validate_java(
+    java_path: &Path,
+    compatible_java_majors: &[u32],
+) -> Result<PathBuf, LaunchError> {
     detect_java_major_version(java_path).map_or_else(
-        || Err(LaunchError::JavaNotFound(format!(
-            "Could not determine Java version at: {}",
-            java_path.display()
-        ))),
+        || {
+            Err(LaunchError::JavaNotFound(format!(
+                "Could not determine Java version at: {}",
+                java_path.display()
+            )))
+        },
         |major| check_version_compatibility(major, java_path, compatible_java_majors),
     )
 }
@@ -363,7 +379,12 @@ pub fn parse_java_version_output(output: &str) -> Option<u32> {
         if let Some(idx) = line.find("version ") {
             let after_version = &line[idx + "version ".len()..];
             let ver_str = after_version.strip_prefix('"').map_or_else(
-                || after_version.split_whitespace().next().unwrap_or(after_version),
+                || {
+                    after_version
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or(after_version)
+                },
                 |inside| inside.split('"').next().unwrap_or(inside),
             );
             if let Some(major) = extract_major_version(ver_str) {
@@ -400,7 +421,10 @@ fn extract_major_version(ver_str: &str) -> Option<u32> {
 
     let target_part = ver_str.strip_prefix("1.").unwrap_or(ver_str);
 
-    let digits: String = target_part.chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = target_part
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     if digits.is_empty() {
         None
     } else {
@@ -438,10 +462,7 @@ mod tests {
 
     #[test]
     fn parse_java_25_plain() {
-        assert_eq!(
-            parse_java_version_output("java version \"25\""),
-            Some(25)
-        );
+        assert_eq!(parse_java_version_output("java version \"25\""), Some(25));
     }
 
     #[test]
@@ -482,10 +503,13 @@ mod tests {
 
         // Incompatible version lower than required
         let err = check_version_compatibility(21, dummy_path, &[25]).unwrap_err();
-        assert!(err.to_string().contains("Minecraft requires one of Java versions [25] (found Java 21 at /usr/bin/java)"));
+        assert!(err.to_string().contains(
+            "Minecraft requires one of Java versions [25] (found Java 21 at /usr/bin/java)"
+        ));
 
         let err8 = check_version_compatibility(8, dummy_path, &[17]).unwrap_err();
-        assert!(err8.to_string().contains("Minecraft requires one of Java versions [17] (found Java 8 at /usr/bin/java)"));
+        assert!(err8.to_string().contains(
+            "Minecraft requires one of Java versions [17] (found Java 8 at /usr/bin/java)"
+        ));
     }
 }
-

@@ -50,7 +50,12 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Java Path (optional, leave empty for auto-detect):");
-    let mut java_path = app.coordinator.global_settings.java_path.clone().unwrap_or_default();
+    let mut java_path = app
+        .coordinator
+        .global_settings
+        .java_path
+        .clone()
+        .unwrap_or_default();
     if ui.text_edit_singleline(&mut java_path).changed() {
         app.log(
             crate::log::LogLevel::Info,
@@ -67,7 +72,8 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
 
     ui.label("Memory Min:");
     let mut mem_min = app
-        .coordinator.global_settings
+        .coordinator
+        .global_settings
         .memory_min
         .clone()
         .unwrap_or_else(|| "1G".to_string());
@@ -81,7 +87,8 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
 
     ui.label("Memory Max:");
     let mut mem_max = app
-        .coordinator.global_settings
+        .coordinator
+        .global_settings
         .memory_max
         .clone()
         .unwrap_or_else(|| "2G".to_string());

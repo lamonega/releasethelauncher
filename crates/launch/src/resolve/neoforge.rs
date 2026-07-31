@@ -1,5 +1,5 @@
-use crate::{Component, LaunchError, Requirement, VersionFile};
 use super::parsers::parse_library;
+use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
 pub const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";

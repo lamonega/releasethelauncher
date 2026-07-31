@@ -16,7 +16,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
     process_messages(app, state);
 
     let (mc_version, loader_name) = app
-        .coordinator.instance_manager
+        .coordinator
+        .instance_manager
         .get(&id)
         .map(|inst| {
             (
@@ -42,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
     show_results(app, ui, state, &id, &mc_version, &loader_name);
 }
 
-fn process_messages(app: &mut App, state: &mut ModBrowserState) {
+fn process_messages(app: &App, state: &mut ModBrowserState) {
     let messages = app.drain_messages();
     for msg in messages {
         match msg {
@@ -94,12 +95,7 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str, mc_version: &str, loa
     });
 }
 
-fn trigger_search(
-    app: &App,
-    query_str: &str,
-    mc_version: &str,
-    loader_name: &str,
-) {
+fn trigger_search(app: &App, query_str: &str, mc_version: &str, loader_name: &str) {
     app.search_mods(
         query_str.to_string(),
         mc_version.to_string(),
@@ -185,7 +181,8 @@ fn show_results(
                         state.installing_mod_id = Some(project_id.clone());
                         state.install_status = format!("Installing {}...", result.name);
                         let mods_dir = app
-                            .coordinator.instance_manager
+                            .coordinator
+                            .instance_manager
                             .get_mods_dir(&id.to_string())
                             .unwrap_or_default();
 
