@@ -230,7 +230,9 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
 
             let is_jarmod = lib.name.contains("@zip")
                 || lib.name.contains("net.minecraftforge:forge")
-                || lib.url.as_deref().unwrap_or("").ends_with(".zip");
+                || std::path::Path::new(lib.url.as_deref().unwrap_or(""))
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
             if is_jarmod {
                 classpath.insert(0, jar_path.display().to_string());
             } else {

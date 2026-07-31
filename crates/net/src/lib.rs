@@ -1,22 +1,4 @@
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::too_many_lines,
-    clippy::option_if_let_else,
-    clippy::module_name_repetitions,
-    clippy::struct_field_names,
-    clippy::similar_names,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss,
-    clippy::redundant_closure_for_method_calls,
-    clippy::map_unwrap_or,
-    clippy::inconsistent_struct_constructor,
-    clippy::doc_markdown,
-    clippy::single_match_else,
-    clippy::use_self,
-    clippy::uninlined_format_args
-)]
+
 
 pub mod cache;
 pub mod validator;
@@ -74,11 +56,9 @@ pub struct DownloadJob {
     doing: Vec<JoinHandle<Result<PathBuf, NetError>>>,
     max_concurrent: usize,
     /// Used by future retry implementation.
-    #[allow(dead_code)]
-    retries: u32,
+    _retries: u32,
     /// Used by future retry implementation.
-    #[allow(dead_code)]
-    max_retries: u32,
+    _max_retries: u32,
     completed: usize,
     total: usize,
 }
@@ -90,8 +70,8 @@ impl DownloadJob {
             downloads: VecDeque::new(),
             doing: Vec::new(),
             max_concurrent,
-            retries: 0,
-            max_retries: 3,
+            _retries: 0,
+            _max_retries: 3,
             completed: 0,
             total: 0,
         }

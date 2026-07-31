@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs};
-use crate::UiMessage;
+use crate::{Queue, UiMessage};
 
 pub fn send_msg(queue: &Arc<Mutex<Vec<UiMessage>>>, ctx: &egui::Context, msg: UiMessage) {
     if let Ok(mut q) = queue.lock() {
@@ -10,13 +10,15 @@ pub fn send_msg(queue: &Arc<Mutex<Vec<UiMessage>>>, ctx: &egui::Context, msg: Ui
 }
 
 pub fn search_modpacks(
-    queue: Arc<Mutex<Vec<UiMessage>>>,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
     query: String,
     mc_version: String,
     loader: String,
 ) {
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let args = SearchArgs {
@@ -45,14 +47,16 @@ pub fn search_modpacks(
 }
 
 pub fn install_mod(
-    queue: Arc<Mutex<Vec<UiMessage>>>,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
     project_id: String,
     mods_dir: std::path::PathBuf,
     mc_version: Option<String>,
     loader_name: Option<String>,
 ) {
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let mc_versions = mc_version.map(|v| vec![v]).unwrap_or_default();
@@ -84,21 +88,22 @@ pub fn install_mod(
 }
 
 pub fn fetch_modpack_versions(
-    queue: Arc<Mutex<Vec<UiMessage>>>,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
     project_id: String,
 ) {
-    let pid = project_id.clone();
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
-        let result = match provider.get_versions(&pid, &[], &[]).await {
+        let result = match provider.get_versions(&project_id, &[], &[]).await {
             Ok(versions) => UiMessage::ModrinthVersionsResult {
-                project_id: pid,
+                project_id,
                 result: Ok(versions),
             },
             Err(e) => UiMessage::ModrinthVersionsResult {
-                project_id: pid,
+                project_id,
                 result: Err(e.to_string()),
             },
         };
@@ -107,13 +112,15 @@ pub fn fetch_modpack_versions(
 }
 
 pub fn install_modpack_as_instance(
-    queue: Arc<Mutex<Vec<UiMessage>>>,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
     project_id: String,
     version_id: Option<String>,
     instances_dir: std::path::PathBuf,
 ) {
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let result = match provider

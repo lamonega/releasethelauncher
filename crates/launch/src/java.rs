@@ -19,7 +19,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// 6. `java`/`javaw` on `PATH`.
 /// 7. Known system fallback installation paths.
 ///
-/// Returns the path to a valid Java executable, or a [`LaunchError::JavaNotFound`].
+/// Resolves a suitable Java executable path for launching Minecraft.
 ///
 /// # Errors
 ///
@@ -31,12 +31,42 @@ pub fn resolve_java(
 ) -> Result<PathBuf, LaunchError> {
     let mut last_incompatible_err = None;
 
+    if let Some(path_str) = instance_java_path {
+        let path = PathBuf::from(path_str);
+        if path.exists() {
+            return validate_java(&path, compatible_java_majors);
+        }
+    }
+
+    if let Some(path) = find_system_java(compatible_java_majors, &mut last_incompatible_err) {
+        return Ok(path);
+    }
+
+    last_incompatible_err.map_or_else(
+        || {
+            let req_info = if compatible_java_majors.is_empty() {
+                String::new()
+            } else {
+                format!(" Required versions: {compatible_java_majors:?}.")
+            };
+            Err(LaunchError::JavaNotFound(format!(
+                "No suitable Java installation found.{req_info} Set JAVA_HOME, install the required JDK, or add Java to PATH."
+            )))
+        },
+        Err,
+    )
+}
+
+fn find_system_java(
+    compatible_java_majors: &[u32],
+    last_incompatible_err: &mut Option<LaunchError>,
+) -> Option<PathBuf> {
     let mut check_candidate = |path: &Path| -> Option<PathBuf> {
         if path.exists() {
             match validate_java(path, compatible_java_majors) {
                 Ok(validated) => Some(validated),
                 Err(err) => {
-                    last_incompatible_err = Some(err);
+                    *last_incompatible_err = Some(err);
                     None
                 }
             }
@@ -44,13 +74,6 @@ pub fn resolve_java(
             None
         }
     };
-
-    if let Some(path_str) = instance_java_path {
-        let path = PathBuf::from(path_str);
-        if path.exists() {
-            return validate_java(&path, compatible_java_majors);
-        }
-    }
 
     if let Ok(java_home) = std::env::var("JAVA_HOME") {
         let home_path = PathBuf::from(&java_home);
@@ -62,48 +85,17 @@ pub fn resolve_java(
         for exe in executables {
             let path = home_path.join("bin").join(exe);
             if let Some(valid) = check_candidate(&path) {
-                return Ok(valid);
+                return Some(valid);
             }
         }
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let candidates = find_java_from_registry();
-        for path in candidates {
-            if let Some(valid) = check_candidate(&path) {
-                return Ok(valid);
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let home = dirs::home_dir().unwrap_or_default();
-        let dev_paths = [
-            home.join(".jdks"),
-            home.join(".sdkman/candidates/java"),
-            home.join(".gradle/jdks"),
-        ];
-        for base in &dev_paths {
-            if base.exists() {
-                if let Ok(entries) = std::fs::read_dir(base) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        for exe in &["bin/javaw.exe", "bin/java.exe", "bin/java"] {
-                            let candidate = path.join(exe);
-                            if let Some(valid) = check_candidate(&candidate) {
-                                return Ok(valid);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if let Some(valid) = scan_common_java_paths(&mut check_candidate) {
+        return Some(valid);
     }
 
     if let Some(path) = find_bundled_java(compatible_java_majors) {
-        return Ok(path);
+        return Some(path);
     }
 
     let exe_names = if cfg!(windows) {
@@ -119,15 +111,46 @@ pub fn resolve_java(
                 for line in path_str.lines() {
                     let path = PathBuf::from(line.trim());
                     if let Some(valid) = check_candidate(&path) {
-                        return Ok(valid);
+                        return Some(valid);
                     }
                 }
             }
         }
     }
 
+    None
+}
+
+fn scan_common_java_paths(check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
+        let candidates = find_java_from_registry();
+        for path in candidates {
+            if let Some(valid) = check_candidate(&path) {
+                return Some(valid);
+            }
+        }
+        let home = dirs::home_dir().unwrap_or_default();
+        let dev_paths = [
+            home.join(".jdks"),
+            home.join(".sdkman/candidates/java"),
+            home.join(".gradle/jdks"),
+        ];
+        for base in &dev_paths {
+            if base.exists() {
+                if let Ok(entries) = std::fs::read_dir(base) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        for exe in &["bin/javaw.exe", "bin/java.exe", "bin/java"] {
+                            let candidate = path.join(exe);
+                            if let Some(valid) = check_candidate(&candidate) {
+                                return Some(valid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let fallbacks = [
             r"C:\Program Files\Java\jdk-25\bin\javaw.exe",
             r"C:\Program Files\Java\jdk-25\bin\java.exe",
@@ -148,64 +171,44 @@ pub fn resolve_java(
         for fallback in &fallbacks {
             let path = PathBuf::from(fallback);
             if let Some(valid) = check_candidate(&path) {
-                return Ok(valid);
+                return Some(valid);
             }
         }
     }
-
-    if let Some(err) = last_incompatible_err {
-        Err(err)
-    } else {
-        let req_info = if compatible_java_majors.is_empty() {
-            String::new()
-        } else {
-            format!(" Required versions: {:?}.", compatible_java_majors)
-        };
-        Err(LaunchError::JavaNotFound(format!(
-            "No suitable Java installation found.{req_info} Set JAVA_HOME, install the required JDK, or add Java to PATH."
-        )))
-    }
+    None
 }
 
-
 fn find_bundled_java(compatible_java_majors: &[u32]) -> Option<PathBuf> {
-    let mc_runtimes = if cfg!(windows) {
-        let local = dirs::data_local_dir().unwrap_or_default();
-        vec![
-            local.join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/runtime"),
-            dirs::home_dir().unwrap_or_default().join(".minecraft/runtime"),
-        ]
-    } else if cfg!(target_os = "macos") {
-        vec![dirs::home_dir()
-            .unwrap_or_default()
-            .join("Library/Application Support/minecraft/runtime")]
-    } else {
-        vec![dirs::home_dir()
-            .unwrap_or_default()
-            .join(".minecraft/runtime")]
-    };
+    let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
+    let mc_runtime_dir = PathBuf::from(local_app_data)
+        .join("Packages")
+        .join("Microsoft.4297127926708_8wekyb3d8bbwe")
+        .join("LocalCache")
+        .join("Local")
+        .join("runtime");
 
-    for runtime_dir in &mc_runtimes {
-        if runtime_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(runtime_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let exes = if cfg!(windows) {
-                        vec![path.join("bin/javaw.exe"), path.join("bin/java.exe")]
-                    } else {
-                        vec![path.join("bin/java")]
-                    };
-                    for exe in exes {
-                        if exe.exists() {
-                            if let Ok(validated) = validate_java(&exe, compatible_java_majors) {
-                                return Some(validated);
-                            }
-                        }
-                    }
-                }
-            }
+    if !mc_runtime_dir.exists() {
+        return None;
+    }
+
+    let entries = std::fs::read_dir(mc_runtime_dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let javaw = path.join("windows-x64").join("bin").join("javaw.exe");
+        let java = path.join("windows-x64").join("bin").join("java.exe");
+        let candidate = if javaw.exists() {
+            javaw
+        } else if java.exists() {
+            java
+        } else {
+            continue;
+        };
+
+        if validate_java(&candidate, compatible_java_majors).is_ok() {
+            return Some(candidate);
         }
     }
+
     None
 }
 
@@ -302,15 +305,19 @@ fn add_java_bin_candidates(java_home: &str, candidates: &mut Vec<PathBuf>) {
     }
 }
 
+/// Validates a Java executable path against compatible Java major versions.
+///
+/// # Errors
+///
+/// Returns [`LaunchError::JavaNotFound`] if the version cannot be determined or is incompatible.
 pub fn validate_java(java_path: &Path, compatible_java_majors: &[u32]) -> Result<PathBuf, LaunchError> {
-    if let Some(major) = detect_java_major_version(java_path) {
-        check_version_compatibility(major, java_path, compatible_java_majors)
-    } else {
-        Err(LaunchError::JavaNotFound(format!(
+    detect_java_major_version(java_path).map_or_else(
+        || Err(LaunchError::JavaNotFound(format!(
             "Could not determine Java version at: {}",
             java_path.display()
-        )))
-    }
+        ))),
+        |major| check_version_compatibility(major, java_path, compatible_java_majors),
+    )
 }
 
 fn check_version_compatibility(
@@ -338,12 +345,14 @@ fn check_version_compatibility(
     }
 }
 
+#[must_use]
 pub fn detect_java_major_version(java_path: &Path) -> Option<u32> {
     let output = quiet_command(java_path.to_str()?, &["-version"]).ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_java_version_output(&stderr)
 }
 
+#[must_use]
 pub fn parse_java_version_output(output: &str) -> Option<u32> {
     for line in output.lines() {
         let line = line.trim();
@@ -353,12 +362,10 @@ pub fn parse_java_version_output(output: &str) -> Option<u32> {
 
         if let Some(idx) = line.find("version ") {
             let after_version = &line[idx + "version ".len()..];
-            let ver_str = if after_version.starts_with('"') {
-                let inside = &after_version[1..];
-                inside.split('"').next().unwrap_or(inside)
-            } else {
-                after_version.split_whitespace().next().unwrap_or(after_version)
-            };
+            let ver_str = after_version.strip_prefix('"').map_or_else(
+                || after_version.split_whitespace().next().unwrap_or(after_version),
+                |inside| inside.split('"').next().unwrap_or(inside),
+            );
             if let Some(major) = extract_major_version(ver_str) {
                 return Some(major);
             }
@@ -391,13 +398,9 @@ fn extract_major_version(ver_str: &str) -> Option<u32> {
         return None;
     }
 
-    let target_part = if ver_str.starts_with("1.") {
-        &ver_str[2..]
-    } else {
-        ver_str
-    };
+    let target_part = ver_str.strip_prefix("1.").unwrap_or(ver_str);
 
-    let digits: String = target_part.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = target_part.chars().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
         None
     } else {

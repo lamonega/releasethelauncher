@@ -4,6 +4,11 @@ use reqwest::Client;
 
 pub const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
 
+/// Fetches the `NeoForge` component for a given Minecraft and `NeoForge` version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_neoforge_component(
     client: &Client,
     mc_version: &str,
@@ -58,24 +63,30 @@ pub async fn fetch_neoforge_component(
     })
 }
 
+/// Fetches available `NeoForge` loader versions for a given Minecraft version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request fails.
 pub async fn fetch_neoforge_loader_versions(
     client: &Client,
     mc_version: &str,
 ) -> Result<Vec<String>, LaunchError> {
     let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
     let resp = client.get(url).send().await?.text().await?;
-    let neoforge_prefix = if let Some(stripped) = mc_version.strip_prefix("1.") {
-        let parts: Vec<&str> = stripped.split('.').collect();
-        if parts.len() >= 2 {
-            format!("{}.{}.", parts[0], parts[1])
-        } else if parts.len() == 1 {
-            format!("{}.0.", parts[0])
-        } else {
-            mc_version.to_string()
-        }
-    } else {
-        mc_version.to_string()
-    };
+    let neoforge_prefix = mc_version.strip_prefix("1.").map_or_else(
+        || mc_version.to_string(),
+        |stripped| {
+            let parts: Vec<&str> = stripped.split('.').collect();
+            if parts.len() >= 2 {
+                format!("{}.{}.", parts[0], parts[1])
+            } else if parts.len() == 1 {
+                format!("{}.0.", parts[0])
+            } else {
+                mc_version.to_string()
+            }
+        },
+    );
 
     let tag_prefix = format!("<version>{neoforge_prefix}");
     let mut versions = Vec::new();

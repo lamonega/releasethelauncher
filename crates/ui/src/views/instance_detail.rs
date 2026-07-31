@@ -1,5 +1,15 @@
 use crate::{App, DetailTab, View};
 
+struct InstanceView<'a> {
+    id: &'a str,
+    name: &'a str,
+    mc_version: &'a str,
+    loader_name: &'a str,
+    root_display: &'a str,
+    root_path: &'a std::path::Path,
+    java_settings: &'a release_the_launcher_core::JavaSettings,
+}
+
 pub struct DetailTabState {
     pub log_scroll_to_end: bool,
     pub mod_search_query: String,
@@ -53,8 +63,18 @@ pub fn show(
         return;
     };
 
+    let view = InstanceView {
+        id: &id,
+        name: &name,
+        mc_version: &mc_version,
+        loader_name: &loader_name,
+        root_display: &root_display,
+        root_path: &root_path,
+        java_settings: &java_settings,
+    };
+
     if tab_state.config_instance_id != id {
-        tab_state.config_instance_id = id.clone();
+        tab_state.config_instance_id.clone_from(&id);
         tab_state.config_java_path = java_settings.path.clone().unwrap_or_default();
         tab_state.config_memory_min = java_settings.memory_min.clone().unwrap_or_default();
         tab_state.config_memory_max = java_settings.memory_max.clone().unwrap_or_default();
@@ -68,6 +88,23 @@ pub fn show(
 
     ui.add_space(app.theme.spacing.sm);
 
+    if handle_actions(app, ui, &view) {
+        return;
+    }
+
+    ui.add_space(app.theme.spacing.sm);
+    ui.separator();
+    ui.add_space(app.theme.spacing.sm);
+
+    let is_vanilla = view.loader_name == "Vanilla";
+    show_tabs(app, ui, view.id, tab, is_vanilla);
+    ui.separator();
+    ui.add_space(app.theme.spacing.sm);
+
+    show_tab_content(app, ui, tab, tab_state, open_mod_browser, &view);
+}
+
+fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> bool {
     let mut action = None;
     ui.horizontal(|ui| {
         if ui
@@ -97,55 +134,56 @@ pub fn show(
         Some("launch") => {
             app.log(
                 crate::log::LogLevel::Info,
-                &format!("Launching instance: {name}"),
+                &format!("Launching instance: {}", view.name),
             );
-            app.status_message = format!("Launching {name}...");
-            app.launch_instance(&id);
+            app.status_message = format!("Launching {}...", view.name);
+            app.launch_instance(view.id);
+            false
         }
         Some("open_folder") => {
             app.log(
                 crate::log::LogLevel::Info,
-                &format!("UI: Open folder for instance '{name}'"),
+                &format!("UI: Open folder for instance '{}'", view.name),
             );
-            let _ = open::that(&root_path);
+            let _ = open::that(view.root_path);
+            false
         }
         Some("delete") => {
             app.log(
                 crate::log::LogLevel::Info,
-                &format!("UI: Deleted instance '{name}'"),
+                &format!("UI: Deleted instance '{}'", view.name),
             );
-            let _ = app.instance_manager.delete(&id);
+            let _ = app.instance_manager.delete(&view.id.to_string());
             app.current_view = View::InstanceList;
-            return;
+            true
         }
-        _ => {}
+        _ => false,
     }
+}
 
-    let is_vanilla = loader_name == "Vanilla";
-
-    ui.add_space(app.theme.spacing.sm);
-    ui.separator();
-    ui.add_space(app.theme.spacing.sm);
-
-    show_tabs(app, ui, &id, tab, is_vanilla);
-    ui.separator();
-    ui.add_space(app.theme.spacing.sm);
-
+fn show_tab_content(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    tab: DetailTab,
+    tab_state: &mut DetailTabState,
+    open_mod_browser: &mut Option<String>,
+    view: &InstanceView<'_>,
+) {
     match tab {
         DetailTab::Info => {
-            show_info(app, ui, &root_display, &loader_name, &mc_version, &java_settings);
+            show_info(app, ui, view.root_display, view.loader_name, view.mc_version, view.java_settings);
         }
         DetailTab::Config => {
-            show_config(app, ui, &id, tab_state);
+            show_config(app, ui, view.id, tab_state);
         }
         DetailTab::Logs => {
-            show_logs(app, ui, &id, &root_path);
+            show_logs(app, ui, view.id, view.root_path);
         }
         DetailTab::Mods => {
-            if is_vanilla {
-                show_info(app, ui, &root_display, &loader_name, &mc_version, &java_settings);
+            if view.loader_name == "Vanilla" {
+                show_info(app, ui, view.root_display, view.loader_name, view.mc_version, view.java_settings);
             } else {
-                show_mods(app, ui, &root_path, &id, tab_state, open_mod_browser);
+                show_mods(app, ui, view.root_path, view.id, tab_state, open_mod_browser);
             }
         }
     }
@@ -360,38 +398,10 @@ fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path: &st
     let disk_content = log_file_path.and_then(|p| std::fs::read_to_string(p).ok());
     let has_disk_logs = disk_content
         .as_ref()
-        .map_or(false, |c| !c.trim().is_empty());
+        .is_some_and(|c| !c.trim().is_empty());
     let has_buffer_logs = !buffer_entries.is_empty();
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Instance logs:").strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if (has_disk_logs || has_buffer_logs)
-                && ui
-                    .button(format!(" {} Copy Logs", crate::icons::COPY))
-                    .clicked()
-            {
-                let mut full_logs = String::new();
-                for entry in &buffer_entries {
-                    full_logs.push_str(&format!(
-                        "[{}] [{}] {}\n",
-                        entry.timestamp,
-                        entry.level.as_str(),
-                        entry.message
-                    ));
-                }
-                if let Some(ref content) = disk_content {
-                    full_logs.push_str(content);
-                }
-                ui.output_mut(|o| o.copied_text = full_logs);
-                app.status_message = "Logs copied to clipboard!".to_string();
-                app.log(
-                    crate::log::LogLevel::Info,
-                    &format!("UI: Copied logs for instance '{instance_id}' to clipboard"),
-                );
-            }
-        });
-    });
+    show_logs_header(app, ui, instance_id, &buffer_entries, disk_content.as_ref(), has_disk_logs, has_buffer_logs);
 
     ui.add_space(app.theme.spacing.xs);
 
@@ -403,14 +413,65 @@ fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path: &st
         return;
     }
 
+    show_logs_content(app, ui, &buffer_entries, disk_content.as_ref());
+}
+
+fn show_logs_header(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    instance_id: &str,
+    buffer_entries: &[crate::log::LogEntry],
+    disk_content: Option<&String>,
+    has_disk_logs: bool,
+    has_buffer_logs: bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Instance logs:").strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if (has_disk_logs || has_buffer_logs)
+                && ui
+                    .button(format!(" {} Copy Logs", crate::icons::COPY))
+                    .clicked()
+            {
+                let mut full_logs = String::new();
+                for entry in buffer_entries {
+                    use std::fmt::Write;
+                    let _ = writeln!(
+                        full_logs,
+                        "[{}] [{}] {}",
+                        entry.timestamp,
+                        entry.level.as_str(),
+                        entry.message
+                    );
+                }
+                if let Some(content) = disk_content {
+                    full_logs.push_str(content);
+                }
+                ui.output_mut(|o| o.copied_text = full_logs);
+                app.status_message = "Logs copied to clipboard!".to_string();
+                app.log(
+                    crate::log::LogLevel::Info,
+                    &format!("UI: Copied logs for instance '{instance_id}' to clipboard"),
+                );
+            }
+        });
+    });
+}
+
+fn show_logs_content(
+    app: &App,
+    ui: &mut egui::Ui,
+    buffer_entries: &[crate::log::LogEntry],
+    disk_content: Option<&String>,
+) {
     egui::ScrollArea::both()
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
 
-            if has_buffer_logs {
-                for entry in &buffer_entries {
+            if !buffer_entries.is_empty() {
+                for entry in buffer_entries {
                     let color = match entry.level {
                         crate::log::LogLevel::Error => app.theme.log_colors.error,
                         crate::log::LogLevel::Warn => app.theme.log_colors.warn,

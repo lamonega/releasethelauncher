@@ -9,8 +9,7 @@ use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 #[derive(Debug, Deserialize)]
 struct LauncherLoginResponse {
     #[serde(rename = "username")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    username: Option<String>,
+    _username: Option<String>,
     #[serde(rename = "access_token")]
     access_token: Option<String>,
     #[serde(rename = "error")]
@@ -31,8 +30,7 @@ struct ProfileResponse {
 struct SkinEntry {
     url: String,
     #[serde(rename = "variant")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    variant: Option<String>,
+    _variant: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,8 +47,7 @@ struct EntitlementResponse {
 struct EntitlementItem {
     name: String,
     #[serde(rename = "signature")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    signature: Option<String>,
+    _signature: Option<String>,
 }
 
 const LAUNCHER_LOGIN_URL: &str = "https://api.minecraftservices.com/launcher/login";

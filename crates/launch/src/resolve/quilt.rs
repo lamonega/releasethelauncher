@@ -4,6 +4,11 @@ use reqwest::Client;
 
 pub const QUILT_META_URL: &str = "https://meta.quiltmc.org/v3";
 
+/// Fetches the `Quilt` component for a given Minecraft version and optional loader version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_quilt_component(
     client: &Client,
     mc_version: &str,
@@ -73,6 +78,11 @@ pub async fn fetch_quilt_component(
     })
 }
 
+/// Fetches available `Quilt` loader versions for a given Minecraft version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request fails.
 pub async fn fetch_quilt_loader_versions(
     client: &Client,
     mc_version: &str,
@@ -84,7 +94,7 @@ pub async fn fetch_quilt_loader_versions(
         let is_stable = v
             .get("loader")
             .and_then(|l| l.get("stable"))
-            .and_then(|s| s.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
         if !is_stable {
             continue;

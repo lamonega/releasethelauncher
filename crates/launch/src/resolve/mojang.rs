@@ -17,6 +17,11 @@ pub struct VersionManifest {
     pub versions: Vec<VersionManifestEntry>,
 }
 
+/// Fetches the Mojang version manifest.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_manifest(client: &Client) -> Result<VersionManifest, LaunchError> {
     let resp: serde_json::Value = client
         .get(VERSION_MANIFEST_URL)
@@ -41,11 +46,21 @@ pub async fn fetch_manifest(client: &Client) -> Result<VersionManifest, LaunchEr
     Ok(VersionManifest { versions })
 }
 
+/// Fetches version metadata for a given URL.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request fails.
 pub async fn fetch_version_metadata(client: &Client, url: &str) -> Result<VersionFile, LaunchError> {
     let resp: serde_json::Value = client.get(url).send().await?.json().await?;
     Ok(parse_version_json(&resp))
 }
 
+/// Fetches the vanilla component for a given Minecraft version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the version is not found in the manifest or network fails.
 pub async fn fetch_vanilla_component(
     client: &Client,
     manifest: Option<&VersionManifest>,

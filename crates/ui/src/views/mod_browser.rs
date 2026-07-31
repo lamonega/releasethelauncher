@@ -28,7 +28,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
         .unwrap_or_default();
 
     if state.current_instance_id != id {
-        state.current_instance_id = id.clone();
+        state.current_instance_id.clone_from(&id);
         state.query.clear();
         state.results.clear();
         state.status = "Loading compatible mods...".to_string();

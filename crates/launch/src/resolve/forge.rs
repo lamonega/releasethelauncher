@@ -4,6 +4,17 @@ use reqwest::Client;
 
 pub const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
 
+fn parse_version_key(v: &str) -> Vec<u64> {
+    v.split(|c: char| !c.is_numeric())
+        .filter_map(|s| s.parse::<u64>().ok())
+        .collect()
+}
+
+/// Fetches the `Forge` component for a given Minecraft and `Forge` version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_forge_component(
     client: &Client,
     mc_version: &str,
@@ -23,6 +34,53 @@ pub async fn fetch_forge_component(
     let mut tweakers = Vec::new();
     let mut traits = vec!["legacyFML".to_string()];
 
+    fetch_forge_metadata(
+        client,
+        mc_version,
+        forge_version,
+        &mut main_class,
+        &mut libraries,
+        &mut tweakers,
+        &mut traits,
+    )
+    .await;
+
+    ensure_forge_compatibility(mc_version, &full_ver, &mut main_class, &mut libraries, &traits);
+
+    Ok(Component {
+        uid: "net.minecraftforge".to_string(),
+        version: forge_version.to_string(),
+        is_locked: true,
+        dependencies: vec![Requirement {
+            uid: "net.minecraft".to_string(),
+            suggests: Some(mc_version.to_string()),
+            equals: Some(mc_version.to_string()),
+        }],
+        conflicts: vec![
+            "net.neoforged".into(),
+            "net.fabricmc.fabric-loader".into(),
+            "org.quiltmc".into(),
+        ],
+        version_file: VersionFile {
+            main_class,
+            libraries,
+            traits,
+            tweakers,
+            ..VersionFile::default()
+        },
+    })
+}
+
+async fn fetch_forge_metadata(
+    client: &Client,
+    mc_version: &str,
+    forge_version: &str,
+    main_class: &mut Option<String>,
+    libraries: &mut Vec<crate::Library>,
+    tweakers: &mut Vec<String>,
+    traits: &mut Vec<String>,
+) {
+    let full_ver = format!("{mc_version}-{forge_version}");
     let meta_urls = vec![
         format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{forge_version}.json"),
         format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{full_ver}.json"),
@@ -35,14 +93,14 @@ pub async fn fetch_forge_component(
             if resp_res.status().is_success() {
                 if let Ok(resp) = resp_res.json::<serde_json::Value>().await {
                     if let Some(main) = resp.get("mainClass").and_then(|v| v.as_str()) {
-                        main_class = Some(main.to_string());
+                        *main_class = Some(main.to_string());
                     } else if let Some(data) = resp.get("data") {
                         if let Some(mc_main) = data
                             .get("MINECRAFT_MAIN_CLASS")
                             .and_then(|v| v.get("client"))
                         {
                             if let Some(s) = mc_main.as_str() {
-                                main_class = Some(s.to_string());
+                                *main_class = Some(s.to_string());
                             }
                         }
                     }
@@ -88,7 +146,15 @@ pub async fn fetch_forge_component(
             }
         }
     }
+}
 
+fn ensure_forge_compatibility(
+    mc_version: &str,
+    full_ver: &str,
+    main_class: &mut Option<String>,
+    libraries: &mut Vec<crate::Library>,
+    traits: &[String],
+) {
     let is_mc_1_6_or_newer = !mc_version.starts_with("1.0")
         && !mc_version.starts_with("1.1")
         && !mc_version.starts_with("1.2")
@@ -105,7 +171,7 @@ pub async fn fetch_forge_component(
 
     if is_launchwrapper {
         if main_class.is_none() {
-            main_class = Some("net.minecraft.launchwrapper.Launch".to_string());
+            *main_class = Some("net.minecraft.launchwrapper.Launch".to_string());
         }
 
         if !libraries.iter().any(|l| l.name.contains("launchwrapper")) {
@@ -156,31 +222,13 @@ pub async fn fetch_forge_component(
             extract: None,
         });
     }
-
-    Ok(Component {
-        uid: "net.minecraftforge".to_string(),
-        version: forge_version.to_string(),
-        is_locked: true,
-        dependencies: vec![Requirement {
-            uid: "net.minecraft".to_string(),
-            suggests: Some(mc_version.to_string()),
-            equals: Some(mc_version.to_string()),
-        }],
-        conflicts: vec![
-            "net.neoforged".into(),
-            "net.fabricmc.fabric-loader".into(),
-            "org.quiltmc".into(),
-        ],
-        version_file: VersionFile {
-            main_class,
-            libraries,
-            tweakers,
-            traits,
-            ..VersionFile::default()
-        },
-    })
 }
 
+/// Fetches available `Forge` loader versions for a given Minecraft version.
+///
+/// # Errors
+///
+/// Returns [`LaunchError`] if the HTTP request fails.
 pub async fn fetch_forge_loader_versions(
     client: &Client,
     mc_version: &str,
@@ -206,13 +254,7 @@ pub async fn fetch_forge_loader_versions(
         }
     }
 
-    fn parse_version_key(v: &str) -> Vec<u64> {
-        v.split(|c: char| !c.is_numeric())
-            .filter_map(|s| s.parse::<u64>().ok())
-            .collect()
-    }
-
-    versions.sort_by(|a, b| parse_version_key(b).cmp(&parse_version_key(a)));
+    versions.sort_by_key(|b| std::cmp::Reverse(parse_version_key(b)));
 
     if versions.is_empty() {
         if let Ok(promo_resp) = client

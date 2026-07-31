@@ -7,7 +7,7 @@ use release_the_launcher_core::settings::ModLoader;
 use release_the_launcher_launch::assets::AssetManager;
 use release_the_launcher_launch::{
     assemble_launch_profile, build_command, AssetIndex, DependencyResolver, DownloadManager,
-    PlayerAuth,
+    LaunchProfile, PlayerAuth,
 };
 
 use crate::services::modrinth::send_msg;
@@ -118,31 +118,78 @@ pub async fn do_launch(params: LaunchParams) {
         return;
     }
 
-    let index_path = params.instance_root.join("modrinth.index.json");
-    if index_path.exists() {
+    download_modpack_mods(&params).await;
+
+    let Ok(profile) = resolve_and_prepare_downloads(&params).await else { return };
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Resolving Java runtime...",
+    );
+    let Some(java_path) = resolve_java_path(
+        &params.queue,
+        &params.ctx,
+        params.java_path_override.as_deref(),
+        &profile.compatible_java_majors,
+    ) else {
         send_log(
             &params.queue,
             &params.ctx,
-            crate::log::LogLevel::Info,
-            "Downloading modpack mods...",
+            crate::log::LogLevel::Error,
+            "Failed to resolve Java path",
         );
-        let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
-        let progress_queue = params.queue.clone();
-        let progress_ctx = params.ctx.clone();
-        let _ = mod_manager
-            .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
-                let _ = progress_queue.lock().map(|mut q| {
-                    q.push(UiMessage::DownloadProgress {
-                        message: format!("Downloading mod: {mod_name}"),
-                        done,
-                        total,
-                    });
-                });
-                progress_ctx.request_repaint();
-            })
-            .await;
-    }
+        return;
+    };
 
+    let mut cmd = build_launch_command(
+        &params, &profile, &java_path, player_name, player_uuid, access_token,
+    );
+
+    spawn_and_monitor_game(&params, &mut cmd).await;
+}
+
+fn build_launch_command(
+    params: &LaunchParams,
+    profile: &LaunchProfile,
+    java_path: &std::path::Path,
+    player_name: &str,
+    player_uuid: &str,
+    access_token: &str,
+) -> tokio::process::Command {
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Java executable: {}", java_path.display()),
+    );
+
+    let cmd = build_command(
+        profile,
+        &params.instance_root,
+        java_path,
+        &PlayerAuth {
+            name: player_name.to_string(),
+            uuid: player_uuid.to_string(),
+            access_token: access_token.to_string(),
+        },
+        &params.memory_min,
+        &params.memory_max,
+    );
+
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        format!("Java Command Line: {:?}", cmd.as_std()),
+    );
+
+    cmd
+}
+
+async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchProfile, ()> {
+    let send = |msg: UiMessage| send_msg(&params.queue, &params.ctx, msg);
     send_log(
         &params.queue,
         &params.ctx,
@@ -168,7 +215,7 @@ pub async fn do_launch(params: LaunchParams) {
                 &msg,
             );
             send(UiMessage::DownloadError(msg));
-            return;
+            return Err(());
         }
     };
 
@@ -190,7 +237,7 @@ pub async fn do_launch(params: LaunchParams) {
                 &msg,
             );
             send(UiMessage::DownloadError(msg));
-            return;
+            return Err(());
         }
     };
 
@@ -236,91 +283,63 @@ pub async fn do_launch(params: LaunchParams) {
     )
     .await;
 
-    if let Some(ref client_dl) = profile.client_download {
-        if !client_dl.url.is_empty() {
-            let client_jar = params
-                .instance_root
-                .join("versions")
-                .join(&profile.mc_version)
-                .join(format!("{}.jar", profile.mc_version));
-            if !client_jar.exists() {
-                send_log(
-                    &params.queue,
-                    &params.ctx,
-                    crate::log::LogLevel::Info,
-                    format!("Downloading Minecraft client: {}.jar", profile.mc_version),
-                );
-                send(UiMessage::Status(format!(
-                    "Downloading Minecraft {}.jar...",
-                    profile.mc_version
-                )));
-                let dl_mgr = DownloadManager::new(params.instance_root.clone());
-                if let Err(e) = dl_mgr
-                    .download_client_jar(&client_jar, &client_dl.url, client_dl.sha1.as_deref())
-                    .await
-                {
-                    let msg = format!("Failed to download client.jar: {e}");
-                    send_log(
-                        &params.queue,
-                        &params.ctx,
-                        crate::log::LogLevel::Error,
-                        &msg,
-                    );
-                    send(UiMessage::DownloadError(msg));
-                    return;
-                }
-            }
-        }
-    }
+    download_client_jar(params, &profile).await?;
 
+    Ok(profile)
+}
+
+async fn download_client_jar(params: &LaunchParams, profile: &LaunchProfile) -> Result<(), ()> {
+    let Some(client_dl) = profile.client_download.as_ref() else {
+        return Ok(());
+    };
+    if client_dl.url.is_empty() {
+        return Ok(());
+    }
+    let client_jar = params
+        .instance_root
+        .join("versions")
+        .join(&profile.mc_version)
+        .join(format!("{}.jar", profile.mc_version));
+    if client_jar.exists() {
+        return Ok(());
+    }
     send_log(
         &params.queue,
         &params.ctx,
         crate::log::LogLevel::Info,
-        "Resolving Java runtime...",
+        format!("Downloading Minecraft client: {}.jar", profile.mc_version),
     );
-    let Some(java_path) = resolve_java_path(
+    send_msg(
         &params.queue,
         &params.ctx,
-        params.java_path_override.as_deref(),
-        &profile.compatible_java_majors,
-    ) else {
+        UiMessage::Status(format!(
+            "Downloading Minecraft {}.jar...",
+            profile.mc_version
+        )),
+    );
+    let dl_mgr = DownloadManager::new(params.instance_root.clone());
+    if let Err(e) = dl_mgr
+        .download_client_jar(&client_jar, &client_dl.url, client_dl.sha1.as_deref())
+        .await
+    {
+        let msg = format!("Failed to download client.jar: {e}");
         send_log(
             &params.queue,
             &params.ctx,
             crate::log::LogLevel::Error,
-            "Failed to resolve Java path",
+            &msg,
         );
-        return;
-    };
+        send_msg(&params.queue, &params.ctx, UiMessage::DownloadError(msg));
+        return Err(());
+    }
+    Ok(())
+}
 
-    send_log(
-        &params.queue,
-        &params.ctx,
-        crate::log::LogLevel::Info,
-        format!("Java executable: {}", java_path.display()),
-    );
-
-    let mut cmd = build_command(
-        &profile,
-        &params.instance_root,
-        &java_path,
-        &PlayerAuth {
-            name: player_name.clone(),
-            uuid: player_uuid.clone(),
-            access_token: access_token.clone(),
-        },
-        &params.memory_min,
-        &params.memory_max,
-    );
-
-    send_log(
-        &params.queue,
-        &params.ctx,
-        crate::log::LogLevel::Info,
-        format!("Java Command Line: {:?}", cmd.as_std()),
-    );
-
+async fn spawn_and_monitor_game(
+    params: &LaunchParams,
+    cmd: &mut tokio::process::Command,
+) {
+    let send = |msg: UiMessage| send_msg(&params.queue, &params.ctx, msg);
     send(UiMessage::Status("Launching game...".to_string()));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -350,10 +369,66 @@ pub async fn do_launch(params: LaunchParams) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    let instance_target = format!("instance:{}", params.instance_id);
-    let queue_out = params.queue.clone();
-    let ctx_out = params.ctx.clone();
-    let target_out = instance_target.clone();
+    let (out_handle, err_handle) = spawn_log_streams(
+        &params.queue,
+        &params.ctx,
+        &format!("instance:{}", params.instance_id),
+        stdout,
+        stderr,
+    );
+
+    let status = child.wait().await;
+    if let Some(h) = out_handle {
+        let _ = h.await;
+    }
+    if let Some(h) = err_handle {
+        let _ = h.await;
+    }
+
+    match status {
+        Ok(status) => {
+            let msg = format!("Game process exited with status: {status}");
+            let level = if status.success() {
+                crate::log::LogLevel::Info
+            } else {
+                crate::log::LogLevel::Error
+            };
+            send_log(&params.queue, &params.ctx, level, &msg);
+            send(UiMessage::DownloadComplete(msg));
+        }
+        Err(e) => {
+            let msg = format!("Failed to wait for game process: {e}");
+            send_log(
+                &params.queue,
+                &params.ctx,
+                crate::log::LogLevel::Error,
+                &msg,
+            );
+            send(UiMessage::DownloadError(msg));
+        }
+    }
+
+    run_post_launch(params).await;
+
+    if params.close_after_launch {
+        params.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+fn spawn_log_streams(
+    queue: &Queue,
+    ctx: &egui::Context,
+    instance_target: &str,
+    stdout: Option<tokio::process::ChildStdout>,
+    stderr: Option<tokio::process::ChildStderr>,
+) -> (
+    Option<tokio::task::JoinHandle<()>>,
+    Option<tokio::task::JoinHandle<()>>,
+) {
+    let target = instance_target.to_string();
+    let queue_out = Arc::clone(queue);
+    let ctx_out = ctx.clone();
+    let target_out = target.clone();
     let out_handle = stdout.map(|stdout| {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
@@ -372,9 +447,9 @@ pub async fn do_launch(params: LaunchParams) {
         })
     });
 
-    let queue_err = params.queue.clone();
-    let ctx_err = params.ctx.clone();
-    let target_err = instance_target;
+    let queue_err = Arc::clone(queue);
+    let ctx_err = ctx.clone();
+    let target_err = target;
     let err_handle = stderr.map(|stderr| {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
@@ -408,42 +483,35 @@ pub async fn do_launch(params: LaunchParams) {
         })
     });
 
-    let status = child.wait().await;
-    if let Some(h) = out_handle {
-        let _ = h.await;
-    }
-    if let Some(h) = err_handle {
-        let _ = h.await;
-    }
+    (out_handle, err_handle)
+}
 
-    match status {
-        Ok(status) => {
-            let msg = format!("Game process exited with status: {status}");
-            let level = if status.success() {
-                crate::log::LogLevel::Info
-            } else {
-                crate::log::LogLevel::Error
-            };
-            send_log(&params.queue, &params.ctx, level, &msg);
-            send(UiMessage::DownloadComplete(msg));
-        }
-        Err(e) => {
-            let msg = format!("Failed to wait for game process: {e}");
-            send_log(
-                &params.queue,
-                &params.ctx,
-                crate::log::LogLevel::Error,
-                &msg,
-            );
-            send(UiMessage::DownloadError(msg));
-        }
+async fn download_modpack_mods(params: &LaunchParams) {
+    let index_path = params.instance_root.join("modrinth.index.json");
+    if !index_path.exists() {
+        return;
     }
-
-    run_post_launch(&params).await;
-
-    if params.close_after_launch {
-        params.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-    }
+    send_log(
+        &params.queue,
+        &params.ctx,
+        crate::log::LogLevel::Info,
+        "Downloading modpack mods...",
+    );
+    let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
+    let progress_queue = params.queue.clone();
+    let progress_ctx = params.ctx.clone();
+    let _ = mod_manager
+        .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
+            let _ = progress_queue.lock().map(|mut q| {
+                q.push(UiMessage::DownloadProgress {
+                    message: format!("Downloading mod: {mod_name}"),
+                    done,
+                    total,
+                });
+            });
+            progress_ctx.request_repaint();
+        })
+        .await;
 }
 
 async fn run_pre_launch(params: &LaunchParams) -> Result<(), ()> {
@@ -780,10 +848,12 @@ fn resolve_java_path(
 }
 
 pub fn fetch_versions_list(
-    queue: Queue,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
 ) {
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
     handle.spawn(async move {
         let mut resolver = DependencyResolver::new();
         let result = match resolver.fetch_manifest().await {
@@ -798,12 +868,16 @@ pub fn fetch_versions_list(
 }
 
 pub fn fetch_loader_versions(
-    queue: Queue,
-    ctx: egui::Context,
-    handle: tokio::runtime::Handle,
-    loader_type: String,
-    mc_version: String,
+    queue: &Queue,
+    ctx: &egui::Context,
+    handle: &tokio::runtime::Handle,
+    loader_type: &str,
+    mc_version: &str,
 ) {
+    let queue = Arc::clone(queue);
+    let ctx = ctx.clone();
+    let loader_type = loader_type.to_string();
+    let mc_version = mc_version.to_string();
     handle.spawn(async move {
         let resolver = DependencyResolver::new();
         let result = resolver

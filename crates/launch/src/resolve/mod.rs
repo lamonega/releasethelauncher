@@ -216,7 +216,7 @@ mod tests {
                 "artifact": {
                     "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
                     "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
-                    "size": 165442,
+                    "size": 165_442,
                     "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
                 }
             },
@@ -238,7 +238,7 @@ mod tests {
                 "artifact": {
                     "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
                     "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
-                    "size": 785029,
+                    "size": 785_029,
                     "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
                 }
             },
@@ -259,7 +259,7 @@ mod tests {
                         "artifact": {
                             "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar",
                             "sha1": "29589b5f87ed335a6c7e7ee6a5775f81f97ecb84",
-                            "size": 785029,
+                            "size": 785_029,
                             "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar"
                         }
                     },
@@ -270,7 +270,7 @@ mod tests {
                         "artifact": {
                             "path": "org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar",
                             "sha1": "a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540",
-                            "size": 165442,
+                            "size": 165_442,
                             "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar"
                         }
                     },
@@ -293,7 +293,7 @@ mod tests {
             name: "org.lwjgl:lwjgl:3.3.3:natives-windows".to_string(),
             url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3-natives-windows.jar".to_string()),
             sha1: Some("a5ed18a2b82fc91b81f40d717cb1f64c9dcb0540".to_string()),
-            size: Some(165442),
+            size: Some(165_442),
             is_native: true,
             rules: vec![Rule {
                 action: "allow".to_string(),
@@ -309,7 +309,7 @@ mod tests {
             name: "org.lwjgl:lwjgl:3.3.3".to_string(),
             url: Some("https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar".to_string()),
             sha1: Some("29589b5f87ed335a6c7e7ee6a5775f81f97ecb84".to_string()),
-            size: Some(785029),
+            size: Some(785_029),
             is_native: false,
             rules: vec![],
             extract: None,

@@ -40,8 +40,7 @@ impl LauncherApp {
 impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         drain_ui_messages(self);
-        let mut navigate_to: Option<View> = None;
-        let mut open_mod_browser: Option<String> = None;
+        let mut navigate_to = None;
         toolbar::show(&self.app, &mut self.maximized, ctx, &mut navigate_to);
         status_bar::show(ctx, &self.app);
         sidebar::show(
@@ -52,7 +51,7 @@ impl eframe::App for LauncherApp {
             ctx,
             &mut navigate_to,
         );
-        central::show(
+        if let Some(mod_browser_id) = central::show(
             &mut self.app,
             &mut self.new_instance_state,
             &mut self.login_username,
@@ -60,13 +59,11 @@ impl eframe::App for LauncherApp {
             &mut self.mod_browser_state,
             &mut self.detail_tab_state,
             ctx,
-            &mut open_mod_browser,
-        );
+        ) {
+            self.app.current_view = View::ModBrowser { instance_id: mod_browser_id };
+        }
         if let Some(view) = navigate_to {
             self.app.current_view = view;
-        }
-        if let Some(id) = open_mod_browser {
-            self.app.current_view = View::ModBrowser { instance_id: id };
         }
     }
 }
@@ -124,7 +121,7 @@ pub fn drain_ui_messages(state: &mut LauncherApp) {
                 );
                 state.login_state = LoginState::Idle;
                 let display_name = name;
-                state.app.account_list.add(account);
+                state.app.account_list.add(*account);
                 let _ = state.app.account_list.save();
                 state.app.status_message = format!("Logged in as {display_name}");
                 state.app.current_view = View::AccountList;

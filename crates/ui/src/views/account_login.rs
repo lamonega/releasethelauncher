@@ -172,7 +172,7 @@ fn start_ms_login(app: &App) {
                                         );
 
                                         if let Ok(mut q) = queue.lock() {
-                                            q.push(UiMessage::MsLoginSuccess { account });
+                                            q.push(UiMessage::MsLoginSuccess { account: Box::new(account) });
                                         }
                                         ctx.request_repaint();
                                     }

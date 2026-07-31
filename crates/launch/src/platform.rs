@@ -47,12 +47,7 @@ pub fn should_include(rules: &[Rule]) -> bool {
                     .is_none_or(|arch| arch == current_arch())
         });
 
-        let matches_features = rule.features.iter().all(|(feat, val)| match feat.as_str() {
-            "is_demo_user" => !*val,
-            "has_custom_resolution" => !*val,
-            feat if feat.starts_with("is_quick_play") => !*val,
-            _ => !*val,
-        });
+        let matches_features = rule.features.iter().all(|(_, val)| !*val);
 
         if matches_os && matches_features {
             allowed = rule.action == "allow";
@@ -73,18 +68,14 @@ pub fn should_include_library(lib: &crate::Library) -> bool {
         let classifier = parts[3].to_lowercase();
         let arch = current_arch();
 
-        if classifier.contains("arm64") || classifier.contains("aarch64") {
-            if arch != "aarch64" {
-                return false;
-            }
-        } else if classifier.contains("x86_64") || classifier.contains("amd64") || classifier.contains("x64") {
-            if arch != "x86_64" {
-                return false;
-            }
-        } else if classifier.contains("x86") || classifier.contains("i386") || classifier.contains("i686") {
-            if arch != "x86" {
-                return false;
-            }
+        if (classifier.contains("arm64") || classifier.contains("aarch64")) && arch != "aarch64" {
+            return false;
+        }
+        if (classifier.contains("x86_64") || classifier.contains("amd64") || classifier.contains("x64")) && arch != "x86_64" {
+            return false;
+        }
+        if (classifier.contains("x86") || classifier.contains("i386") || classifier.contains("i686")) && arch != "x86" {
+            return false;
         }
     }
 

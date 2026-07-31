@@ -18,8 +18,7 @@ pub struct AssetIndexJson {
 #[derive(Debug, Deserialize)]
 struct AssetObject {
     hash: String,
-    #[allow(dead_code)]
-    size: u64,
+    _size: u64,
 }
 
 pub struct AssetManager {

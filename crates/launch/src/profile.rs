@@ -39,7 +39,7 @@ fn parse_version_segments(v: &str) -> Vec<u32> {
     v.split('.')
         .filter_map(|s| {
             s.chars()
-                .take_while(|c| c.is_ascii_digit())
+                .take_while(char::is_ascii_digit)
                 .collect::<String>()
                 .parse()
                 .ok()
@@ -114,7 +114,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         // Propagate version_type from component (release/snapshot/old_beta/old_alpha)
         if mc_version_type.is_empty() {
             if let Some(ref vt) = component.version_file.version_type {
-                mc_version_type = vt.clone();
+                mc_version_type.clone_from(vt);
             }
         }
         if let Some(ref mc) = component.version_file.main_class {
@@ -135,7 +135,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
             }
         }
         if client_download.is_none() {
-            client_download = component.version_file.client_download.clone();
+            client_download.clone_from(&component.version_file.client_download);
         }
         for lib in &component.version_file.libraries {
             if lib.is_native {

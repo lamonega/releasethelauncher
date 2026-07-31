@@ -1,6 +1,5 @@
 use crate::{App, DownloadPhase};
 
-#[allow(clippy::cast_precision_loss)]
 #[must_use]
 pub fn progress_ratio(completed: u64, total: u64) -> f32 {
     if total == 0 {
@@ -26,12 +25,8 @@ pub fn show(ctx: &egui::Context, app: &App) {
                     ui.spinner();
                     ui.label(message.as_str());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if app.download_state.total > 0 {
-                            let progress = progress_ratio(
-                                app.download_state.completed,
-                                app.download_state.total,
-                            );
-                            let pct = (progress * 100.0) as u32;
+                        if let Some(pct) = app.download_state.completed.saturating_mul(100).checked_div(app.download_state.total) {
+                            let progress = f32::from(u16::try_from(pct).unwrap_or(u16::MAX)) / 100.0;
                             ui.add(
                                 egui::ProgressBar::new(progress)
                                     .text(format!("{pct}%"))

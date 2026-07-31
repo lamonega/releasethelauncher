@@ -11,8 +11,7 @@ use crate::platform;
 use crate::{LaunchError, Library};
 
 const MOJANG_LIBRARIES: &str = "https://libraries.minecraft.net";
-#[allow(dead_code)]
-const MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
+const _MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
 const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
 const FABRIC_MAVEN: &str = "https://maven.fabricmc.net";
 const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
@@ -33,22 +32,23 @@ pub fn library_filename(lib: &Library) -> String {
     let mut version = parts[2];
     let classifier_raw = parts.get(3).copied();
 
-    let (classifier, mut ext) = if let Some(cls) = classifier_raw {
-        if let Some((c, e)) = cls.split_once('@') {
+    let (classifier, mut ext) = classifier_raw.map_or_else(
+        || if let Some((v, e)) = version.split_once('@') {
+            version = v;
+            (None, e)
+        } else {
+            (None, "jar")
+        },
+        |cls| if let Some((c, e)) = cls.split_once('@') {
             (Some(c), e)
         } else {
             (Some(cls), "jar")
-        }
-    } else if let Some((v, e)) = version.split_once('@') {
-        version = v;
-        (None, e)
-    } else {
-        (None, "jar")
-    };
+        },
+    );
 
     if ext == "jar" {
         if let Some(ref url) = lib.url {
-            if url.ends_with(".zip") {
+            if Path::new(url).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
                 ext = "zip";
             }
         }
@@ -79,7 +79,7 @@ impl DownloadManager {
     fn maven_url_for_library(lib: &Library) -> Option<String> {
         if let Some(ref url) = lib.url {
             if url.starts_with("http://") || url.starts_with("https://") {
-                if url.ends_with(".jar") || url.ends_with(".zip") {
+                if Path::new(url).extension().is_some_and(|e| e.eq_ignore_ascii_case("jar") || e.eq_ignore_ascii_case("zip")) {
                     return Some(url.clone());
                 }
                 let parts: Vec<&str> = lib.name.split(':').collect();
@@ -150,45 +150,13 @@ impl DownloadManager {
             "Starting download_libraries processing"
         );
 
-        let applicable: Vec<&Library> = libraries
-            .iter()
-            .filter(|lib| {
-                let include = platform::should_include_library(lib);
-                if !include {
-                    debug!(
-                        name = %lib.name,
-                        is_native = lib.is_native,
-                        "Skipping library: excluded by platform rules"
-                    );
-                }
-                include
-            })
-            .collect();
-
-        let native_count = applicable.iter().filter(|lib| lib.is_native).count();
-        info!(
-            total = applicable.len(),
-            native = native_count,
-            regular = applicable.len() - native_count,
-            "Applicable libraries for current platform"
-        );
+        let applicable = filter_applicable_libraries(libraries);
 
         if applicable.is_empty() {
             return Ok(());
         }
 
-        // Pre-scan: sum sizes of existing files for accurate byte tracking
-        let mut initial_downloaded: u64 = 0;
-
-        for lib in &applicable {
-            if let Some(ref p) = Self::local_path_for_library(lib) {
-                let full_path = self.libraries_dir.join(p);
-                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= 1000) {
-                    let size = full_path.metadata().map(|m| m.len()).unwrap_or(0);
-                    initial_downloaded += size;
-                }
-            }
-        }
+        let initial_downloaded = self.calculate_initial_downloaded(&applicable);
 
         let total_bytes = Arc::new(AtomicU64::new(initial_downloaded));
         let downloaded_bytes = Arc::new(AtomicU64::new(initial_downloaded));
@@ -198,16 +166,13 @@ impl DownloadManager {
         let mut tasks = Vec::new();
 
         for lib in applicable {
-            let local_path = match Self::local_path_for_library(lib) {
-                Some(p) => p,
-                None => {
-                    warn!(
-                        name = %lib.name,
-                        is_native = lib.is_native,
-                        "Skipping library: invalid Maven coordinates"
-                    );
-                    continue;
-                }
+            let Some(local_path) = Self::local_path_for_library(lib) else {
+                warn!(
+                    name = %lib.name,
+                    is_native = lib.is_native,
+                    "Skipping library: invalid Maven coordinates"
+                );
+                continue;
             };
 
             let full_local_path = self.libraries_dir.join(&local_path);
@@ -221,16 +186,13 @@ impl DownloadManager {
             let exists_ok = full_local_path.exists()
                 && full_local_path.metadata().is_ok_and(|m| m.len() >= 1000);
 
-            let url = match Self::maven_url_for_library(lib) {
-                Some(u) => u,
-                None => {
-                    warn!(
-                        name = %lib.name,
-                        is_native = lib.is_native,
-                        "Skipping library: could not resolve Maven download URL"
-                    );
-                    continue;
-                }
+            let Some(url) = Self::maven_url_for_library(lib) else {
+                warn!(
+                    name = %lib.name,
+                    is_native = lib.is_native,
+                    "Skipping library: could not resolve Maven download URL"
+                );
+                continue;
             };
 
             if exists_ok {
@@ -260,94 +222,22 @@ impl DownloadManager {
 
             tasks.push(tokio::spawn(async move {
                 if !exists_ok {
-                    let _permit = sem.acquire().await.map_err(|e| {
-                        let err_msg = format!("Semaphore error acquiring permit for library '{lib_name}': {e}");
-                        error!(name = %lib_name, is_native = is_native, error = %e, "Semaphore permit failed");
-                        LaunchError::Launch(err_msg)
-                    })?;
-
-                    info!(
-                        name = %lib_name,
-                        is_native = is_native,
-                        url = %url,
-                        "Downloading library file"
-                    );
-
-                    let response = http.get(&url).send().await.map_err(|e| {
-                        let err_msg = format!("HTTP error downloading library '{lib_name}' from '{url}': {e}");
-                        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "HTTP request failed");
-                        LaunchError::Launch(err_msg)
-                    })?;
-
-                    if !response.status().is_success() {
-                        let status = response.status();
-                        let err_msg = format!("HTTP status {status} downloading library '{lib_name}' from '{url}'");
-                        error!(name = %lib_name, is_native = is_native, url = %url, status = %status, "HTTP response status failure");
-                        return Err(LaunchError::Launch(err_msg));
-                    }
-
-                    let file_size = response.content_length().unwrap_or(0) as u64;
-                    total_b.fetch_add(file_size, Ordering::SeqCst);
-
-                    let resp = response.bytes().await.map_err(|e| {
-                        let err_msg = format!("Failed to read body bytes for library '{lib_name}' from '{url}': {e}");
-                        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "Failed reading response bytes");
-                        LaunchError::Launch(err_msg)
-                    })?;
-
-                    if let Some(ref expected) = sha1 {
-                        let mut hasher = Sha1::new();
-                        hasher.update(&resp);
-                        let computed = hex::encode(hasher.finalize());
-                        if !computed.eq_ignore_ascii_case(expected) {
-                            let err_msg = format!("SHA1 mismatch for library '{lib_name}' from '{url}': expected {expected}, got {computed}");
-                            error!(name = %lib_name, is_native = is_native, url = %url, expected = %expected, computed = %computed, "Checksum mismatch");
-                            return Err(LaunchError::Launch(err_msg));
-                        }
-                    }
-
-                    if let Some(parent) = full_local_path.parent() {
-                        std::fs::create_dir_all(parent).map_err(|e| {
-                            let err_msg = format!("Failed to create parent directory '{}' for library '{lib_name}': {e}", parent.display());
-                            error!(name = %lib_name, is_native = is_native, path = %parent.display(), error = %e, "Dir creation failed");
-                            LaunchError::Launch(err_msg)
-                        })?;
-                    }
-
-                    let tmp = full_local_path.with_extension("tmp");
-                    std::fs::write(&tmp, &resp).map_err(|e| {
-                        let err_msg = format!("Failed to write temporary file '{}' for library '{lib_name}': {e}", tmp.display());
-                        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), error = %e, "File write failed");
-                        LaunchError::Launch(err_msg)
-                    })?;
-
-                    std::fs::rename(&tmp, &full_local_path).map_err(|e| {
-                        let err_msg = format!("Failed to rename temporary file '{}' to '{}' for library '{lib_name}': {e}", tmp.display(), full_local_path.display());
-                        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), target_path = %full_local_path.display(), error = %e, "File rename failed");
-                        LaunchError::Launch(err_msg)
-                    })?;
-
-                    let file_size = resp.len() as u64;
-                    downloaded_b.fetch_add(file_size, Ordering::SeqCst);
-                    info!(
-                        name = %lib_name,
-                        is_native = is_native,
-                        size = file_size,
-                        path = %full_local_path.display(),
-                        "Library downloaded successfully"
-                    );
+                    let (total_add, downloaded_add) = perform_library_download(&http, &url, &lib_name, is_native, sha1.as_deref(), &full_local_path, &sem).await?;
+                    total_b.fetch_add(total_add, Ordering::SeqCst);
+                    downloaded_b.fetch_add(downloaded_add, Ordering::SeqCst);
                 }
 
                 let cur = downloaded_b.load(Ordering::SeqCst);
                 let tot = total_b.load(Ordering::SeqCst);
                 progress_ref(cur, tot.max(cur), &display_name);
+
                 Ok::<(), LaunchError>(())
             }));
         }
 
         for task in tasks {
             task.await
-                .map_err(|e| LaunchError::Launch(format!("Library download task failed to join: {e}")))?
+                .map_err(|e| LaunchError::Launch(format!("Join error during library download: {e}")))?
                 ?;
         }
 
@@ -355,6 +245,134 @@ impl DownloadManager {
         Ok(())
     }
 
+    fn calculate_initial_downloaded(&self, applicable: &[&Library]) -> u64 {
+        let mut initial_downloaded: u64 = 0;
+        for lib in applicable {
+            if let Some(ref p) = Self::local_path_for_library(lib) {
+                let full_path = self.libraries_dir.join(p);
+                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= 1000) {
+                    let size = full_path.metadata().map_or(0, |m| m.len());
+                    initial_downloaded += size;
+                }
+            }
+        }
+        initial_downloaded
+    }
+}
+
+fn filter_applicable_libraries(libraries: &[Library]) -> Vec<&Library> {
+    let applicable: Vec<&Library> = libraries
+        .iter()
+        .filter(|lib| {
+            let include = platform::should_include_library(lib);
+            if !include {
+                debug!(
+                    name = %lib.name,
+                    is_native = lib.is_native,
+                    "Skipping library: excluded by platform rules"
+                );
+            }
+            include
+        })
+        .collect();
+
+    let native_count = applicable.iter().filter(|lib| lib.is_native).count();
+    info!(
+        total = applicable.len(),
+        native = native_count,
+        regular = applicable.len() - native_count,
+        "Applicable libraries for current platform"
+    );
+    applicable
+}
+
+async fn perform_library_download(
+    http: &Client,
+    url: &str,
+    lib_name: &str,
+    is_native: bool,
+    sha1: Option<&str>,
+    full_local_path: &Path,
+    sem: &Semaphore,
+) -> Result<(u64, u64), LaunchError> {
+    let _permit = sem.acquire().await.map_err(|e| {
+        let err_msg = format!("Semaphore error acquiring permit for library '{lib_name}': {e}");
+        error!(name = %lib_name, is_native = is_native, error = %e, "Semaphore permit failed");
+        LaunchError::Launch(err_msg)
+    })?;
+
+    info!(
+        name = %lib_name,
+        is_native = is_native,
+        url = %url,
+        "Downloading library file"
+    );
+
+    let response = http.get(url).send().await.map_err(|e| {
+        let err_msg = format!("HTTP error downloading library '{lib_name}' from '{url}': {e}");
+        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "HTTP request failed");
+        LaunchError::Launch(err_msg)
+    })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let err_msg = format!("HTTP status {status} downloading library '{lib_name}' from '{url}'");
+        error!(name = %lib_name, is_native = is_native, url = %url, status = %status, "HTTP response status failure");
+        return Err(LaunchError::Launch(err_msg));
+    }
+
+    let file_size = response.content_length().unwrap_or(0);
+
+    let resp = response.bytes().await.map_err(|e| {
+        let err_msg = format!("Failed to read body bytes for library '{lib_name}' from '{url}': {e}");
+        error!(name = %lib_name, is_native = is_native, url = %url, error = %e, "Failed reading response bytes");
+        LaunchError::Launch(err_msg)
+    })?;
+
+    if let Some(expected) = sha1 {
+        let mut hasher = Sha1::new();
+        hasher.update(&resp);
+        let computed = hex::encode(hasher.finalize());
+        if !computed.eq_ignore_ascii_case(expected) {
+            let err_msg = format!("SHA1 mismatch for library '{lib_name}' from '{url}': expected {expected}, got {computed}");
+            error!(name = %lib_name, is_native = is_native, url = %url, expected = %expected, computed = %computed, "Checksum mismatch");
+            return Err(LaunchError::Launch(err_msg));
+        }
+    }
+
+    if let Some(parent) = full_local_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            let err_msg = format!("Failed to create parent directory '{}' for library '{lib_name}': {e}", parent.display());
+            error!(name = %lib_name, is_native = is_native, path = %parent.display(), error = %e, "Dir creation failed");
+            LaunchError::Launch(err_msg)
+        })?;
+    }
+
+    let tmp = full_local_path.with_extension("tmp");
+    std::fs::write(&tmp, &resp).map_err(|e| {
+        let err_msg = format!("Failed to write temporary file '{}' for library '{lib_name}': {e}", tmp.display());
+        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), error = %e, "File write failed");
+        LaunchError::Launch(err_msg)
+    })?;
+
+    std::fs::rename(&tmp, full_local_path).map_err(|e| {
+        let err_msg = format!("Failed to rename temporary file '{}' to '{}' for library '{lib_name}': {e}", tmp.display(), full_local_path.display());
+        error!(name = %lib_name, is_native = is_native, tmp_path = %tmp.display(), target_path = %full_local_path.display(), error = %e, "File rename failed");
+        LaunchError::Launch(err_msg)
+    })?;
+
+    let bytes = resp.len() as u64;
+    info!(
+        name = %lib_name,
+        is_native = is_native,
+        size = bytes,
+        path = %full_local_path.display(),
+        "Library downloaded successfully"
+    );
+    Ok((file_size, bytes))
+}
+
+impl DownloadManager {
     /// # Errors
     /// Returns an error if the asset index cannot be read or a download fails.
     pub async fn download_asset_objects(
@@ -382,7 +400,7 @@ impl DownloadManager {
                     .get("hash")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let size = obj.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                let size = obj.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
                 total_bytes += size;
 
                 if !hash.is_empty() {
@@ -407,7 +425,7 @@ impl DownloadManager {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let size = obj.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                let size = obj.get("size").and_then(serde_json::Value::as_u64).unwrap_or(0);
 
                 if hash.is_empty() {
                     let cur = downloaded_b.fetch_add(size, Ordering::SeqCst) + size;
@@ -427,8 +445,10 @@ impl DownloadManager {
                 let progress_ref = progress_cb.clone();
 
                 tasks.push(tokio::spawn(async move {
-                    if !target_path.exists() {
-                        let _permit = sem.acquire().await.unwrap();
+                    if target_path.exists() {
+                        downloaded_cnt.fetch_add(size, Ordering::SeqCst);
+                        debug!(asset = %name_clone, hash = %hash, "Asset object already cached");
+                    } else if let Ok(_permit) = sem.acquire().await {
                         let url =
                             format!("https://resources.download.minecraft.net/{prefix}/{hash}");
                         if let Some(parent) = target_path.parent() {
@@ -451,9 +471,6 @@ impl DownloadManager {
                         } else {
                             warn!(asset = %name_clone, hash = %hash, "Asset HTTP request failed");
                         }
-                    } else {
-                        downloaded_cnt.fetch_add(size, Ordering::SeqCst);
-                        debug!(asset = %name_clone, hash = %hash, "Asset object already cached");
                     }
 
                     let cur = downloaded_cnt.load(Ordering::SeqCst);
@@ -471,14 +488,14 @@ impl DownloadManager {
     }
 
     /// # Errors
-    /// Returns an error if the download fails or SHA1 does not match.
+    /// Returns [`LaunchError`] if download fails or file system errors occur.
     pub async fn download_client_jar(
         &self,
         target_path: &Path,
         url: &str,
         expected_sha1: Option<&str>,
     ) -> Result<(), LaunchError> {
-        if target_path.exists() && target_path.metadata().map_or(false, |m| m.len() > 1000) {
+        if target_path.exists() && target_path.metadata().is_ok_and(|m| m.len() > 1000) {
             debug!(path = %target_path.display(), "Client JAR already cached, skipping download");
             return Ok(());
         }

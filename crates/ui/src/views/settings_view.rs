@@ -2,6 +2,19 @@ use crate::App;
 use crate::View;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
+    show_header(app, ui);
+    ui.add_space(app.theme.spacing.md);
+    show_java_settings(app, ui);
+    ui.add_space(app.theme.spacing.md);
+    show_launch_settings(app, ui);
+
+    if !app.status_message.is_empty() {
+        ui.add_space(app.theme.spacing.md);
+        ui.colored_label(app.theme.text_secondary, &app.status_message);
+    }
+}
+
+fn show_header(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.heading("Settings");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -30,9 +43,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     });
+}
 
-    ui.add_space(app.theme.spacing.md);
-
+fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Java");
     ui.add_space(app.theme.spacing.sm);
 
@@ -41,7 +54,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if ui.text_edit_singleline(&mut java_path).changed() {
         app.log(
             crate::log::LogLevel::Info,
-            &format!("UI: Java path changed to '{}'", java_path),
+            &format!("UI: Java path changed to '{java_path}'"),
         );
         app.global_settings.java_path = if java_path.is_empty() {
             None
@@ -79,9 +92,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
         app.global_settings.memory_max = Some(mem_max);
     }
+}
 
-    ui.add_space(app.theme.spacing.md);
-
+fn show_launch_settings(app: &mut App, ui: &mut egui::Ui) {
     ui.heading("Launch");
     ui.add_space(app.theme.spacing.sm);
 
@@ -121,10 +134,5 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             &format!("UI: Post-launch command changed to '{post}'"),
         );
         app.global_settings.post_launch_command = post;
-    }
-
-    if !app.status_message.is_empty() {
-        ui.add_space(app.theme.spacing.md);
-        ui.colored_label(app.theme.text_secondary, &app.status_message);
     }
 }

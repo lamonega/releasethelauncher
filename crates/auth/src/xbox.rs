@@ -8,11 +8,9 @@ use crate::Token;
 #[derive(Debug, Deserialize)]
 struct XblAuthResponse {
     #[serde(rename = "IssueInstant")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    issue_instant: String,
+    _issue_instant: String,
     #[serde(rename = "NotAfter")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    not_after: String,
+    _not_after: String,
     #[serde(rename = "Token")]
     token: String,
     #[serde(rename = "DisplayClaims")]
@@ -34,30 +32,25 @@ struct XblXui {
 #[derive(Debug, Deserialize)]
 struct XstsAuthResponse {
     #[serde(rename = "IssueInstant")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    issue_instant: String,
+    _issue_instant: String,
     #[serde(rename = "NotAfter")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    not_after: String,
+    _not_after: String,
     #[serde(rename = "Token")]
     token: String,
     #[serde(rename = "DisplayClaims")]
-    #[allow(dead_code, reason = "deserialized from API response")]
-    display_claims: Option<XblDisplayClaims>,
+    _display_claims: Option<XblDisplayClaims>,
 }
 
 #[derive(Debug, Deserialize)]
 struct XstsErrorResponse {
     #[serde(rename = "Identity")]
-    #[allow(dead_code, reason = "deserialized from API error response")]
-    identity: Option<serde_json::Value>,
+    _identity: Option<serde_json::Value>,
     #[serde(rename = "XErr")]
     xerr: Option<u64>,
     #[serde(rename = "Message")]
     message: Option<String>,
     #[serde(rename = "Redirect")]
-    #[allow(dead_code, reason = "deserialized from API error response")]
-    redirect: Option<String>,
+    _redirect: Option<String>,
 }
 
 #[derive(Debug, Clone)]

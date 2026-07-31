@@ -6,16 +6,18 @@ use crate::download::DownloadManager;
 use crate::{LaunchError, Library};
 
 /// Helper to check if a file extension matches a dynamic library (.dll, .so, .dylib).
+#[must_use]
 pub fn is_native_binary(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map_or(false, |ext| {
+        .is_some_and(|ext| {
             let ext_lower = ext.to_lowercase();
             ext_lower == "dll" || ext_lower == "so" || ext_lower == "dylib"
         })
 }
 
 /// Helper to count dynamic libraries in `natives_dir`.
+#[must_use]
 pub fn verify_natives_dir(natives_dir: &Path) -> usize {
     let mut count = 0;
     if let Ok(entries) = fs::read_dir(natives_dir) {
@@ -61,11 +63,10 @@ pub fn extract_natives(
                 let excludes = lib
                     .extract
                     .as_ref()
-                    .map(|e| e.exclude.as_slice())
-                    .unwrap_or(&[]);
+                    .map_or(&[][..], |e| e.exclude.as_slice());
                 let extracted = extract_jar_to_dir(&jar_path, natives_dir, excludes)?;
                 total_extracted_files += extracted.len();
-                let example_files: Vec<&str> = extracted.iter().take(5).map(|s| s.as_str()).collect();
+                let example_files: Vec<&str> = extracted.iter().take(5).map(String::as_str).collect();
                 tracing::info!(
                     library = %lib.name,
                     files_extracted = extracted.len(),

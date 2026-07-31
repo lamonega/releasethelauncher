@@ -121,7 +121,7 @@ impl InstanceManager {
             settings,
         };
         self.instances.insert(id.clone(), instance);
-        self.instances.get(&id).ok_or_else(|| CoreError::InstanceNotFound(id))
+        self.instances.get(&id).ok_or(CoreError::InstanceNotFound(id))
     }
 
     /// Deletes the instance with the given ID, removing it from disk.

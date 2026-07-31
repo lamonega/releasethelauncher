@@ -1,5 +1,6 @@
-use crate::{AssetIndex, Extract, Library, Rule, RuleOs, VersionFile};
+use crate::{AssetIndex, ClientDownload, Extract, Library, Rule, RuleOs, VersionFile};
 
+#[must_use]
 pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
     let mut libraries = Vec::new();
     let mut tweakers = Vec::new();
@@ -54,45 +55,8 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         Some(game_args.join(" "))
     };
 
-    let asset_index = value.get("assetIndex").map(|ai| AssetIndex {
-        id: ai
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        url: ai
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        sha1: ai
-            .get("sha1")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string),
-        size: ai
-            .get("size")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-    });
-
-    let client_download = value
-        .get("downloads")
-        .and_then(|d| d.get("client"))
-        .map(|c| crate::ClientDownload {
-            url: c
-                .get("url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            sha1: c
-                .get("sha1")
-                .and_then(|v| v.as_str())
-                .map(ToString::to_string),
-            size: c
-                .get("size")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0),
-        });
+    let asset_index = parse_asset_index(value);
+    let client_download = parse_client_download(value);
 
     let compatible_java_majors = value
         .get("javaVersion")
@@ -111,15 +75,112 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         minecraft_args,
         jvm_args,
         libraries,
+        compatible_java_majors,
         tweakers,
         asset_index,
         client_download,
-        compatible_java_majors,
         version_type,
         ..VersionFile::default()
     }
 }
 
+fn parse_asset_index(value: &serde_json::Value) -> Option<AssetIndex> {
+    value.get("assetIndex").map(|ai| AssetIndex {
+        id: ai
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        url: ai
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        sha1: ai
+            .get("sha1")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string),
+        size: ai
+            .get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+    })
+}
+
+fn parse_client_download(value: &serde_json::Value) -> Option<ClientDownload> {
+    value
+        .get("downloads")
+        .and_then(|d| d.get("client"))
+        .map(|c| ClientDownload {
+            url: c
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            sha1: c
+                .get("sha1")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            size: c
+                .get("size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        })
+}
+
+#[must_use]
+pub fn parse_rules(rules_val: &serde_json::Value) -> Vec<Rule> {
+    rules_val
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|r| Rule {
+                    action: r
+                        .get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("allow")
+                        .to_string(),
+                    os: r.get("os").and_then(|v| v.as_object()).map(|o| RuleOs {
+                        name: o
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
+                        arch: o
+                            .get("arch")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
+                    }),
+                    features: r
+                        .get("features")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false)))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[must_use]
+pub fn parse_extract(extract_val: &serde_json::Value) -> Option<Extract> {
+    extract_val.as_object().map(|e| Extract {
+        exclude: e
+            .get("exclude")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(ToString::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+#[must_use]
 pub fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
     let name = lib
         .get("name")
@@ -152,55 +213,8 @@ pub fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
                 .and_then(serde_json::Value::as_u64)
         });
 
-    let rules: Vec<Rule> = lib
-        .get("rules")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|r| Rule {
-                    action: r
-                        .get("action")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("allow")
-                        .to_string(),
-                    os: r.get("os").and_then(|v| v.as_object()).map(|o| RuleOs {
-                        name: o
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string),
-                        arch: o
-                            .get("arch")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string),
-                    }),
-                    features: r
-                        .get("features")
-                        .and_then(|v| v.as_object())
-                        .map(|obj| {
-                            obj.iter()
-                                .map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false)))
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let extract = lib
-        .get("extract")
-        .and_then(|v| v.as_object())
-        .map(|e| Extract {
-            exclude: e
-                .get("exclude")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(ToString::to_string))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        });
+    let rules = lib.get("rules").map_or_else(Vec::new, parse_rules);
+    let extract = lib.get("extract").and_then(parse_extract);
 
     let parts: Vec<&str> = name.split(':').collect();
 
@@ -210,29 +224,26 @@ pub fn parse_library(lib: &serde_json::Value) -> Vec<Library> {
         if let Some(classifier) = natives.get(os).and_then(|v| v.as_str()) {
             let classifier = classifier.replace("${arch}", crate::platform::current_arch());
             let native_name = format!("{name}:{classifier}");
-            let (native_url, native_sha1, native_size) =
-                if let Some(classifiers) = lib.get("downloads").and_then(|d| d.get("classifiers"))
-                {
-                    if let Some(class_info) = classifiers.get(&classifier) {
-                        (
-                            class_info
-                                .get("url")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                            class_info
-                                .get("sha1")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                            class_info
-                                .get("size")
-                                .and_then(serde_json::Value::as_u64),
-                        )
-                    } else {
-                        (url.clone(), sha1.clone(), size)
-                    }
-                } else {
-                    (url.clone(), sha1.clone(), size)
-                };
+            let (native_url, native_sha1, native_size) = lib
+                .get("downloads")
+                .and_then(|d| d.get("classifiers"))
+                .and_then(|classifiers| classifiers.get(&classifier))
+                .map_or_else(
+                    || (url.clone(), sha1.clone(), size),
+                    |class_info| (
+                        class_info
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
+                        class_info
+                            .get("sha1")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string),
+                        class_info
+                            .get("size")
+                            .and_then(serde_json::Value::as_u64),
+                    ),
+                );
             return vec![
                 Library {
                     name,
@@ -284,40 +295,7 @@ pub fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
     if let Some(s) = item.as_str() {
         target.push(s.to_string());
     } else if let Some(obj) = item.as_object() {
-        let rules: Vec<Rule> = obj
-            .get("rules")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|r| Rule {
-                        action: r
-                            .get("action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("allow")
-                            .to_string(),
-                        os: r.get("os").and_then(|v| v.as_object()).map(|o| RuleOs {
-                            name: o
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                            arch: o
-                                .get("arch")
-                                .and_then(|v| v.as_str())
-                                .map(ToString::to_string),
-                        }),
-                        features: r
-                            .get("features")
-                            .and_then(|v| v.as_object())
-                            .map(|obj| {
-                                obj.iter()
-                                    .map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false)))
-                                    .collect()
-                            })
-                            .unwrap_or_default(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let rules = obj.get("rules").map_or_else(Vec::new, parse_rules);
 
         if crate::platform::should_include(&rules) {
             if let Some(val) = obj.get("value") {
@@ -338,14 +316,6 @@ pub fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
 #[must_use]
 pub fn default_java_major_for_version(mc_version: &str) -> u32 {
     if !mc_version.starts_with("1.") {
-        let first_num: u32 = mc_version
-            .split('.')
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        if first_num >= 21 {
-            return 21;
-        }
         return 21;
     }
 

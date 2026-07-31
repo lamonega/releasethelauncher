@@ -1,33 +1,4 @@
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::too_many_lines,
-    clippy::option_if_let_else,
-    clippy::module_name_repetitions,
-    clippy::struct_field_names,
-    clippy::similar_names,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss,
-    clippy::redundant_closure_for_method_calls,
-    clippy::map_unwrap_or,
-    clippy::inconsistent_struct_constructor,
-    clippy::doc_markdown,
-    clippy::single_match_else,
-    clippy::use_self,
-    clippy::uninlined_format_args,
-    clippy::format_in_format_args,
-    clippy::redundant_clone,
-    clippy::needless_pass_by_value,
-    clippy::match_wildcard_for_single_variants,
-    clippy::assigning_clones,
-    clippy::unnecessary_map_or,
-    clippy::format_push_string,
-    clippy::collapsible_match,
-    clippy::struct_excessive_bools,
-    clippy::large_enum_variant,
-    clippy::too_many_arguments
-)]
+
 
 pub mod layout;
 pub mod log;
@@ -122,7 +93,7 @@ pub enum UiMessage {
         message: String,
     },
     MsLoginSuccess {
-        account: release_the_launcher_auth::AccountData,
+        account: Box<release_the_launcher_auth::AccountData>,
     },
     MsLoginError(String),
 }
@@ -235,7 +206,7 @@ impl App {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::modrinth::search_modpacks(queue, ctx, handle, query, mc_version, loader);
+        services::modrinth::search_modpacks(&queue, &ctx, &handle, query, mc_version, loader);
     }
 
     pub fn install_mod_from_modrinth(
@@ -248,14 +219,14 @@ impl App {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::modrinth::install_mod(queue, ctx, handle, project_id, mods_dir, mc_version, loader_name);
+        services::modrinth::install_mod(&queue, &ctx, &handle, project_id, mods_dir, mc_version, loader_name);
     }
 
     pub fn fetch_modpack_versions(&self, project_id: String) {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::modrinth::fetch_modpack_versions(queue, ctx, handle, project_id);
+        services::modrinth::fetch_modpack_versions(&queue, &ctx, &handle, project_id);
     }
 
     pub fn install_modpack_as_instance(
@@ -267,7 +238,7 @@ impl App {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::modrinth::install_modpack_as_instance(queue, ctx, handle, project_id, version_id, instances_dir);
+        services::modrinth::install_modpack_as_instance(&queue, &ctx, &handle, project_id, version_id, instances_dir);
     }
 
     pub fn drain_messages(&mut self) -> Vec<UiMessage> {
@@ -353,13 +324,13 @@ impl App {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::launcher::fetch_versions_list(queue, ctx, handle);
+        services::launcher::fetch_versions_list(&queue, &ctx, &handle);
     }
 
-    pub fn fetch_loader_versions(&self, loader_type: String, mc_version: String) {
+    pub fn fetch_loader_versions(&self, loader_type: &str, mc_version: &str) {
         let queue = self.ui_queue.clone();
         let Some(ctx) = self.ctx.clone() else { return };
         let Some(handle) = self.tokio_handle.clone() else { return };
-        services::launcher::fetch_loader_versions(queue, ctx, handle, loader_type, mc_version);
+        services::launcher::fetch_loader_versions(&queue, &ctx, &handle, loader_type, mc_version);
     }
 }
