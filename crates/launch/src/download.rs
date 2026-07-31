@@ -174,6 +174,7 @@ impl DownloadManager {
         let progress_cb = Arc::new(progress);
 
         let mut tasks = Vec::new();
+        let total = applicable.len();
 
         for lib in applicable {
             let Some(local_path) = Self::local_path_for_library(lib) else {
@@ -254,10 +255,31 @@ impl DownloadManager {
             }));
         }
 
+        // ponytail: wait for EVERY download before returning. An early return
+        // on the first failure raced the remaining spawned downloads against
+        // natives extraction, which then ran with half-written jars (1.7.10's
+        // twitch natives 404 permanently on the CDN and triggered it).
+        let mut failures = Vec::new();
         for task in tasks {
-            task.await.map_err(|e| {
-                LaunchError::Launch(format!("Join error during library download: {e}"))
-            })??;
+            match task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => failures.push(e),
+                Err(e) => failures.push(LaunchError::Launch(format!(
+                    "Join error during library download: {e}"
+                ))),
+            }
+        }
+        if !failures.is_empty() {
+            return Err(LaunchError::Launch(format!(
+                "{} of {} libraries failed to download: {}",
+                failures.len(),
+                total,
+                failures
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )));
         }
 
         info!("All applicable libraries processed successfully");
@@ -695,5 +717,71 @@ mod tests {
 
         assert!(res.is_ok());
         assert_eq!(progress_called.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_download_libraries_waits_for_all_tasks_on_partial_failure() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Duration;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let req = String::from_utf8_lossy(&buf);
+                if req.contains("bad-1.0.jar") {
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n");
+                } else {
+                    std::thread::sleep(Duration::from_millis(400));
+                    let body = b"okjar-content";
+                    let _ = stream.write_all(
+                        format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len())
+                            .as_bytes(),
+                    );
+                    let _ = stream.write_all(body);
+                }
+            }
+        });
+        let base = format!("http://{addr}/");
+
+        let dir = TestDir::new("partial_failure");
+        let dm = DownloadManager::new(dir.path().to_path_buf());
+
+        let ok_lib = Library {
+            name: "com.example:ok:1.0".to_string(),
+            url: Some(base.clone()),
+            sha1: None,
+            size: None,
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+        let bad_lib = Library {
+            name: "com.example:bad:1.0".to_string(),
+            url: Some(base),
+            sha1: None,
+            size: None,
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+
+        let res = dm
+            .download_libraries(&[ok_lib, bad_lib], |_, _, _| {})
+            .await;
+
+        assert!(res.is_err(), "expected Err, got: {res:?}");
+        let ok_local = dir.path().join("libraries/com/example/ok/1.0/ok-1.0.jar");
+        assert!(
+            ok_local.exists(),
+            "slow download must be awaited even when a sibling library fails"
+        );
+        drop(server);
     }
 }

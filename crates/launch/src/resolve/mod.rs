@@ -1,8 +1,8 @@
 pub mod fabric;
 pub mod forge;
-pub mod mojang;
 pub mod neoforge;
 pub mod parsers;
+pub mod prism;
 pub mod quilt;
 
 use crate::{Component, LaunchError, Requirement, VersionFile};
@@ -12,7 +12,7 @@ pub use parsers::{default_java_major_for_version, parse_library, parse_version_j
 
 pub struct DependencyResolver {
     pub(crate) http: Client,
-    manifest: Option<mojang::VersionManifest>,
+    manifest: Option<prism::VersionManifest>,
 }
 
 impl Default for DependencyResolver {
@@ -33,7 +33,7 @@ impl DependencyResolver {
     /// # Errors
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn fetch_manifest(&mut self) -> Result<(), LaunchError> {
-        let manifest = mojang::fetch_manifest(&self.http).await?;
+        let manifest = prism::fetch_manifest(&self.http).await?;
         self.manifest = Some(manifest);
         Ok(())
     }
@@ -68,7 +68,7 @@ impl DependencyResolver {
     /// # Errors
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn fetch_version_metadata(&self, url: &str) -> Result<VersionFile, LaunchError> {
-        mojang::fetch_version_metadata(&self.http, url).await
+        prism::fetch_version_metadata(&self.http, url).await
     }
 
     /// # Errors
@@ -77,7 +77,7 @@ impl DependencyResolver {
         &self,
         version_id: &str,
     ) -> Result<Component, LaunchError> {
-        mojang::fetch_vanilla_component(&self.http, self.manifest.as_ref(), version_id).await
+        prism::fetch_vanilla_component(&self.http, self.manifest.as_ref(), version_id).await
     }
 
     /// # Errors
@@ -174,29 +174,22 @@ pub async fn resolve_dependencies(
 
             if req.uid == "net.fabricmc.intermediary" {
                 let url = format!(
-                    "{}/versions/intermediary/{version}",
-                    fabric::FABRIC_META_URL
+                    "https://meta.prismlauncher.org/v1/net.fabricmc.intermediary/{version}.json"
                 );
                 if let Ok(resp) = resolver.http.get(&url).send().await {
-                    if let Ok(versions) = resp.json::<Vec<serde_json::Value>>().await {
-                        if let Some(latest) = versions.first() {
-                            let loader_version = latest
-                                .get("version")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(&version)
-                                .to_string();
-                            resolved_deps.insert(
-                                req.uid.clone(),
-                                Component {
-                                    uid: req.uid.clone(),
-                                    version: loader_version,
-                                    is_locked: false,
-                                    dependencies: Vec::new(),
-                                    conflicts: Vec::new(),
-                                    version_file: VersionFile::default(),
-                                },
-                            );
-                        }
+                    if let Ok(component_json) = resp.json::<serde_json::Value>().await {
+                        let version_file = parse_version_json(&component_json);
+                        resolved_deps.insert(
+                            req.uid.clone(),
+                            Component {
+                                uid: req.uid.clone(),
+                                version: version.clone(),
+                                is_locked: false,
+                                dependencies: Vec::new(),
+                                conflicts: Vec::new(),
+                                version_file,
+                            },
+                        );
                     }
                 }
             }

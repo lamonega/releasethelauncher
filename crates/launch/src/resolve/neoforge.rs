@@ -2,7 +2,7 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
+pub const NEOFORGE_PRISM_META_URL: &str = "https://meta.prismlauncher.org/v1/net.neoforged";
 
 /// Fetches the `NeoForge` component for a given Minecraft and `NeoForge` version.
 ///
@@ -14,28 +14,15 @@ pub async fn fetch_neoforge_component(
     mc_version: &str,
     neoforge_version: &str,
 ) -> Result<Component, LaunchError> {
-    let url = format!(
-        "{NEOFORGE_MAVEN}/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-install-profile.json"
-    );
+    let url = format!("{NEOFORGE_PRISM_META_URL}/{neoforge_version}.json");
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
     let mut libraries = Vec::new();
     let mut main_class = None;
 
-    if let Some(data) = resp.get("data") {
-        if let Some(mc_main) = data
-            .get("MINECRAFT_MAIN_CLASS")
-            .and_then(|v| v.get("client"))
-        {
-            if let Some(s) = mc_main.as_str() {
-                main_class = Some(s.to_string());
-            }
-        }
+    if let Some(mc_main) = resp.get("mainClass").and_then(|v| v.as_str()) {
+        main_class = Some(mc_main.to_string());
     }
-    if let Some(libs) = resp
-        .get("versionInfo")
-        .and_then(|v| v.get("libraries"))
-        .and_then(|v| v.as_array())
-    {
+    if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
         for lib in libs {
             libraries.extend(parse_library(lib));
         }

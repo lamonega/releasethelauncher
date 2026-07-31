@@ -90,8 +90,6 @@ async fn fetch_forge_metadata(
     let meta_urls = vec![
         format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{forge_version}.json"),
         format!("https://meta.prismlauncher.org/v1/net.minecraftforge/{full_ver}.json"),
-        format!("{FORGE_MAVEN}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-install-profile.json"),
-        format!("{FORGE_MAVEN}/net/minecraftforge/forge/{mc_version}/{forge_version}/forge-{mc_version}-install-profile.json"),
     ];
 
     for url in meta_urls {

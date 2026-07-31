@@ -108,10 +108,8 @@ fn parse_asset_index(value: &serde_json::Value) -> Option<AssetIndex> {
 }
 
 fn parse_client_download(value: &serde_json::Value) -> Option<ClientDownload> {
-    value
-        .get("downloads")
-        .and_then(|d| d.get("client"))
-        .map(|c| ClientDownload {
+    if let Some(c) = value.get("downloads").and_then(|d| d.get("client")) {
+        return Some(ClientDownload {
             url: c
                 .get("url")
                 .and_then(|v| v.as_str())
@@ -125,7 +123,32 @@ fn parse_client_download(value: &serde_json::Value) -> Option<ClientDownload> {
                 .get("size")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0),
-        })
+        });
+    }
+
+    if let Some(artifact) = value
+        .get("mainJar")
+        .and_then(|m| m.get("downloads"))
+        .and_then(|d| d.get("artifact"))
+    {
+        return Some(ClientDownload {
+            url: artifact
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            sha1: artifact
+                .get("sha1")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            size: artifact
+                .get("size")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        });
+    }
+
+    None
 }
 
 #[must_use]
