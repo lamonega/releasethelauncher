@@ -199,7 +199,7 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
     }
 
     let default_main_class = if all_traits.contains(&"legacyLaunch".to_string()) {
-        "net.minecraft.launchwrapper.Launch".to_string()
+        "net.minecraft.client.Minecraft".to_string()
     } else {
         "net.minecraft.client.main.Main".to_string()
     };
