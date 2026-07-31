@@ -14,7 +14,7 @@ struct FmlLibSeed {
 
 // ponytail: fallback for jars that have no usable hash in fmlversion.properties
 // (missing/placeholder). Only 1.5.2 has a checksum-verified copy
-// (web.archive.org snapshot from 2021; the sha1 matches what FML 5.2.23.738
+// (Prism Launcher mirror / web.archive.org snapshot; the sha1 matches what FML 5.2.23.738
 // expects — the file served by files.minecraftforge.net today differs and
 // fails FML's check). The 1.5.x family is covered by auto-extraction from the
 // universal jar instead.
@@ -22,7 +22,7 @@ const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
     "1.5.2",
     FmlLibSeed {
         sha1: "446e55cd986582c70fcf12cb27bc00114c5adfd9",
-        url: "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs/deobfuscation_data_1.5.2.zip",
+        url: "https://files.prismlauncher.org/fmllibs/deobfuscation_data_1.5.2.zip",
     },
 )];
 
@@ -54,14 +54,14 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     };
     let file_name = format!("deobfuscation_data_{mc}.zip");
-    let url = seed.map_or_else(
-        || {
-            format!(
-                "https://web.archive.org/web/2id_/http://files.minecraftforge.net/fmllibs/{file_name}"
-            )
-        },
+    let primary_url = seed.map_or_else(
+        || format!("https://files.prismlauncher.org/fmllibs/{file_name}"),
         |s| s.url.to_string(),
     );
+    let fallback_url = format!(
+        "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs/{file_name}"
+    );
+
     let lib_dir = dirs::home_dir()
         .ok_or_else(|| LaunchError::Launch("could not resolve home directory".into()))?
         .join(".minecraft")
@@ -70,13 +70,28 @@ pub async fn ensure_fml_deobfuscation_data(
     if sha1_file(&target)?.as_deref() == Some(expected.as_str()) {
         return Ok(());
     }
-    let bytes = Client::new().get(url).send().await?.bytes().await?;
-    let actual = hex::encode(Sha1::digest(&bytes));
-    if actual != expected {
-        return Err(LaunchError::Launch(format!(
-            "FML library {file_name} checksum mismatch: got {actual}, expected {expected}"
-        )));
-    }
+
+    let client = Client::new();
+    let bytes_opt = match client.get(&primary_url).send().await {
+        Ok(resp) if resp.status().is_success() => resp.bytes().await.ok(),
+        _ => None,
+    };
+
+    let bytes = match bytes_opt {
+        Some(b) if hex::encode(Sha1::digest(&b)) == expected => b,
+        _ => {
+            let resp = client.get(&fallback_url).send().await?;
+            let b = resp.bytes().await?;
+            let actual = hex::encode(Sha1::digest(&b));
+            if actual != expected {
+                return Err(LaunchError::Launch(format!(
+                    "FML library {file_name} checksum mismatch: got {actual}, expected {expected}"
+                )));
+            }
+            b
+        }
+    };
+
     std::fs::create_dir_all(&lib_dir)?;
     std::fs::write(&target, &bytes)?;
     Ok(())
