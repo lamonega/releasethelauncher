@@ -65,6 +65,7 @@ pub struct Coordinator {
     pub global_settings: GlobalSettings,
     pub log_buffer: LogBuffer,
     pub settings_path: PathBuf,
+    pub http_provider: release_the_launcher_net::HttpClientProvider,
     queue: Queue,
     tokio_handle: Option<tokio::runtime::Handle>,
 }
@@ -122,6 +123,7 @@ impl Coordinator {
             global_settings,
             log_buffer,
             settings_path,
+            http_provider: release_the_launcher_net::HttpClientProvider::default(),
             queue: Arc::new(Mutex::new(Vec::new())),
             tokio_handle: None,
         }

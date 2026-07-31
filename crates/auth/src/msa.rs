@@ -61,10 +61,15 @@ impl MsAuthFlow {
 
     #[must_use]
     pub fn new(client_id: String) -> Self {
-        Self {
+        Self::with_http(
             client_id,
-            http: Client::new(),
-        }
+            release_the_launcher_net::HttpClientProvider::default().clone_client(),
+        )
+    }
+
+    #[must_use]
+    pub const fn with_http(client_id: String, http: Client) -> Self {
+        Self { client_id, http }
     }
 
     /// # Errors

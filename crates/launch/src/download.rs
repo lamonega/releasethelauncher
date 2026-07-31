@@ -69,9 +69,17 @@ pub fn library_filename(lib: &Library) -> String {
 impl DownloadManager {
     #[must_use]
     pub fn new(cache_dir: PathBuf) -> Self {
+        Self::with_client(
+            release_the_launcher_net::HttpClientProvider::default().clone_client(),
+            cache_dir,
+        )
+    }
+
+    #[must_use]
+    pub fn with_client(http: Client, cache_dir: PathBuf) -> Self {
         let libraries_dir = cache_dir.join("libraries");
         Self {
-            http: Client::new(),
+            http,
             libraries_dir,
             cache_dir,
         }

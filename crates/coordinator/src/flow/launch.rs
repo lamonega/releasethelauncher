@@ -672,7 +672,7 @@ async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &Asse
     }
 
     let asset_mgr = AssetManager::new(instance_root);
-    let http = reqwest::Client::new();
+    let http = release_the_launcher_net::HttpClientProvider::default().clone_client();
 
     send(Event::Status("Downloading asset index...".to_string()));
     match asset_mgr

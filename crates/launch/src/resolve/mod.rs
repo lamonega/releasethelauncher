@@ -24,8 +24,13 @@ impl Default for DependencyResolver {
 impl DependencyResolver {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_client(release_the_launcher_net::HttpClientProvider::default().clone_client())
+    }
+
+    #[must_use]
+    pub const fn with_client(http: Client) -> Self {
         Self {
-            http: Client::new(),
+            http,
             manifest: None,
         }
     }

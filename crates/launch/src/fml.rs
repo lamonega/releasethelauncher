@@ -2,7 +2,6 @@ use std::path::Path;
 
 use crate::download::DownloadManager;
 use crate::{LaunchError, LaunchProfile};
-use reqwest::Client;
 
 struct FmlLibSeed {
     sha1: &'static str,
@@ -68,7 +67,7 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     }
 
-    let client = Client::new();
+    let client = release_the_launcher_net::HttpClientProvider::default().clone_client();
     let bytes_opt = match client.get(&primary_url).send().await {
         Ok(resp) if resp.status().is_success() => resp.bytes().await.ok(),
         _ => None,

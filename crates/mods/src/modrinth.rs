@@ -48,14 +48,22 @@ pub struct ModrinthProvider {
 impl ModrinthProvider {
     #[must_use]
     pub fn new(api_token: Option<String>) -> Self {
-        Self {
-            http: Client::new(),
+        Self::with_client(
+            release_the_launcher_net::HttpClientProvider::default().clone_client(),
             api_token,
-        }
+        )
+    }
+
+    #[must_use]
+    pub const fn with_client(http: Client, api_token: Option<String>) -> Self {
+        Self { http, api_token }
     }
 
     fn build_headers(&self) -> Vec<(&str, &str)> {
-        let mut headers = vec![("User-Agent", "release-the-launcher/0.1.0")];
+        let mut headers = vec![(
+            "User-Agent",
+            release_the_launcher_constants::net::USER_AGENT,
+        )];
         if let Some(ref token) = self.api_token {
             headers.push(("Authorization", token));
         }

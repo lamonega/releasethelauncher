@@ -3546,6 +3546,7 @@ version = "0.6.0"
 dependencies = [
  "md-5",
  "release-the-launcher-constants",
+ "release-the-launcher-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -3569,6 +3570,7 @@ dependencies = [
  "release-the-launcher-core",
  "release-the-launcher-launch",
  "release-the-launcher-mods",
+ "release-the-launcher-net",
  "reqwest",
  "tokio",
  "tracing",
@@ -3620,6 +3622,7 @@ dependencies = [
  "hex",
  "release-the-launcher-constants",
  "release-the-launcher-core",
+ "release-the-launcher-net",
  "reqwest",
  "serde",
  "serde_json",

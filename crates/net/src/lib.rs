@@ -34,6 +34,46 @@ pub enum NetError {
     Cache(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct HttpClientProvider {
+    client: reqwest::Client,
+}
+
+impl HttpClientProvider {
+    /// # Errors
+    /// Returns [`NetError`] if building the HTTP client fails.
+    pub fn new() -> Result<Self, NetError> {
+        let client = reqwest::Client::builder()
+            .user_agent(release_the_launcher_constants::net::USER_AGENT)
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        Ok(Self { client })
+    }
+
+    #[must_use]
+    pub const fn with_client(client: reqwest::Client) -> Self {
+        Self { client }
+    }
+
+    #[must_use]
+    pub const fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    #[must_use]
+    pub fn clone_client(&self) -> reqwest::Client {
+        self.client.clone()
+    }
+}
+
+impl Default for HttpClientProvider {
+    fn default() -> Self {
+        Self::new().unwrap_or_else(|_| Self {
+            client: reqwest::Client::new(),
+        })
+    }
+}
+
 pub enum Sink {
     File { path: PathBuf, atomic: bool },
     Bytes(Arc<Mutex<Vec<u8>>>),
