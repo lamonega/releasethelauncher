@@ -69,7 +69,7 @@ impl DownloadJob {
             doing: Vec::new(),
             max_concurrent,
             _retries: 0,
-            _max_retries: 3,
+            _max_retries: release_the_launcher_constants::net::DEFAULT_MAX_RETRIES,
             completed: 0,
             total: 0,
         }
@@ -155,7 +155,7 @@ async fn execute_download(
             };
 
             let mut file = tokio::fs::File::create(&dest).await?;
-            let mut buf = vec![0u8; 64 * 1024]; // 64 KB buffer
+            let mut buf = vec![0u8; release_the_launcher_constants::net::DOWNLOAD_BUFFER_SIZE];
 
             loop {
                 let n = tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await?;
@@ -197,7 +197,7 @@ async fn execute_download(
             Ok(output_path)
         }
         Sink::Bytes(data) => {
-            let mut buf = vec![0u8; 64 * 1024];
+            let mut buf = vec![0u8; release_the_launcher_constants::net::DOWNLOAD_BUFFER_SIZE];
 
             loop {
                 let n = tokio::io::AsyncReadExt::read(&mut reader, &mut buf).await?;

@@ -8,11 +8,12 @@ use tracing::{debug, error, info, warn};
 use crate::platform;
 use crate::{LaunchError, Library};
 
-const MOJANG_LIBRARIES: &str = "https://libraries.minecraft.net";
-const _MAVEN_CENTRAL: &str = "https://repo1.maven.org/maven2";
-const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
-const FABRIC_MAVEN: &str = "https://maven.fabricmc.net";
-const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
+use release_the_launcher_constants::urls;
+
+const MOJANG_LIBRARIES: &str = urls::MOJANG_LIBRARIES;
+const FORGE_MAVEN: &str = urls::FORGE_MAVEN;
+const FABRIC_MAVEN: &str = urls::FABRIC_MAVEN;
+const NEOFORGE_MAVEN: &str = urls::NEOFORGE_MAVEN;
 
 pub struct DownloadManager {
     http: Client,

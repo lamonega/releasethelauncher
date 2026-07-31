@@ -16,3 +16,4 @@ thiserror = "1"
 url = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 hex = "0.4"
+release-the-launcher-constants = { path = "../constants" }

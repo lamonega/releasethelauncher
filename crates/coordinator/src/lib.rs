@@ -74,11 +74,14 @@ impl Coordinator {
     pub fn new() -> Self {
         let config_dir = dirs::config_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
-            .join("release-the-launcher");
+            .join(release_the_launcher_constants::paths::APP_DIR_NAME);
 
-        let instances_dir = config_dir.join("instances");
-        let accounts_path = config_dir.join("accounts.json");
-        let settings_path = config_dir.join("settings.toml");
+        let instances_dir =
+            config_dir.join(release_the_launcher_constants::paths::INSTANCES_DIR_NAME);
+        let accounts_path =
+            config_dir.join(release_the_launcher_constants::paths::ACCOUNTS_FILE_NAME);
+        let settings_path =
+            config_dir.join(release_the_launcher_constants::paths::SETTINGS_FILE_NAME);
 
         std::fs::create_dir_all(&config_dir).ok();
         std::fs::create_dir_all(&instances_dir).ok();
@@ -86,7 +89,10 @@ impl Coordinator {
         let instance_manager =
             InstanceManager::discover(instances_dir.clone()).unwrap_or_else(|e| {
                 tracing::warn!("Failed to discover instances: {e}");
-                let fallback = std::env::temp_dir().join("release-the-launcher-instances");
+                let fallback = std::env::temp_dir().join(format!(
+                    "{}-instances",
+                    release_the_launcher_constants::paths::APP_DIR_NAME
+                ));
                 let _ = std::fs::create_dir_all(&fallback);
                 InstanceManager::discover(fallback)
                     .unwrap_or_else(|_| InstanceManager::new(instances_dir))
@@ -95,11 +101,13 @@ impl Coordinator {
         let account_list = AccountList::load(&accounts_path);
         let global_settings = GlobalSettings::load(&settings_path);
 
-        let log_file = config_dir.join("launcher.log");
+        let log_file = config_dir.join(release_the_launcher_constants::paths::LOG_FILE_NAME);
         let log_buffer = LogBuffer::new();
         log_buffer.set_log_file_path(log_file.clone());
         log_buffer.push(log::LogEntry {
-            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+            timestamp: chrono::Local::now()
+                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
+                .to_string(),
             level: log::LogLevel::Info,
             message: format!(
                 "Release The Launcher started. Log file: {}",

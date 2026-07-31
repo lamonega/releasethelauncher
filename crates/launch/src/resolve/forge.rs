@@ -2,7 +2,7 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub const FORGE_MAVEN: &str = "https://files.minecraftforge.net/maven";
+pub const FORGE_MAVEN: &str = release_the_launcher_constants::urls::FORGE_MAVEN;
 
 fn parse_version_key(v: &str) -> Vec<u64> {
     v.split(|c: char| !c.is_numeric())

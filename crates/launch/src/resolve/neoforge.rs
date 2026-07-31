@@ -2,7 +2,12 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub const NEOFORGE_PRISM_META_URL: &str = "https://meta.prismlauncher.org/v1/net.neoforged";
+use super::prism::PRISM_META_BASE;
+
+#[must_use]
+pub fn neoforge_prism_meta_url() -> String {
+    format!("{PRISM_META_BASE}/net.neoforged")
+}
 
 /// Fetches the `NeoForge` component for a given Minecraft and `NeoForge` version.
 ///
@@ -14,7 +19,7 @@ pub async fn fetch_neoforge_component(
     mc_version: &str,
     neoforge_version: &str,
 ) -> Result<Component, LaunchError> {
-    let url = format!("{NEOFORGE_PRISM_META_URL}/{neoforge_version}.json");
+    let url = format!("{}/{neoforge_version}.json", neoforge_prism_meta_url());
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
     let mut libraries = Vec::new();
     let mut main_class = None;
@@ -59,7 +64,10 @@ pub async fn fetch_neoforge_loader_versions(
     client: &Client,
     mc_version: &str,
 ) -> Result<Vec<String>, LaunchError> {
-    let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+    let url = format!(
+        "{}/net/neoforged/neoforge/maven-metadata.xml",
+        release_the_launcher_constants::urls::NEOFORGE_MAVEN
+    );
     let resp = client.get(url).send().await?.text().await?;
     let neoforge_prefix = mc_version.strip_prefix("1.").map_or_else(
         || mc_version.to_string(),

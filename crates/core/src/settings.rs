@@ -157,7 +157,9 @@ impl GlobalSettings {
         instance_memory_min
             .clone()
             .or_else(|| self.memory_min.clone())
-            .unwrap_or_else(|| "1G".to_string())
+            .unwrap_or_else(|| {
+                release_the_launcher_constants::defaults::DEFAULT_MEMORY_MIN.to_string()
+            })
     }
 
     #[must_use]
@@ -165,6 +167,8 @@ impl GlobalSettings {
         instance_memory_max
             .clone()
             .or_else(|| self.memory_max.clone())
-            .unwrap_or_else(|| "2G".to_string())
+            .unwrap_or_else(|| {
+                release_the_launcher_constants::defaults::DEFAULT_MEMORY_MAX.to_string()
+            })
     }
 }

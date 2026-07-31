@@ -2,7 +2,7 @@ use super::parsers::parse_version_json;
 use crate::{Component, LaunchError, VersionFile};
 use reqwest::Client;
 
-pub const PRISM_META_BASE: &str = "https://meta.prismlauncher.org/v1";
+pub const PRISM_META_BASE: &str = release_the_launcher_constants::urls::PRISM_META_BASE;
 
 #[derive(Debug, Clone)]
 pub struct VersionManifestEntry {

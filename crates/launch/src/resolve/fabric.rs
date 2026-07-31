@@ -2,8 +2,12 @@ use super::parsers::parse_library;
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub const FABRIC_PRISM_META_URL: &str =
-    "https://meta.prismlauncher.org/v1/net.fabricmc.fabric-loader";
+use super::prism::PRISM_META_BASE;
+
+#[must_use]
+pub fn fabric_prism_meta_url() -> String {
+    format!("{PRISM_META_BASE}/net.fabricmc.fabric-loader")
+}
 
 /// Fetches the `Fabric` component for a given Minecraft version and optional loader version.
 ///
@@ -15,11 +19,12 @@ pub async fn fetch_fabric_component(
     mc_version: &str,
     loader_version: Option<&str>,
 ) -> Result<Component, LaunchError> {
+    let base_url = fabric_prism_meta_url();
     let chosen_loader_version = if let Some(lv) = loader_version {
         lv.to_string()
     } else {
         let index_resp: serde_json::Value = client
-            .get(format!("{FABRIC_PRISM_META_URL}/index.json"))
+            .get(format!("{base_url}/index.json"))
             .send()
             .await?
             .json()
@@ -34,7 +39,7 @@ pub async fn fetch_fabric_component(
             .to_string()
     };
 
-    let loader_url = format!("{FABRIC_PRISM_META_URL}/{chosen_loader_version}.json");
+    let loader_url = format!("{base_url}/{chosen_loader_version}.json");
 
     let resp: serde_json::Value = client.get(&loader_url).send().await?.json().await?;
     let mut libraries = Vec::new();
@@ -89,7 +94,7 @@ pub async fn fetch_fabric_loader_versions(
     client: &Client,
     _mc_version: &str,
 ) -> Result<Vec<String>, LaunchError> {
-    let url = format!("{FABRIC_PRISM_META_URL}/index.json");
+    let url = format!("{}/index.json", fabric_prism_meta_url());
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
     let mut versions = Vec::new();
     if let Some(arr) = resp.get("versions").and_then(|v| v.as_array()) {
