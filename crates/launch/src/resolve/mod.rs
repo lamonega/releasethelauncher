@@ -172,25 +172,33 @@ pub async fn resolve_dependencies(
                 .or_else(|| req.suggests.clone())
                 .unwrap_or_default();
 
-            if req.uid == "net.fabricmc.intermediary" {
-                let url = format!(
-                    "https://meta.prismlauncher.org/v1/net.fabricmc.intermediary/{version}.json"
-                );
-                if let Ok(resp) = resolver.http.get(&url).send().await {
-                    if let Ok(component_json) = resp.json::<serde_json::Value>().await {
-                        let version_file = parse_version_json(&component_json);
-                        resolved_deps.insert(
-                            req.uid.clone(),
-                            Component {
-                                uid: req.uid.clone(),
-                                version: version.clone(),
-                                is_locked: false,
-                                dependencies: Vec::new(),
-                                conflicts: Vec::new(),
-                                version_file,
-                            },
-                        );
-                    }
+            let url = if version.is_empty() {
+                format!("https://meta.prismlauncher.org/v1/{}/index.json", req.uid)
+            } else {
+                format!("https://meta.prismlauncher.org/v1/{}/{version}.json", req.uid)
+            };
+
+            if let Ok(resp) = resolver.http.get(&url).send().await {
+                if let Ok(component_json) = resp.json::<serde_json::Value>().await {
+                    let version_file = parse_version_json(&component_json);
+                    let dependencies = parsers::parse_requires(&component_json);
+                    let actual_version = component_json
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&version)
+                        .to_string();
+
+                    resolved_deps.insert(
+                        req.uid.clone(),
+                        Component {
+                            uid: req.uid.clone(),
+                            version: actual_version,
+                            is_locked: false,
+                            dependencies,
+                            conflicts: Vec::new(),
+                            version_file,
+                        },
+                    );
                 }
             }
         }

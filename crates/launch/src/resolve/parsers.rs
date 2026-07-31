@@ -70,6 +70,22 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
 
+    let mut traits = Vec::new();
+    if let Some(tr) = value.get("traits").and_then(|v| v.as_array()) {
+        for t in tr {
+            if let Some(s) = t.as_str() {
+                traits.push(s.to_string());
+            }
+        }
+    }
+    if let Some(tr) = value.get("+traits").and_then(|v| v.as_array()) {
+        for t in tr {
+            if let Some(s) = t.as_str() {
+                traits.push(s.to_string());
+            }
+        }
+    }
+
     VersionFile {
         main_class,
         minecraft_args,
@@ -77,11 +93,31 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         libraries,
         compatible_java_majors,
         tweakers,
+        traits,
         asset_index,
         client_download,
         version_type,
         ..VersionFile::default()
     }
+}
+
+#[must_use]
+pub fn parse_requires(value: &serde_json::Value) -> Vec<crate::Requirement> {
+    let mut reqs = Vec::new();
+    if let Some(arr) = value.get("requires").and_then(|v| v.as_array()) {
+        for r in arr {
+            if let Some(uid) = r.get("uid").and_then(|v| v.as_str()) {
+                let suggests = r.get("suggests").and_then(|v| v.as_str()).map(ToString::to_string);
+                let equals = r.get("equals").and_then(|v| v.as_str()).map(ToString::to_string);
+                reqs.push(crate::Requirement {
+                    uid: uid.to_string(),
+                    suggests,
+                    equals,
+                });
+            }
+        }
+    }
+    reqs
 }
 
 fn parse_asset_index(value: &serde_json::Value) -> Option<AssetIndex> {

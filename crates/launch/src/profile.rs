@@ -198,10 +198,16 @@ pub fn assemble_launch_profile(components: &[Component]) -> Result<LaunchProfile
         mc_version_type = "release".to_string();
     }
 
+    let default_main_class = if all_traits.contains(&"legacyLaunch".to_string()) {
+        "net.minecraft.launchwrapper.Launch".to_string()
+    } else {
+        "net.minecraft.client.main.Main".to_string()
+    };
+
     Ok(LaunchProfile {
         mc_version,
         mc_version_type,
-        main_class: main_class.unwrap_or_else(|| "net.minecraft.client.main.Main".to_string()),
+        main_class: main_class.unwrap_or(default_main_class),
         libraries: libraries_map.into_values().collect(),
         native_libraries: native_map.into_values().collect(),
         asset_index,

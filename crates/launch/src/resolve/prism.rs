@@ -81,12 +81,15 @@ pub async fn fetch_vanilla_component(
         })
         .unwrap_or_else(|| format!("{PRISM_META_BASE}/net.minecraft/{version_id}.json"));
 
-    let version_file = fetch_version_metadata(client, &url).await?;
+    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
+    let version_file = parse_version_json(&resp);
+    let dependencies = super::parsers::parse_requires(&resp);
+
     Ok(Component {
         uid: "net.minecraft".to_string(),
         version: version_id.to_string(),
         is_locked: true,
-        dependencies: Vec::new(),
+        dependencies,
         conflicts: Vec::new(),
         version_file,
     })
