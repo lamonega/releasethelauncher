@@ -107,8 +107,14 @@ pub fn parse_requires(value: &serde_json::Value) -> Vec<crate::Requirement> {
     if let Some(arr) = value.get("requires").and_then(|v| v.as_array()) {
         for r in arr {
             if let Some(uid) = r.get("uid").and_then(|v| v.as_str()) {
-                let suggests = r.get("suggests").and_then(|v| v.as_str()).map(ToString::to_string);
-                let equals = r.get("equals").and_then(|v| v.as_str()).map(ToString::to_string);
+                let suggests = r
+                    .get("suggests")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+                let equals = r
+                    .get("equals")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
                 reqs.push(crate::Requirement {
                     uid: uid.to_string(),
                     suggests,

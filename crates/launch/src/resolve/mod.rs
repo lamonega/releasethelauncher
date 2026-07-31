@@ -175,7 +175,10 @@ pub async fn resolve_dependencies(
             let url = if version.is_empty() {
                 format!("https://meta.prismlauncher.org/v1/{}/index.json", req.uid)
             } else {
-                format!("https://meta.prismlauncher.org/v1/{}/{version}.json", req.uid)
+                format!(
+                    "https://meta.prismlauncher.org/v1/{}/{version}.json",
+                    req.uid
+                )
             };
 
             if let Ok(resp) = resolver.http.get(&url).send().await {
