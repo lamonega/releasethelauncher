@@ -35,7 +35,7 @@ pub fn show(
             ui.separator();
 
             let instances: Vec<String> = app
-                .instance_manager
+                .coordinator.instance_manager
                 .list()
                 .iter()
                 .map(|i| i.id.clone())
@@ -49,7 +49,7 @@ pub fn show(
                 );
             } else {
                 for id in &instances {
-                    if let Some(instance) = app.instance_manager.get(id) {
+                    if let Some(instance) = app.coordinator.instance_manager.get(id) {
                         let is_selected =
                             selected_instance_id.as_deref() == Some(id.as_str());
 

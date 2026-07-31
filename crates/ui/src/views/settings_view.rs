@@ -50,13 +50,13 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Java Path (optional, leave empty for auto-detect):");
-    let mut java_path = app.global_settings.java_path.clone().unwrap_or_default();
+    let mut java_path = app.coordinator.global_settings.java_path.clone().unwrap_or_default();
     if ui.text_edit_singleline(&mut java_path).changed() {
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Java path changed to '{java_path}'"),
         );
-        app.global_settings.java_path = if java_path.is_empty() {
+        app.coordinator.global_settings.java_path = if java_path.is_empty() {
             None
         } else {
             Some(java_path)
@@ -67,7 +67,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
 
     ui.label("Memory Min:");
     let mut mem_min = app
-        .global_settings
+        .coordinator.global_settings
         .memory_min
         .clone()
         .unwrap_or_else(|| "1G".to_string());
@@ -76,12 +76,12 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
             crate::log::LogLevel::Info,
             &format!("UI: Memory min changed to '{mem_min}'"),
         );
-        app.global_settings.memory_min = Some(mem_min);
+        app.coordinator.global_settings.memory_min = Some(mem_min);
     }
 
     ui.label("Memory Max:");
     let mut mem_max = app
-        .global_settings
+        .coordinator.global_settings
         .memory_max
         .clone()
         .unwrap_or_else(|| "2G".to_string());
@@ -90,7 +90,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui) {
             crate::log::LogLevel::Info,
             &format!("UI: Memory max changed to '{mem_max}'"),
         );
-        app.global_settings.memory_max = Some(mem_max);
+        app.coordinator.global_settings.memory_max = Some(mem_max);
     }
 }
 
@@ -100,7 +100,7 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui) {
 
     if ui
         .checkbox(
-            &mut app.global_settings.close_after_launch,
+            &mut app.coordinator.global_settings.close_after_launch,
             "Close launcher after game starts",
         )
         .changed()
@@ -109,7 +109,7 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui) {
             crate::log::LogLevel::Info,
             &format!(
                 "UI: Close after launch toggled to {}",
-                app.global_settings.close_after_launch
+                app.coordinator.global_settings.close_after_launch
             ),
         );
     }
@@ -117,22 +117,22 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Pre-launch command:");
-    let mut pre = app.global_settings.pre_launch_command.clone();
+    let mut pre = app.coordinator.global_settings.pre_launch_command.clone();
     if ui.text_edit_singleline(&mut pre).changed() {
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Pre-launch command changed to '{pre}'"),
         );
-        app.global_settings.pre_launch_command = pre;
+        app.coordinator.global_settings.pre_launch_command = pre;
     }
 
     ui.label("Post-launch command:");
-    let mut post = app.global_settings.post_launch_command.clone();
+    let mut post = app.coordinator.global_settings.post_launch_command.clone();
     if ui.text_edit_singleline(&mut post).changed() {
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Post-launch command changed to '{post}'"),
         );
-        app.global_settings.post_launch_command = post;
+        app.coordinator.global_settings.post_launch_command = post;
     }
 }

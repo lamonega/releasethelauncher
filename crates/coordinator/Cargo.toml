@@ -1,0 +1,16 @@
+[package]
+name = "release-the-launcher-coordinator"
+version = "0.5.0"
+edition = "2021"
+description = "Application coordinator: owns state, orchestrates launch, mod and auth flows"
+
+[dependencies]
+release-the-launcher-core = { path = "../core" }
+release-the-launcher-auth = { path = "../auth" }
+release-the-launcher-mods = { path = "../mods" }
+release-the-launcher-launch = { path = "../launch" }
+tokio = { version = "1", features = ["full"] }
+chrono = "0.4"
+dirs = "5"
+reqwest = { version = "0.11", features = ["json"] }
+tracing = "0.1"

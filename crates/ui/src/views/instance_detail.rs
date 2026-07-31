@@ -46,7 +46,7 @@ pub fn show(
 ) {
     let id = instance_id.to_string();
 
-    let instance_data = app.instance_manager.get(&id).map(|instance| {
+    let instance_data = app.coordinator.instance_manager.get(&id).map(|instance| {
         (
             instance.settings.name.clone(),
             instance.settings.minecraft_version.clone(),
@@ -153,7 +153,7 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
                 crate::log::LogLevel::Info,
                 &format!("UI: Deleted instance '{}'", view.name),
             );
-            let _ = app.instance_manager.delete(&view.id.to_string());
+            let _ = app.coordinator.instance_manager.delete(&view.id.to_string());
             app.current_view = View::InstanceList;
             true
         }
@@ -241,7 +241,7 @@ fn show_info(
     ui.colored_label(app.theme.text_secondary, format!("Loader: {loader_name}"));
     ui.colored_label(app.theme.text_secondary, format!("Minecraft: {mc_version}"));
 
-    let gs = &app.global_settings;
+    let gs = &app.coordinator.global_settings;
 
     let java_display = match &java_settings.path {
         Some(p) if !p.trim().is_empty() => format!("{p} (Custom)"),
@@ -354,7 +354,7 @@ fn show_config(
             Some(tab_state.config_memory_max.trim().to_string())
         };
 
-        if let Err(e) = app.instance_manager.update_instance_java_settings(
+        if let Err(e) = app.coordinator.instance_manager.update_instance_java_settings(
             id,
             java_path,
             memory_min,
@@ -389,6 +389,7 @@ fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path: &st
 
     let target_key = format!("instance:{instance_id}");
     let buffer_entries: Vec<_> = app
+        .coordinator
         .log_buffer
         .entries()
         .into_iter()

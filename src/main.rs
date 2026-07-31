@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use release_the_launcher_coordinator::Coordinator;
 use release_the_launcher_ui::theme::Theme;
 use release_the_launcher_ui::{App, LauncherApp};
 
@@ -31,10 +32,11 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let theme = Theme::apply(&cc.egui_ctx);
-            let mut app = App::new();
+            let mut coordinator = Coordinator::new();
+            coordinator.attach_runtime(tokio::runtime::Handle::current());
+            let mut app = App::new(coordinator);
             app.theme = theme;
             app.ctx = Some(cc.egui_ctx.clone());
-            app.tokio_handle = Some(tokio::runtime::Handle::current());
             Box::new(LauncherApp::new(app))
         }),
     )

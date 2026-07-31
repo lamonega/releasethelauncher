@@ -5,6 +5,7 @@ members = [
     "crates/net",
     "crates/mods",
     "crates/launch",
+    "crates/coordinator",
     "crates/ui",
 ]
 resolver = "2"
@@ -31,6 +32,7 @@ release-the-launcher-auth = { path = "crates/auth" }
 release-the-launcher-net = { path = "crates/net" }
 release-the-launcher-mods = { path = "crates/mods" }
 release-the-launcher-launch = { path = "crates/launch" }
+release-the-launcher-coordinator = { path = "crates/coordinator" }
 release-the-launcher-ui = { path = "crates/ui" }
 egui = "0.27"
 eframe = "0.27"

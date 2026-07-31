@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::settings::InstanceSettings;
@@ -35,6 +35,11 @@ pub struct InstanceManager {
 }
 
 impl InstanceManager {
+    #[must_use]
+    pub fn instances_dir(&self) -> &Path {
+        &self.instances_dir
+    }
+
     #[must_use]
     pub fn new(instances_dir: PathBuf) -> Self {
         Self {

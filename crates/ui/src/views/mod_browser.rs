@@ -1,6 +1,5 @@
 use crate::App;
 use crate::View;
-use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs, SortOrder};
 
 #[derive(Default)]
 pub struct ModBrowserState {
@@ -17,7 +16,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
     process_messages(app, state);
 
     let (mc_version, loader_name) = app
-        .instance_manager
+        .coordinator.instance_manager
         .get(&id)
         .map(|inst| {
             (
@@ -101,47 +100,11 @@ fn trigger_search(
     mc_version: &str,
     loader_name: &str,
 ) {
-    let query = query_str.to_string();
-    let queue = app.ui_queue.clone();
-    let ctx = app.ctx.clone().expect("egui context not set");
-    let Some(handle) = app.tokio_handle.clone() else {
-        return;
-    };
-
-    let mc_versions = if mc_version.is_empty() {
-        vec![]
-    } else {
-        vec![mc_version.to_string()]
-    };
-
-    let loader_str = loader_name.to_lowercase();
-    let loader_clean = loader_str.split_whitespace().next().unwrap_or("");
-    let loaders = if loader_clean.is_empty() || loader_clean == "vanilla" {
-        vec![]
-    } else {
-        vec![loader_clean.to_string()]
-    };
-
-    handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
-        let args = SearchArgs {
-            query,
-            offset: 0,
-            limit: 20,
-            loaders,
-            mc_versions,
-            categories: vec![],
-            sort: SortOrder::Downloads,
-        };
-        let result = match provider.search(args).await {
-            Ok(results) => crate::UiMessage::ModrinthSearchResult(Ok(results)),
-            Err(e) => crate::UiMessage::ModrinthSearchResult(Err(e.to_string())),
-        };
-        if let Ok(mut q) = queue.lock() {
-            q.push(result);
-        }
-        ctx.request_repaint();
-    });
+    app.search_mods(
+        query_str.to_string(),
+        mc_version.to_string(),
+        loader_name.to_string(),
+    );
 }
 
 fn show_search(
@@ -222,7 +185,7 @@ fn show_results(
                         state.installing_mod_id = Some(project_id.clone());
                         state.install_status = format!("Installing {}...", result.name);
                         let mods_dir = app
-                            .instance_manager
+                            .coordinator.instance_manager
                             .get_mods_dir(&id.to_string())
                             .unwrap_or_default();
 

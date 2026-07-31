@@ -39,7 +39,10 @@ impl LauncherApp {
 
 impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        drain_ui_messages(self);
+        let live = drain_ui_messages(self);
+        if live {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         let mut navigate_to = None;
         toolbar::show(&self.app, &mut self.maximized, ctx, &mut navigate_to);
         status_bar::show(ctx, &self.app);
@@ -68,12 +71,22 @@ impl eframe::App for LauncherApp {
     }
 }
 
-pub fn drain_ui_messages(state: &mut LauncherApp) {
+/// Drains coordinator events into UI state. Returns true when a live event
+/// (log, progress, status, login) was handled, so the caller can keep
+/// repainting while flows run.
+pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
+    let mut live = false;
     let messages = state.app.drain_messages();
     for msg in messages {
         match msg {
-            UiMessage::Log(entry) => state.app.log_buffer.push(entry),
-            UiMessage::Status(s) => state.app.status_message = s,
+            UiMessage::Log(entry) => {
+                state.app.coordinator.log_buffer.push(entry);
+                live = true;
+            }
+            UiMessage::Status(s) => {
+                state.app.status_message = s;
+                live = true;
+            }
             UiMessage::DownloadProgress {
                 message,
                 done,
@@ -84,14 +97,17 @@ pub fn drain_ui_messages(state: &mut LauncherApp) {
                     completed: done,
                     total,
                 };
+                live = true;
             }
             UiMessage::DownloadComplete(msg) => {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = msg;
+                live = true;
             }
             UiMessage::DownloadError(err) => {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = format!("Download error: {err}");
+                live = true;
             }
             view_msg @ (UiMessage::ModrinthSearchResult(_)
             | UiMessage::ModrinthVersionsResult { .. }
@@ -112,6 +128,7 @@ pub fn drain_ui_messages(state: &mut LauncherApp) {
                     verification_uri,
                     message,
                 };
+                live = true;
             }
             UiMessage::MsLoginSuccess { account } => {
                 let name = account.display_name().to_string();
@@ -121,10 +138,11 @@ pub fn drain_ui_messages(state: &mut LauncherApp) {
                 );
                 state.login_state = LoginState::Idle;
                 let display_name = name;
-                state.app.account_list.add(*account);
-                let _ = state.app.account_list.save();
+                state.app.coordinator.account_list.add(*account);
+                let _ = state.app.coordinator.account_list.save();
                 state.app.status_message = format!("Logged in as {display_name}");
                 state.app.current_view = View::AccountList;
+                live = true;
             }
             UiMessage::MsLoginError(err) => {
                 state.app.log(
@@ -132,7 +150,14 @@ pub fn drain_ui_messages(state: &mut LauncherApp) {
                     &format!("UI: Microsoft Login failed: {err}"),
                 );
                 state.login_state = LoginState::MicrosoftError(err);
+                live = true;
+            }
+            UiMessage::RequestClose => {
+                if let Some(ctx) = &state.app.ctx {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         }
     }
+    live
 }

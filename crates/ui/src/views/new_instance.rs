@@ -174,7 +174,7 @@ fn handle_install_result(app: &mut App, state: &mut NewInstanceState, info: &str
             mc_version.to_string(),
             loader,
         );
-        let _ = app.instance_manager.create(name, settings);
+        let _ = app.coordinator.instance_manager.create(name, settings);
         app.status_message = format!("Installed modpack instance: {name}");
         app.current_view = View::InstanceList;
     } else {
@@ -423,7 +423,7 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceS
             loader,
         );
 
-        match app.instance_manager.create(&state.name, settings) {
+        match app.coordinator.instance_manager.create(&state.name, settings) {
             Ok(_) => {
                 app.log(
                     crate::log::LogLevel::Info,
@@ -596,10 +596,11 @@ fn show_modrinth_result_actions(app: &App, ui: &mut egui::Ui, state: &mut NewIns
             );
             state.installing_modpack_id = Some(result.id.clone());
             state.modrinth_status = format!("Installing {}...", result.name);
-            let base_dir = dirs::config_dir()
-                .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
-                .join("release-the-launcher")
-                .join("instances");
+            let base_dir = app
+                .coordinator
+                .instance_manager
+                .instances_dir()
+                .to_path_buf();
             app.install_modpack_as_instance(result.id.clone(), None, base_dir);
         }
 
@@ -709,14 +710,11 @@ fn show_modrinth_version_list(app: &App, ui: &mut egui::Ui, state: &mut NewInsta
                                         "Installing {} ({})...",
                                         result.name, ver.version_number
                                     );
-                                    let base_dir = dirs::config_dir()
-                                        .unwrap_or_else(|| {
-                                            dirs::home_dir()
-                                                .unwrap_or_default()
-                                                .join(".config")
-                                        })
-                                        .join("release-the-launcher")
-                                        .join("instances");
+                                    let base_dir = app
+                                        .coordinator
+                                        .instance_manager
+                                        .instances_dir()
+                                        .to_path_buf();
                                     app.install_modpack_as_instance(
                                         result.id.clone(),
                                         Some(ver.id.clone()),

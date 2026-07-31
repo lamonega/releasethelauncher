@@ -25,7 +25,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(app.theme.spacing.sm);
 
     let instances: Vec<String> = app
-        .instance_manager
+        .coordinator.instance_manager
         .list()
         .iter()
         .map(|i| i.id.clone())
@@ -39,7 +39,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     } else {
         for id in &instances {
-            if let Some(instance) = app.instance_manager.get(id) {
+            if let Some(instance) = app.coordinator.instance_manager.get(id) {
                 ui.horizontal(|ui| {
                     if ui
                         .button(format!(

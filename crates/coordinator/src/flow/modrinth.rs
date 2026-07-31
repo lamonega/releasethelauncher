@@ -1,24 +1,18 @@
-use std::sync::{Arc, Mutex};
-use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs};
-use crate::{Queue, UiMessage};
+use std::path::PathBuf;
+use std::sync::Arc;
 
-pub fn send_msg(queue: &Arc<Mutex<Vec<UiMessage>>>, ctx: &egui::Context, msg: UiMessage) {
-    if let Ok(mut q) = queue.lock() {
-        q.push(msg);
-    }
-    ctx.request_repaint();
-}
+use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs, SortOrder};
+
+use crate::{push_event, Event, Queue};
 
 pub fn search_modpacks(
     queue: &Queue,
-    ctx: &egui::Context,
     handle: &tokio::runtime::Handle,
     query: String,
     mc_version: String,
     loader: String,
 ) {
     let queue = Arc::clone(queue);
-    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let args = SearchArgs {
@@ -36,27 +30,63 @@ pub fn search_modpacks(
                 vec![mc_version]
             },
             categories: vec![],
-            sort: release_the_launcher_mods::SortOrder::Downloads,
+            sort: SortOrder::Downloads,
         };
         let result = match provider.search_modpacks(&args).await {
-            Ok(results) => UiMessage::ModrinthSearchResult(Ok(results)),
-            Err(e) => UiMessage::ModrinthSearchResult(Err(e.to_string())),
+            Ok(results) => Event::ModrinthSearchResult(Ok(results)),
+            Err(e) => Event::ModrinthSearchResult(Err(e.to_string())),
         };
-        send_msg(&queue, &ctx, result);
+        push_event(&queue, result);
+    });
+}
+
+pub fn search_mods(
+    queue: &Queue,
+    handle: &tokio::runtime::Handle,
+    query: String,
+    mc_version: String,
+    loader_name: String,
+) {
+    let queue = Arc::clone(queue);
+    handle.spawn(async move {
+        let provider = ModrinthProvider::new(None);
+        let mc_versions = if mc_version.is_empty() {
+            vec![]
+        } else {
+            vec![mc_version]
+        };
+        let loader_clean = loader_name.split_whitespace().next().unwrap_or("");
+        let loaders = if loader_clean.is_empty() || loader_clean == "vanilla" {
+            vec![]
+        } else {
+            vec![loader_clean.to_string()]
+        };
+        let args = SearchArgs {
+            query,
+            offset: 0,
+            limit: 20,
+            loaders,
+            mc_versions,
+            categories: vec![],
+            sort: SortOrder::Downloads,
+        };
+        let result = match provider.search(args).await {
+            Ok(results) => Event::ModrinthSearchResult(Ok(results)),
+            Err(e) => Event::ModrinthSearchResult(Err(e.to_string())),
+        };
+        push_event(&queue, result);
     });
 }
 
 pub fn install_mod(
     queue: &Queue,
-    ctx: &egui::Context,
     handle: &tokio::runtime::Handle,
     project_id: String,
-    mods_dir: std::path::PathBuf,
+    mods_dir: PathBuf,
     mc_version: Option<String>,
     loader_name: Option<String>,
 ) {
     let queue = Arc::clone(queue);
-    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let mc_versions = mc_version.map(|v| vec![v]).unwrap_or_default();
@@ -69,58 +99,54 @@ pub fn install_mod(
             Ok(versions) => {
                 if let Some(version) = versions.first() {
                     match provider.download_mod(version, &mods_dir).await {
-                        Ok(path) => UiMessage::ModrinthInstallResult(Ok(path
+                        Ok(path) => Event::ModrinthInstallResult(Ok(path
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_default())),
-                        Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
+                        Err(e) => Event::ModrinthInstallResult(Err(e.to_string())),
                     }
                 } else {
-                    UiMessage::ModrinthInstallResult(Err(
+                    Event::ModrinthInstallResult(Err(
                         "No compatible version found for this instance".into(),
                     ))
                 }
             }
-            Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
+            Err(e) => Event::ModrinthInstallResult(Err(e.to_string())),
         };
-        send_msg(&queue, &ctx, result);
+        push_event(&queue, result);
     });
 }
 
 pub fn fetch_modpack_versions(
     queue: &Queue,
-    ctx: &egui::Context,
     handle: &tokio::runtime::Handle,
     project_id: String,
 ) {
     let queue = Arc::clone(queue);
-    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let result = match provider.get_versions(&project_id, &[], &[]).await {
-            Ok(versions) => UiMessage::ModrinthVersionsResult {
+            Ok(versions) => Event::ModrinthVersionsResult {
                 project_id,
                 result: Ok(versions),
             },
-            Err(e) => UiMessage::ModrinthVersionsResult {
+            Err(e) => Event::ModrinthVersionsResult {
                 project_id,
                 result: Err(e.to_string()),
             },
         };
-        send_msg(&queue, &ctx, result);
+        push_event(&queue, result);
     });
 }
 
 pub fn install_modpack_as_instance(
     queue: &Queue,
-    ctx: &egui::Context,
     handle: &tokio::runtime::Handle,
     project_id: String,
     version_id: Option<String>,
-    instances_dir: std::path::PathBuf,
+    instances_dir: PathBuf,
 ) {
     let queue = Arc::clone(queue);
-    let ctx = ctx.clone();
     handle.spawn(async move {
         let provider = ModrinthProvider::new(None);
         let result = match provider
@@ -128,10 +154,10 @@ pub fn install_modpack_as_instance(
             .await
         {
             Ok((name, mc_ver, loader_str)) => {
-                UiMessage::ModrinthInstallResult(Ok(format!("{name}|{mc_ver}|{loader_str}")))
+                Event::ModrinthInstallResult(Ok(format!("{name}|{mc_ver}|{loader_str}")))
             }
-            Err(e) => UiMessage::ModrinthInstallResult(Err(e.to_string())),
+            Err(e) => Event::ModrinthInstallResult(Err(e.to_string())),
         };
-        send_msg(&queue, &ctx, result);
+        push_event(&queue, result);
     });
 }

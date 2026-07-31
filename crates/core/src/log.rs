@@ -14,7 +14,6 @@ pub struct LogEntry {
     pub target: String,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
     Trace,
