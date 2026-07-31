@@ -1,0 +1,8 @@
+[package]
+name = "release-the-launcher-constants"
+version = "0.6.0"
+edition = "2021"
+description = "Centralized constants for Release The Launcher"
+license = "MIT"
+
+[dependencies]

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::Token;
 
-const DEFAULT_MSA_CLIENT_ID: &str = "16e109ad-0414-46dc-8d0f-8d3d4201563c";
+use release_the_launcher_constants::urls;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -53,15 +53,10 @@ pub struct MsAuthFlow {
     http: Client,
 }
 
-const MS_DEVICE_CODE_URL: &str =
-    "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
-const MS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
-const MS_SCOPES: &str = "XboxLive.SignIn XboxLive.offline_access";
-
 impl MsAuthFlow {
     #[must_use]
     pub fn new_default() -> Self {
-        Self::new(DEFAULT_MSA_CLIENT_ID.to_string())
+        Self::new(urls::DEFAULT_MSA_CLIENT_ID.to_string())
     }
 
     #[must_use]
@@ -76,10 +71,13 @@ impl MsAuthFlow {
     ///
     /// Returns an error if the HTTP request or JSON deserialization fails.
     pub async fn request_device_code(&self) -> Result<DeviceCodeResponse, AuthError> {
-        let params = [("client_id", self.client_id.as_str()), ("scope", MS_SCOPES)];
+        let params = [
+            ("client_id", self.client_id.as_str()),
+            ("scope", urls::MS_SCOPES),
+        ];
         let resp = self
             .http
-            .post(MS_DEVICE_CODE_URL)
+            .post(urls::MS_DEVICE_CODE_URL)
             .form(&params)
             .send()
             .await?;
@@ -104,7 +102,12 @@ impl MsAuthFlow {
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", device_code),
             ];
-            let resp = self.http.post(MS_TOKEN_URL).form(&params).send().await?;
+            let resp = self
+                .http
+                .post(urls::MS_TOKEN_URL)
+                .form(&params)
+                .send()
+                .await?;
             let body: MsaTokenResponse = resp.json().await?;
 
             if let Some(err) = body.error.as_deref() {

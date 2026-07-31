@@ -60,36 +60,34 @@ pub struct XboxTokens {
     pub uhs: String,
 }
 
-const XBL_AUTH_URL: &str = "https://user.auth.xboxlive.com/user/authenticate";
-const XSTS_AUTH_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
+use release_the_launcher_constants::urls;
 
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails, JSON deserialization fails,
 /// or the Xbox Live / XSTS authentication returns an error.
 pub async fn get_xbox_tokens(
-    http: &Client,
+    client: &Client,
     msa_access_token: &str,
 ) -> Result<XboxTokens, AuthError> {
-    let xbl_body = serde_json::json!({
+    let xbl_payload = serde_json::json!({
         "Properties": {
             "AuthMethod": "RPS",
-            "RpsTicket": msa_access_token,
-            "SiteName": "user.auth.xboxlive.com"
+            "SiteName": "user.auth.xboxlive.com",
+            "RpsTicket": format!("d={msa_access_token}"),
         },
         "RelyingParty": "http://auth.xboxlive.com",
-        "TokenType": "JWT"
+        "TokenType": "JWT",
     });
 
-    let xbl_resp = http
-        .post(XBL_AUTH_URL)
-        .json(&xbl_body)
+    let resp = client
+        .post(urls::XBL_AUTH_URL)
+        .json(&xbl_payload)
         .send()
-        .await?
-        .json::<XblAuthResponse>()
         .await?;
+    let body: XblAuthResponse = resp.json().await?;
 
-    let uhs = xbl_resp
+    let uhs = body
         .display_claims
         .as_ref()
         .and_then(|dc| dc.xui.as_ref())
@@ -99,21 +97,25 @@ pub async fn get_xbox_tokens(
 
     let user_token = Token {
         issue_instant: now_unix(),
-        not_after: Some(now_unix() + 86400),
-        token: xbl_resp.token,
+        not_after: None,
+        token: body.token,
         refresh_token: None,
     };
 
-    let xsts_body = serde_json::json!({
+    let xsts_payload = serde_json::json!({
         "Properties": {
             "SandboxId": "RETAIL",
-            "UserTokens": [user_token.token]
+            "UserTokens": [user_token.token],
         },
         "RelyingParty": "rp://api.minecraftservices.com/",
-        "TokenType": "JWT"
+        "TokenType": "JWT",
     });
 
-    let xsts_resp = http.post(XSTS_AUTH_URL).json(&xsts_body).send().await?;
+    let xsts_resp = client
+        .post(urls::XSTS_AUTH_URL)
+        .json(&xsts_payload)
+        .send()
+        .await?;
 
     let status = xsts_resp.status();
     let body_text = xsts_resp.text().await?;

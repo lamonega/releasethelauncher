@@ -3545,6 +3545,7 @@ name = "release-the-launcher-auth"
 version = "0.6.0"
 dependencies = [
  "md-5",
+ "release-the-launcher-constants",
  "reqwest",
  "serde",
  "serde_json",
@@ -3552,6 +3553,10 @@ dependencies = [
  "tokio",
  "uuid",
 ]
+
+[[package]]
+name = "release-the-launcher-constants"
+version = "0.6.0"
 
 [[package]]
 name = "release-the-launcher-coordinator"

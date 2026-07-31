@@ -1,3 +1,4 @@
+use release_the_launcher_constants::urls;
 use reqwest::Client;
 
 use crate::minecraft::complete_microsoft_auth;
@@ -53,14 +54,10 @@ pub async fn refresh_account(
         ("client_id", client_id),
         ("grant_type", "refresh_token"),
         ("refresh_token", &refresh_token),
-        ("scope", "XboxLive.SignIn XboxLive.offline_access"),
+        ("scope", urls::MS_SCOPES),
     ];
 
-    let resp = http
-        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
-        .form(&params)
-        .send()
-        .await?;
+    let resp = http.post(urls::MS_TOKEN_URL).form(&params).send().await?;
 
     let body: serde_json::Value = resp.json().await?;
 

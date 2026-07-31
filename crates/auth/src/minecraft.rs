@@ -50,9 +50,7 @@ struct EntitlementItem {
     _signature: Option<String>,
 }
 
-const LAUNCHER_LOGIN_URL: &str = "https://api.minecraftservices.com/launcher/login";
-const MC_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
-const MC_ENTITLEMENT_URL: &str = "https://api.minecraftservices.com/launcher/license";
+use release_the_launcher_constants::urls;
 
 /// # Errors
 ///
@@ -66,7 +64,11 @@ pub async fn launcher_login(
         "platform": "PC_LAUNCHER"
     });
 
-    let resp = http.post(LAUNCHER_LOGIN_URL).json(&body).send().await?;
+    let resp = http
+        .post(urls::LAUNCHER_LOGIN_URL)
+        .json(&body)
+        .send()
+        .await?;
 
     let status = resp.status();
     let login_resp: LauncherLoginResponse = resp.json().await?;
@@ -101,7 +103,7 @@ pub async fn fetch_profile(
     mc_token: &str,
 ) -> Result<Option<MinecraftProfile>, AuthError> {
     let resp = http
-        .get(MC_PROFILE_URL)
+        .get(urls::MC_PROFILE_URL)
         .bearer_auth(mc_token)
         .send()
         .await?;
@@ -141,7 +143,7 @@ pub async fn fetch_profile(
 /// Returns an error if the HTTP request fails or the response cannot be deserialized.
 pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlement, AuthError> {
     let resp = http
-        .get(MC_ENTITLEMENT_URL)
+        .get(urls::MC_ENTITLEMENT_URL)
         .bearer_auth(mc_token)
         .send()
         .await?;
