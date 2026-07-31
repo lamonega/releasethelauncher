@@ -3522,7 +3522,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-the-launcher"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "eframe",
  "egui",
@@ -3542,7 +3542,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-auth"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "md-5",
  "reqwest",
@@ -3555,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-coordinator"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -3570,7 +3570,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3581,7 +3581,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-launch"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dirs",
  "hex",
@@ -3601,7 +3601,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-mods"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3620,7 +3620,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-net"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "futures",
  "hex",
@@ -3637,7 +3637,7 @@ dependencies = [
 
 [[package]]
 name = "release-the-launcher-ui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "eframe",
  "egui",
