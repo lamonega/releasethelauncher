@@ -2,10 +2,10 @@ use std::path::Path;
 
 use crate::download::DownloadManager;
 use crate::{LaunchError, LaunchProfile};
+use release_the_launcher_constants::urls;
 
 struct FmlLibSeed {
     sha1: &'static str,
-    url: &'static str,
 }
 
 // ponytail: fallback for jars that have no usable hash in fmlversion.properties
@@ -18,7 +18,6 @@ const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
     "1.5.2",
     FmlLibSeed {
         sha1: "446e55cd986582c70fcf12cb27bc00114c5adfd9",
-        url: "https://files.prismlauncher.org/fmllibs/deobfuscation_data_1.5.2.zip",
     },
 )];
 
@@ -50,13 +49,8 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     };
     let file_name = format!("deobfuscation_data_{mc}.zip");
-    let primary_url = seed.map_or_else(
-        || format!("https://files.prismlauncher.org/fmllibs/{file_name}"),
-        |s| s.url.to_string(),
-    );
-    let fallback_url = format!(
-        "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs/{file_name}"
-    );
+    let primary_url = format!("{}/{file_name}", urls::PRISM_FML_BASE);
+    let fallback_url = format!("{}/{file_name}", urls::WAYBACK_FML_BASE);
 
     let lib_dir = dirs::home_dir()
         .ok_or_else(|| LaunchError::Launch("could not resolve home directory".into()))?

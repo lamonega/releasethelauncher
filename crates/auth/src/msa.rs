@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::Token;
 
-use release_the_launcher_constants::urls;
+use release_the_launcher_constants::{auth, urls};
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -104,7 +104,7 @@ impl MsAuthFlow {
 
             let params = [
                 ("client_id", self.client_id.as_str()),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("grant_type", auth::GRANT_DEVICE_CODE),
                 ("device_code", device_code),
             ];
             let resp = self

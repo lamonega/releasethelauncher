@@ -197,7 +197,7 @@ impl ModrinthProvider {
         fs::create_dir_all(target_dir)?;
 
         // Stream to a temp file, then rename
-        let tmp_path = zip_path.with_extension("tmp");
+        let tmp_path = zip_path.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
         {
             let mut file = fs::File::create(&tmp_path)?;
             let mut stream = stream;
@@ -215,8 +215,8 @@ impl ModrinthProvider {
             let entry_path = entry.mangled_name();
             let name_str = entry_path.to_string_lossy();
 
-            if name_str == "modrinth.index.json" {
-                let out_path = target_dir.join("modrinth.index.json");
+            if name_str == release_the_launcher_constants::paths::MODRINTH_INDEX_FILE {
+                let out_path = target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
                 let mut out_file = fs::File::create(&out_path)?;
                 std::io::copy(&mut entry, &mut out_file)?;
                 continue;
@@ -229,7 +229,7 @@ impl ModrinthProvider {
             let first = components[0].as_os_str().to_string_lossy();
             if first == "overrides" || first == "client-overrides" {
                 let rel: PathBuf = components[1..].iter().collect();
-                let out_path = target_dir.join(".minecraft").join(rel);
+                let out_path = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(rel);
                 if entry.is_dir() {
                     fs::create_dir_all(&out_path)?;
                 } else {
@@ -259,7 +259,7 @@ impl ModrinthProvider {
         target_dir: &Path,
         progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), ModsError> {
-        let index_path = target_dir.join("modrinth.index.json");
+        let index_path = target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
         if !index_path.exists() {
             return Ok(());
         }
@@ -287,7 +287,7 @@ impl ModrinthProvider {
             total_bytes += size;
 
             if let Some(path_str) = file_obj.get("path").and_then(|p| p.as_str()) {
-                let dest = target_dir.join(".minecraft").join(path_str);
+                let dest = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(path_str);
                 if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
                     initial_downloaded += size;
                 }
@@ -297,7 +297,7 @@ impl ModrinthProvider {
         let total_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
         let downloaded_b =
             std::sync::Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
-        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
+        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(release_the_launcher_constants::net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
         let progress_cb = std::sync::Arc::new(progress);
         let mut tasks = Vec::new();
         let client = self.http.clone();
@@ -318,7 +318,7 @@ impl ModrinthProvider {
                 .unwrap_or(0);
 
             if let (Some(url), Some(path_str)) = (downloads, rel_path) {
-                let dest = target_dir.join(".minecraft").join(&path_str);
+                let dest = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(&path_str);
                 let display_name = Path::new(&path_str)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -417,11 +417,12 @@ impl ModrinthProvider {
 
         self.download_modpack(version, &instance_dir).await?;
 
-        let index_path = instance_dir.join("modrinth.index.json");
+        let index_path = instance_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
         let (mc_version, loader) = if index_path.exists() {
             let content = fs::read_to_string(&index_path)?;
             let index: serde_json::Value = serde_json::from_str(&content)?;
 
+            // TODO: Extract this fallback version to domain-specific configuration if needed.
             let fallback_mc = version
                 .mc_versions
                 .first()
@@ -478,11 +479,12 @@ impl ModrinthProvider {
                 "Vanilla".to_string()
             };
 
-            let mc_dir = instance_dir.join(".minecraft");
+            let mc_dir = instance_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR);
             fs::create_dir_all(&mc_dir)?;
 
             (mc_ver, loader)
         } else {
+            // TODO: Extract this fallback version to domain-specific configuration if needed.
             let fallback_mc = version
                 .mc_versions
                 .first()

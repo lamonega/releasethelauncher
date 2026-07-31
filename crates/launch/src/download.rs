@@ -7,7 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::platform;
 use crate::{LaunchError, Library};
-use release_the_launcher_constants::urls;
+use release_the_launcher_constants::{defaults, net, urls};
 
 pub struct DownloadManager {
     http: Client,
@@ -171,7 +171,7 @@ impl DownloadManager {
 
         let total_bytes = Arc::new(AtomicU64::new(initial_downloaded));
         let downloaded_bytes = Arc::new(AtomicU64::new(initial_downloaded));
-        let semaphore = Arc::new(Semaphore::new(16));
+        let semaphore = Arc::new(Semaphore::new(net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
         let progress_cb = Arc::new(progress);
 
         let mut tasks = Vec::new();
@@ -194,7 +194,7 @@ impl DownloadManager {
             };
 
             let exists_ok = full_local_path.exists()
-                && full_local_path.metadata().is_ok_and(|m| m.len() >= 1000);
+                && full_local_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE);
 
             let Some(url) = Self::maven_url_for_library(lib) else {
                 warn!(
@@ -245,7 +245,7 @@ impl DownloadManager {
         for lib in applicable {
             if let Some(ref p) = Self::local_path_for_library(lib) {
                 let full_path = self.libraries_dir.join(p);
-                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= 1000) {
+                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE) {
                     let size = full_path.metadata().map_or(0, |m| m.len());
                     initial_downloaded += size;
                 }
@@ -474,7 +474,7 @@ impl DownloadManager {
 
             let total_b = Arc::new(AtomicU64::new(total_bytes));
             let downloaded_b = Arc::new(AtomicU64::new(initial_downloaded));
-            let semaphore = Arc::new(Semaphore::new(16));
+            let semaphore = Arc::new(Semaphore::new(net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
             let progress_cb = Arc::new(progress);
 
             let mut tasks = Vec::new();
@@ -513,7 +513,7 @@ impl DownloadManager {
                         debug!(asset = %name_clone, hash = %hash, "Asset object already cached");
                     } else if let Ok(_permit) = sem.acquire().await {
                         let url =
-                            format!("https://resources.download.minecraft.net/{prefix}/{hash}");
+                            format!("{}/{prefix}/{hash}", urls::MOJANG_RESOURCES);
                         if let Some(parent) = target_path.parent() {
                             let _ = std::fs::create_dir_all(parent);
                         }
@@ -558,7 +558,7 @@ impl DownloadManager {
         url: &str,
         expected_sha1: Option<&str>,
     ) -> Result<(), LaunchError> {
-        if target_path.exists() && target_path.metadata().is_ok_and(|m| m.len() > 1000) {
+        if target_path.exists() && target_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE) {
             debug!(path = %target_path.display(), "Client JAR already cached, skipping download");
             return Ok(());
         }

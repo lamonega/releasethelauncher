@@ -1,4 +1,4 @@
-use release_the_launcher_constants::urls;
+use release_the_launcher_constants::{auth, defaults, urls};
 use reqwest::Client;
 
 use crate::minecraft::complete_microsoft_auth;
@@ -6,8 +6,6 @@ use crate::msa::{now_unix, token_from_msa_tokens, MsaTokens};
 use crate::xbox::get_xbox_tokens;
 use crate::AuthError;
 use crate::{AccountData, AccountType};
-
-const TOKEN_EXPIRY_BUFFER: u64 = 43_200; // 12 hours
 
 #[must_use]
 pub fn needs_refresh(account: &AccountData) -> bool {
@@ -22,7 +20,7 @@ pub fn needs_refresh(account: &AccountData) -> bool {
 
         msa_token.not_after.is_none_or(|not_after| {
             let now = now_unix();
-            not_after < now + TOKEN_EXPIRY_BUFFER
+            not_after < now + defaults::TOKEN_EXPIRY_BUFFER
         })
     } else {
         false
@@ -52,7 +50,7 @@ pub async fn refresh_account(
 
     let params = [
         ("client_id", client_id),
-        ("grant_type", "refresh_token"),
+        ("grant_type", auth::GRANT_REFRESH_TOKEN),
         ("refresh_token", &refresh_token),
         ("scope", urls::MS_SCOPES),
     ];
@@ -86,7 +84,7 @@ pub async fn refresh_account(
     let expires_in = body
         .get("expires_in")
         .and_then(serde_json::Value::as_u64)
-        .unwrap_or(3600);
+        .unwrap_or(defaults::TOKEN_TTL_1H);
 
     let msa_tokens = MsaTokens {
         access_token,

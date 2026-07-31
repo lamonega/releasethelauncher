@@ -60,7 +60,7 @@ pub struct XboxTokens {
     pub uhs: String,
 }
 
-use release_the_launcher_constants::urls;
+use release_the_launcher_constants::{auth, defaults, urls};
 
 /// # Errors
 ///
@@ -73,10 +73,10 @@ pub async fn get_xbox_tokens(
     let xbl_payload = serde_json::json!({
         "Properties": {
             "AuthMethod": "RPS",
-            "SiteName": "user.auth.xboxlive.com",
+            "SiteName": urls::XBOX_SITE_NAME,
             "RpsTicket": format!("d={msa_access_token}"),
         },
-        "RelyingParty": "http://auth.xboxlive.com",
+        "RelyingParty": urls::XBOX_RELYING_PARTY,
         "TokenType": "JWT",
     });
 
@@ -104,10 +104,10 @@ pub async fn get_xbox_tokens(
 
     let xsts_payload = serde_json::json!({
         "Properties": {
-            "SandboxId": "RETAIL",
+            "SandboxId": auth::XSTS_SANDBOX_ID,
             "UserTokens": [user_token.token],
         },
-        "RelyingParty": "rp://api.minecraftservices.com/",
+        "RelyingParty": auth::XSTS_RELYING_PARTY,
         "TokenType": "JWT",
     });
 
@@ -125,33 +125,33 @@ pub async fn get_xbox_tokens(
             let code = err_resp.xerr.unwrap_or(0);
             let msg = err_resp.message.unwrap_or_default();
             match code {
-                2_148_916_233 => {
+                auth::XERR_NO_PROFILE => {
                     return Err(AuthError::Flow(
                         "No Xbox Live profile found. Please create one at xbox.com".into(),
                     ))
                 }
-                2_148_916_235 => {
+                auth::XERR_BLOCKED_REGION => {
                     return Err(AuthError::Flow(
                         "This account is blocked in your region".into(),
                     ))
                 }
-                2_148_916_238 => {
+                auth::XERR_UNDER_AGE => {
                     return Err(AuthError::Flow(
                         "This account is under age and cannot sign in".into(),
                     ))
                 }
-                2_148_916_236 => {
+                auth::XERR_AGE_PROOF => {
                     return Err(AuthError::Flow("This account requires age proof".into()))
                 }
-                2_148_916_227 => {
+                auth::XERR_BANNED => {
                     return Err(AuthError::Flow("This account has been banned".into()))
                 }
-                2_148_916_229 => {
+                auth::XERR_RESTRICTED => {
                     return Err(AuthError::Flow(
                         "This account is restricted by a guardian".into(),
                     ))
                 }
-                2_148_916_234 => {
+                auth::XERR_TOS => {
                     return Err(AuthError::Flow(
                         "You must accept the Xbox Terms of Service".into(),
                     ))
@@ -167,7 +167,7 @@ pub async fn get_xbox_tokens(
     let xsts: XstsAuthResponse = serde_json::from_str(&body_text)?;
     let xsts_token = Token {
         issue_instant: now_unix(),
-        not_after: Some(now_unix() + 86400),
+        not_after: Some(now_unix() + defaults::TOKEN_TTL_24H),
         token: xsts.token,
         refresh_token: None,
     };

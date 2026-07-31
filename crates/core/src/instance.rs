@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::settings::{InstanceSettings, SettingsError};
+use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
 
@@ -63,7 +64,7 @@ impl InstanceManager {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() {
-                    let config_path = path.join("instance.toml");
+                    let config_path = path.join(paths::INSTANCE_CONFIG_FILE_NAME);
                     if config_path.exists() {
                         let settings = InstanceSettings::load(&config_path)?;
                         let id = path.file_name().map_or_else(
@@ -105,13 +106,13 @@ impl InstanceManager {
         }
 
         let instance_dir = self.instances_dir.join(&id);
-        let minecraft_dir = instance_dir.join(".minecraft");
-        let mods_dir = minecraft_dir.join("mods");
-        let config_dir = minecraft_dir.join("config");
-        let saves_dir = minecraft_dir.join("saves");
-        let resourcepacks_dir = minecraft_dir.join("resourcepacks");
-        let index_dir = instance_dir.join(".index");
-        let server_resource_packs_dir = minecraft_dir.join("server-resource-packs");
+        let minecraft_dir = instance_dir.join(paths::MINECRAFT_DIR);
+        let mods_dir = minecraft_dir.join(paths::MODS_DIR);
+        let config_dir = minecraft_dir.join(paths::CONFIG_DIR);
+        let saves_dir = minecraft_dir.join(paths::SAVES_DIR);
+        let resourcepacks_dir = minecraft_dir.join(paths::RESOURCE_PACKS_DIR);
+        let index_dir = instance_dir.join(paths::INDEX_DIR);
+        let server_resource_packs_dir = minecraft_dir.join(paths::SERVER_RESOURCE_PACKS_DIR);
 
         fs::create_dir_all(&mods_dir)?;
         fs::create_dir_all(&config_dir)?;
@@ -120,7 +121,7 @@ impl InstanceManager {
         fs::create_dir_all(&index_dir)?;
         fs::create_dir_all(&server_resource_packs_dir)?;
 
-        let config_path = instance_dir.join("instance.toml");
+        let config_path = instance_dir.join(paths::INSTANCE_CONFIG_FILE_NAME);
         settings.save(&config_path)?;
 
         let instance = Instance {
@@ -164,12 +165,12 @@ impl InstanceManager {
     pub fn get_mods_dir(&self, id: &InstanceId) -> Option<PathBuf> {
         self.instances
             .get(id)
-            .map(|i| i.root.join(".minecraft").join("mods"))
+            .map(|i| i.root.join(paths::MINECRAFT_DIR).join(paths::MODS_DIR))
     }
 
     #[must_use = "Returns the index directory path for the given instance, or None if not found"]
     pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances.get(id).map(|i| i.root.join(".index"))
+        self.instances.get(id).map(|i| i.root.join(paths::INDEX_DIR))
     }
 
     /// Updates and saves Java settings for a specific instance.
@@ -192,7 +193,7 @@ impl InstanceManager {
         instance.settings.java.path = path;
         instance.settings.java.memory_min = memory_min;
         instance.settings.java.memory_max = memory_max;
-        let config_path = instance.root.join("instance.toml");
+        let config_path = instance.root.join(paths::INSTANCE_CONFIG_FILE_NAME);
         instance.settings.save(&config_path)?;
         Ok(())
     }

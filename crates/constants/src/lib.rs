@@ -66,4 +66,21 @@ pub mod urls {
     pub const WAYBACK_FML_BASE: &str =
         "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs";
     pub const S3_MINECRAFT_INDEXES: &str = "https://s3.amazonaws.com/Minecraft.Download/indexes";
+    pub const XBOX_SITE_NAME: &str = "user.auth.xboxlive.com";
+    pub const XBOX_RELYING_PARTY: &str = "http://auth.xboxlive.com";
+}
+
+pub mod auth {
+    pub const GRANT_DEVICE_CODE: &str = "urn:ietf:params:oauth:grant-type:device_code";
+    pub const GRANT_REFRESH_TOKEN: &str = "refresh_token";
+    pub const XSTS_SANDBOX_ID: &str = "RETAIL";
+    pub const XSTS_RELYING_PARTY: &str = "rp://api.minecraftservices.com/";
+
+    pub const XERR_NO_PROFILE: u64 = 2_148_916_233;
+    pub const XERR_BLOCKED_REGION: u64 = 2_148_916_235;
+    pub const XERR_UNDER_AGE: u64 = 2_148_916_238;
+    pub const XERR_AGE_PROOF: u64 = 2_148_916_236;
+    pub const XERR_BANNED: u64 = 2_148_916_227;
+    pub const XERR_RESTRICTED: u64 = 2_148_916_229;
+    pub const XERR_TOS: u64 = 2_148_916_234;
 }
