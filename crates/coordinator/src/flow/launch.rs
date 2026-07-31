@@ -6,8 +6,8 @@ use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::settings::ModLoader;
 use release_the_launcher_launch::assets::AssetManager;
 use release_the_launcher_launch::{
-    assemble_launch_profile, build_command, AssetIndex, DependencyResolver, DownloadManager,
-    LaunchProfile, PlayerAuth,
+    assemble_launch_profile, build_command, ensure_fml_deobfuscation_data, AssetIndex,
+    DependencyResolver, DownloadManager, LaunchProfile, PlayerAuth,
 };
 
 use crate::log::LogLevel;
@@ -208,6 +208,19 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         "Checking & downloading required game libraries...",
     );
     download_game_files(&params.queue, &params.instance_root, &profile).await;
+
+    send_log(
+        &params.queue,
+        LogLevel::Info,
+        "Checking legacy FML runtime libraries...",
+    );
+    if let Err(e) = ensure_fml_deobfuscation_data(&profile).await {
+        send_log(
+            &params.queue,
+            LogLevel::Error,
+            format!("Failed to prepare FML libraries: {e}"),
+        );
+    }
 
     send_log(
         &params.queue,
