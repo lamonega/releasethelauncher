@@ -48,6 +48,51 @@ pub fn extract_zip_to_dir(zip_path: &Path, target_dir: &Path) -> Result<(), Arch
     Ok(())
 }
 
+/// Extracts a ZIP archive to the target directory, skipping entries for which `should_exclude` returns true.
+///
+/// # Errors
+///
+/// Returns [`ArchiveError`] if extraction fails or path traversal is detected.
+pub fn extract_zip_with_filter<F>(
+    zip_path: &Path,
+    target_dir: &Path,
+    should_exclude: F,
+) -> Result<Vec<String>, ArchiveError>
+where
+    F: Fn(&str) -> bool,
+{
+    let file = fs::File::open(zip_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    let mut extracted = Vec::new();
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+
+        if should_exclude(&name) {
+            continue;
+        }
+
+        let outpath = match entry.enclosed_name() {
+            Some(path) => target_dir.join(path),
+            None => return Err(ArchiveError::PathTraversal(name)),
+        };
+
+        if entry.is_dir() {
+            fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut outfile = fs::File::create(&outpath)?;
+            io::copy(&mut entry, &mut outfile)?;
+            extracted.push(name);
+        }
+    }
+
+    Ok(extracted)
+}
+
 /// Reads the raw bytes of a named entry inside a reader containing ZIP archive data.
 ///
 /// # Errors

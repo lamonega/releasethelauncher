@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use zip::ZipArchive;
 
 use crate::download::DownloadManager;
 use crate::{LaunchError, Library};
@@ -112,42 +111,17 @@ fn extract_jar_to_dir(
     target_dir: &Path,
     custom_excludes: &[String],
 ) -> Result<Vec<String>, LaunchError> {
-    let file = fs::File::open(jar_path)?;
-    let mut archive = ZipArchive::new(file)?;
-
     let default_exclude_dirs = ["META-INF/"];
-    let mut extracted_names = Vec::new();
+    let extracted =
+        release_the_launcher_core::archive::extract_zip_with_filter(jar_path, target_dir, |name| {
+            default_exclude_dirs.iter().any(|d| name.starts_with(d))
+                || custom_excludes.iter().any(|ex| name.starts_with(ex))
+        })
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-
-        if default_exclude_dirs.iter().any(|d| name.starts_with(d)) {
-            continue;
-        }
-
-        if custom_excludes.iter().any(|ex| name.starts_with(ex)) {
-            continue;
-        }
-
-        if entry.is_dir() {
-            continue;
-        }
-
-        let outpath = target_dir.join(&name);
-
-        if let Some(parent) = outpath.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let mut outfile = fs::File::create(&outpath)?;
-        std::io::copy(&mut entry, &mut outfile)?;
-        extracted_names.push(name.clone());
-
-        // Support LWJGL 2.x/3.x nested native binaries:
-        // If it's a dynamic binary (.dll, .so, .dylib) inside a subfolder,
-        // also extract/copy it to target_dir root if target_dir/filename doesn't exist yet.
-        let entry_path = Path::new(&name);
+    for name in &extracted {
+        let outpath = target_dir.join(name);
+        let entry_path = Path::new(name);
         if let Some(file_name) = entry_path.file_name() {
             if is_native_binary(entry_path) {
                 let root_target = target_dir.join(file_name);
@@ -163,7 +137,7 @@ fn extract_jar_to_dir(
         }
     }
 
-    Ok(extracted_names)
+    Ok(extracted)
 }
 
 #[cfg(test)]
