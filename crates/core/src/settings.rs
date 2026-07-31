@@ -1,7 +1,18 @@
+use release_the_launcher_constants::defaults;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
+use std::io;
 use std::path::Path;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SettingsError {
+    #[error("IO error reading settings: {0}")]
+    Io(#[from] io::Error),
+    #[error("TOML parse error: {0}")]
+    Parse(#[from] toml::de::Error),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModLoader {
@@ -55,7 +66,7 @@ impl InstanceSettings {
     #[must_use = "Creates a new InstanceSettings with default Java settings"]
     pub fn new(name: String, minecraft_version: String, loader: ModLoader) -> Self {
         Self {
-            format_version: 1,
+            format_version: defaults::SETTINGS_FORMAT_VERSION,
             name,
             minecraft_version,
             last_launch_time: None,
@@ -72,9 +83,9 @@ impl InstanceSettings {
     /// # Errors
     ///
     /// Returns an error if the file cannot be read or the content cannot be parsed as TOML.
-    pub fn load(path: &Path) -> Result<Self, toml::de::Error> {
-        let content = fs::read_to_string(path).unwrap_or_default();
-        toml::from_str(&content)
+    pub fn load(path: &Path) -> Result<Self, SettingsError> {
+        let content = std::fs::read_to_string(path).map_err(SettingsError::Io)?;
+        toml::from_str(&content).map_err(SettingsError::Parse)
     }
 
     /// Saves instance settings to a TOML file.
@@ -114,10 +125,10 @@ pub struct GlobalSettings {
 impl Default for GlobalSettings {
     fn default() -> Self {
         Self {
-            format_version: 1,
+            format_version: defaults::SETTINGS_FORMAT_VERSION,
             java_path: None,
-            memory_min: Some("1G".to_string()),
-            memory_max: Some("2G".to_string()),
+            memory_min: Some(defaults::DEFAULT_MEMORY_MIN.to_string()),
+            memory_max: Some(defaults::DEFAULT_MEMORY_MAX.to_string()),
             close_after_launch: false,
             pre_launch_command: String::new(),
             post_launch_command: String::new(),
@@ -128,8 +139,21 @@ impl Default for GlobalSettings {
 impl GlobalSettings {
     #[must_use]
     pub fn load(path: &Path) -> Self {
-        let content = fs::read_to_string(path).unwrap_or_default();
-        toml::from_str(&content).unwrap_or_default()
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Self::default(),
+            Err(e) => {
+                log::warn!("Failed to read settings file {}: {e}", path.display());
+                return Self::default();
+            }
+        };
+        match toml::from_str(&content) {
+            Ok(settings) => settings,
+            Err(e) => {
+                log::warn!("Failed to parse settings file {}: {e}", path.display());
+                Self::default()
+            }
+        }
     }
 
     /// # Errors

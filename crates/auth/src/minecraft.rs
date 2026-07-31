@@ -5,6 +5,7 @@ use crate::msa::now_unix;
 use crate::xbox::XboxTokens;
 use crate::AuthError;
 use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
+use release_the_launcher_constants::{defaults, urls};
 
 #[derive(Debug, Deserialize)]
 struct LauncherLoginResponse {
@@ -50,8 +51,6 @@ struct EntitlementItem {
     _signature: Option<String>,
 }
 
-use release_the_launcher_constants::urls;
-
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails or the launcher login response is invalid.
@@ -87,7 +86,7 @@ pub async fn launcher_login(
 
     let mc_token = Token {
         issue_instant: now_unix(),
-        not_after: Some(now_unix() + 86400),
+        not_after: Some(now_unix() + defaults::TOKEN_TTL_24H),
         token: access_token.clone(),
         refresh_token: None,
     };
@@ -112,11 +111,15 @@ pub async fn fetch_profile(
         return Ok(None);
     }
 
+    if !resp.status().is_success() {
+        return Err(AuthError::Http(resp.error_for_status().unwrap_err()));
+    }
+
     let profile: ProfileResponse = resp.json().await?;
 
     let skin_url = profile.skins.as_ref().and_then(|s| s.first()).map(|s| {
         let url = s.url.clone();
-        if url.starts_with("http://textures.minecraft.net") {
+        if url.starts_with(urls::MC_TEXTURES_HTTP) {
             url.replacen("http://", "https://", 1)
         } else {
             url
@@ -148,18 +151,14 @@ pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlem
         .send()
         .await?;
 
-    let entitlement_resp: EntitlementResponse = resp
-        .json()
-        .await
-        .unwrap_or(EntitlementResponse { items: None });
+    let entitlement_resp: EntitlementResponse = resp.json().await?;
 
     let items = entitlement_resp.items.unwrap_or_default();
-    let owns = items.iter().any(|i| i.name == "game_minecraft");
-    let can_play = items.iter().any(|i| i.name == "game_minecraft");
+    let owns = items.iter().any(|i| i.name == urls::MC_ENTITLEMENT_NAME);
 
     Ok(Entitlement {
         owns_minecraft: owns,
-        can_play_minecraft: can_play,
+        can_play_minecraft: owns,
     })
 }
 

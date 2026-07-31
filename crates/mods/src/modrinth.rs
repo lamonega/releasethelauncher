@@ -335,17 +335,31 @@ impl ModrinthProvider {
                         let Ok(_permit) = sem.acquire().await else {
                             return;
                         };
-                        if let Ok(resp) = client.get(&url).send().await {
-                            if resp.status().is_success() {
-                                if let Ok(bytes) = resp.bytes().await {
-                                    if let Some(parent) = dest.parent() {
-                                        let _ = fs::create_dir_all(parent);
-                                    }
-
-                                    let tmp = dest.with_extension("tmp");
-                                    let _ = fs::write(&tmp, &bytes);
-                                    let _ = fs::rename(&tmp, &dest);
+                        let resp = match client.get(&url).send().await {
+                            Ok(r) if r.status().is_success() => r,
+                            Ok(r) => {
+                                log::warn!("Download failed for {display_name}: HTTP {}", r.status());
+                                return;
+                            }
+                            Err(e) => {
+                                log::warn!("Download error for {display_name}: {e}");
+                                return;
+                            }
+                        };
+                        match resp.bytes().await {
+                            Ok(bytes) => {
+                                if let Some(parent) = dest.parent() {
+                                    let _ = fs::create_dir_all(parent);
                                 }
+                                let tmp = dest.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
+                                if let Err(e) = fs::write(&tmp, &bytes).and_then(|_| fs::rename(&tmp, &dest)) {
+                                    log::warn!("Failed to write {display_name}: {e}");
+                                    return;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to read bytes for {display_name}: {e}");
+                                return;
                             }
                         }
                     }
@@ -359,7 +373,9 @@ impl ModrinthProvider {
         }
 
         for task in tasks {
-            let _ = task.await;
+            if let Err(e) = task.await {
+                log::warn!("A download task panicked: {e}");
+            }
         }
 
         Ok(())

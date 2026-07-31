@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::settings::InstanceSettings;
+use crate::settings::{InstanceSettings, SettingsError};
 
 pub type InstanceId = String;
 
@@ -21,6 +21,8 @@ pub enum CoreError {
     InstanceNotFound(String),
     #[error("Instance '{0}' already exists")]
     InstanceAlreadyExists(String),
+    #[error("Settings error: {0}")]
+    Settings(#[from] SettingsError),
 }
 
 pub struct Instance {

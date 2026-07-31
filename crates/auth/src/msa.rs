@@ -119,7 +119,9 @@ impl MsAuthFlow {
                 match err {
                     "authorization_pending" => continue,
                     "slow_down" => {
-                        interval += Duration::from_secs(5);
+                        interval += std::time::Duration::from_secs(
+                            release_the_launcher_constants::defaults::SLOW_DOWN_DELAY_SECS,
+                        );
                         continue;
                     }
                     "authorization_declined" => {
@@ -160,14 +162,11 @@ impl MsAuthFlow {
     }
 }
 
-/// # Panics
-///
-/// Panics if the system clock is before the UNIX epoch.
 #[must_use]
 pub fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs()
 }
 

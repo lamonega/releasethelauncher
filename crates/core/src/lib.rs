@@ -10,4 +10,4 @@ pub use archive::{
 pub use hash::{compute_sha1_bytes, compute_sha1_file, compute_sha256_bytes, compute_sha256_file};
 pub use instance::{CoreError, Instance, InstanceId, InstanceManager};
 pub use log::{LogBuffer, LogEntry, LogLevel};
-pub use settings::{GlobalSettings, InstanceSettings, JavaSettings, ModLoader};
+pub use settings::{GlobalSettings, InstanceSettings, JavaSettings, ModLoader, SettingsError};

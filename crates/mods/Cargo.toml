@@ -21,4 +21,5 @@ hex = "0.4"
 release-the-launcher-constants = { path = "../constants" }
 release-the-launcher-core = { path = "../core" }
 release-the-launcher-net = { path = "../net" }
+log = "0.4"
 

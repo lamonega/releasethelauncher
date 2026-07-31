@@ -3581,6 +3581,7 @@ name = "release-the-launcher-core"
 version = "0.6.0"
 dependencies = [
  "hex",
+ "log",
  "release-the-launcher-constants",
  "serde",
  "serde_json",
@@ -3620,6 +3621,7 @@ dependencies = [
  "async-trait",
  "futures",
  "hex",
+ "log",
  "release-the-launcher-constants",
  "release-the-launcher-core",
  "release-the-launcher-net",

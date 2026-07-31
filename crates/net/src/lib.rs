@@ -68,8 +68,16 @@ impl HttpClientProvider {
 
 impl Default for HttpClientProvider {
     fn default() -> Self {
-        Self::new().unwrap_or_else(|_| Self {
-            client: reqwest::Client::new(),
+        Self::new().unwrap_or_else(|_| {
+            // Fallback: best-effort client preserving User-Agent and timeout.
+            let client = reqwest::Client::builder()
+                .user_agent(release_the_launcher_constants::net::USER_AGENT)
+                .timeout(std::time::Duration::from_secs(
+                    release_the_launcher_constants::net::NET_TIMEOUT_SECS,
+                ))
+                .build()
+                .unwrap_or_default();
+            Self::with_client(client)
         })
     }
 }
@@ -189,7 +197,7 @@ async fn execute_download(
             }
 
             let dest = if *atomic {
-                path.with_extension("tmp")
+                path.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT)
             } else {
                 path.clone()
             };
@@ -256,7 +264,7 @@ async fn execute_download(
             if let Some(validator) = task.validator.take() {
                 let computed = validator.finalize()?;
                 if let Some(ref expected) = task.expected_hash {
-                    if computed != *expected {
+                    if !computed.eq_ignore_ascii_case(expected) {
                         return Err(NetError::ChecksumMismatch {
                             expected: expected.clone(),
                             actual: computed,

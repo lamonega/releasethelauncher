@@ -419,14 +419,14 @@ fn stderr_level(line: &str) -> LogLevel {
 }
 
 async fn download_modpack_mods(params: &LaunchParams) {
-    let index_path = params.instance_root.join("modrinth.index.json");
+    let index_path = params.instance_root.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
     if !index_path.exists() {
         return;
     }
     send_log(&params.queue, LogLevel::Info, "Downloading modpack mods...");
     let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
     let progress_queue = params.queue.clone();
-    let _ = mod_manager
+    if let Err(e) = mod_manager
         .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
             let _ = progress_queue.lock().map(|mut q| {
                 q.push(Event::DownloadProgress {
@@ -436,7 +436,14 @@ async fn download_modpack_mods(params: &LaunchParams) {
                 });
             });
         })
-        .await;
+        .await
+    {
+        send_log(
+            &params.queue,
+            LogLevel::Warn,
+            &format!("Modpack download encountered errors: {e}"),
+        );
+    }
 }
 
 async fn run_pre_launch(params: &LaunchParams) -> Result<(), ()> {
