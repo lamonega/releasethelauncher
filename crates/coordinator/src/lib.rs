@@ -149,7 +149,9 @@ impl Coordinator {
 
     pub fn log(&self, level: log::LogLevel, message: &str) {
         let entry = log::LogEntry {
-            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+            timestamp: chrono::Local::now()
+                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
+                .to_string(),
             level,
             message: message.to_string(),
             target: String::new(),
@@ -218,6 +220,7 @@ impl Coordinator {
         ) = inst;
 
         let id_str = instance_id.to_string();
+        let http = self.http_provider.clone_client();
         handle.spawn(async move {
             do_launch(LaunchParams {
                 queue,
@@ -232,6 +235,7 @@ impl Coordinator {
                 pre_launch_command,
                 post_launch_command,
                 close_after_launch,
+                http,
             })
             .await;
         });
@@ -258,7 +262,7 @@ impl Coordinator {
         let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
-        flow::modrinth::search_modpacks(&queue, &handle, query, mc_version, loader);
+        flow::modrinth::search_modpacks(&queue, &handle, query, mc_version, loader, self.http_provider.clone_client());
     }
 
     pub fn search_mods(&self, query: String, mc_version: String, loader_name: String) {
@@ -266,7 +270,7 @@ impl Coordinator {
         let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
-        flow::modrinth::search_mods(&queue, &handle, query, mc_version, loader_name);
+        flow::modrinth::search_mods(&queue, &handle, query, mc_version, loader_name, self.http_provider.clone_client());
     }
 
     pub fn install_mod(
@@ -287,6 +291,7 @@ impl Coordinator {
             mods_dir,
             mc_version,
             loader_name,
+            self.http_provider.clone_client(),
         );
     }
 
@@ -295,7 +300,7 @@ impl Coordinator {
         let Some(handle) = self.tokio_handle.clone() else {
             return;
         };
-        flow::modrinth::fetch_modpack_versions(&queue, &handle, project_id);
+        flow::modrinth::fetch_modpack_versions(&queue, &handle, project_id, self.http_provider.clone_client());
     }
 
     pub fn install_modpack_as_instance(
@@ -314,6 +319,7 @@ impl Coordinator {
             project_id,
             version_id,
             instances_dir,
+            self.http_provider.clone_client(),
         );
     }
 

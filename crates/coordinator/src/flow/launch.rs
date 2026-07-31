@@ -26,6 +26,7 @@ pub struct LaunchParams {
     pub pre_launch_command: String,
     pub post_launch_command: String,
     pub close_after_launch: bool,
+    pub http: reqwest::Client,
 }
 
 pub fn extract_account_data(account_list: &AccountList) -> Option<(String, String, String)> {
@@ -52,7 +53,9 @@ pub fn send_log_with_target(
     push_event(
         queue,
         Event::Log(crate::log::LogEntry {
-            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+            timestamp: chrono::Local::now()
+                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
+                .to_string(),
             level,
             message: message.into(),
             target: target.into(),
@@ -244,7 +247,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         LogLevel::Info,
         "Checking & downloading game assets...",
     );
-    download_assets(&params.queue, &params.instance_root, &profile.asset_index).await;
+    download_assets(&params.queue, &params.instance_root, &profile.asset_index, &params.http).await;
 
     download_client_jar(params, &profile).await?;
 
@@ -424,7 +427,7 @@ async fn download_modpack_mods(params: &LaunchParams) {
         return;
     }
     send_log(&params.queue, LogLevel::Info, "Downloading modpack mods...");
-    let mod_manager = release_the_launcher_mods::ModrinthProvider::new(None);
+    let mod_manager = release_the_launcher_mods::ModrinthProvider::with_client(params.http.clone(), None);
     let progress_queue = params.queue.clone();
     if let Err(e) = mod_manager
         .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
@@ -666,7 +669,7 @@ fn extract_natives_files(queue: &Queue, instance_root: &Path, profile: &LaunchPr
     }
 }
 
-async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &AssetIndex) {
+async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &AssetIndex, http: &reqwest::Client) {
     let send = |msg: Event| push_event(queue, msg);
 
     if asset_index.url.is_empty() {
@@ -679,7 +682,6 @@ async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &Asse
     }
 
     let asset_mgr = AssetManager::new(instance_root);
-    let http = release_the_launcher_net::HttpClientProvider::default().clone_client();
 
     send(Event::Status("Downloading asset index...".to_string()));
     match asset_mgr

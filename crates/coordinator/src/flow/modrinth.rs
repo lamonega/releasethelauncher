@@ -11,24 +11,17 @@ pub fn search_modpacks(
     query: String,
     mc_version: String,
     loader: String,
+    http: reqwest::Client,
 ) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
+        let provider = ModrinthProvider::with_client(http, None);
         let args = SearchArgs {
             query,
             offset: 0,
             limit: 20,
-            loaders: if loader.is_empty() {
-                vec![]
-            } else {
-                vec![loader]
-            },
-            mc_versions: if mc_version.is_empty() {
-                vec![]
-            } else {
-                vec![mc_version]
-            },
+            loaders: if loader.is_empty() { vec![] } else { vec![loader] },
+            mc_versions: if mc_version.is_empty() { vec![] } else { vec![mc_version] },
             categories: vec![],
             sort: SortOrder::Downloads,
         };
@@ -46,15 +39,12 @@ pub fn search_mods(
     query: String,
     mc_version: String,
     loader_name: String,
+    http: reqwest::Client,
 ) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
-        let mc_versions = if mc_version.is_empty() {
-            vec![]
-        } else {
-            vec![mc_version]
-        };
+        let provider = ModrinthProvider::with_client(http, None);
+        let mc_versions = if mc_version.is_empty() { vec![] } else { vec![mc_version] };
         let loader_clean = loader_name.split_whitespace().next().unwrap_or("");
         let loaders = if loader_clean.is_empty() || loader_clean == "vanilla" {
             vec![]
@@ -85,20 +75,17 @@ pub fn install_mod(
     mods_dir: PathBuf,
     mc_version: Option<String>,
     loader_name: Option<String>,
+    http: reqwest::Client,
 ) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
+        let provider = ModrinthProvider::with_client(http, None);
         let mc_versions = mc_version.map(|v| vec![v]).unwrap_or_default();
         let loaders = loader_name
             .filter(|l| l != "vanilla")
             .map(|l| vec![l.to_lowercase()])
             .unwrap_or_default();
-
-        let result = match provider
-            .get_versions(&project_id, &mc_versions, &loaders)
-            .await
-        {
+        let result = match provider.get_versions(&project_id, &mc_versions, &loaders).await {
             Ok(versions) => {
                 if let Some(version) = versions.first() {
                     match provider.download_mod(version, &mods_dir).await {
@@ -109,9 +96,7 @@ pub fn install_mod(
                         Err(e) => Event::ModrinthInstallResult(Err(e.to_string())),
                     }
                 } else {
-                    Event::ModrinthInstallResult(Err(
-                        "No compatible version found for this instance".into(),
-                    ))
+                    Event::ModrinthInstallResult(Err("No compatible version found for this instance".into()))
                 }
             }
             Err(e) => Event::ModrinthInstallResult(Err(e.to_string())),
@@ -120,19 +105,18 @@ pub fn install_mod(
     });
 }
 
-pub fn fetch_modpack_versions(queue: &Queue, handle: &tokio::runtime::Handle, project_id: String) {
+pub fn fetch_modpack_versions(
+    queue: &Queue,
+    handle: &tokio::runtime::Handle,
+    project_id: String,
+    http: reqwest::Client,
+) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
+        let provider = ModrinthProvider::with_client(http, None);
         let result = match provider.get_versions(&project_id, &[], &[]).await {
-            Ok(versions) => Event::ModrinthVersionsResult {
-                project_id,
-                result: Ok(versions),
-            },
-            Err(e) => Event::ModrinthVersionsResult {
-                project_id,
-                result: Err(e.to_string()),
-            },
+            Ok(versions) => Event::ModrinthVersionsResult { project_id, result: Ok(versions) },
+            Err(e) => Event::ModrinthVersionsResult { project_id, result: Err(e.to_string()) },
         };
         push_event(&queue, result);
     });
@@ -144,10 +128,11 @@ pub fn install_modpack_as_instance(
     project_id: String,
     version_id: Option<String>,
     instances_dir: PathBuf,
+    http: reqwest::Client,
 ) {
     let queue = Arc::clone(queue);
     handle.spawn(async move {
-        let provider = ModrinthProvider::new(None);
+        let provider = ModrinthProvider::with_client(http, None);
         let result = match provider
             .install_modpack_as_instance(&project_id, version_id.as_deref(), &instances_dir)
             .await
