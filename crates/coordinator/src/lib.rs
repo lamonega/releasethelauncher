@@ -160,40 +160,8 @@ impl Coordinator {
     }
 
     #[must_use]
-    pub const fn instance_manager(&self) -> &InstanceManager {
-        &self.instance_manager
-    }
-
-    pub fn instance_manager_mut(&mut self) -> &mut InstanceManager {
-        &mut self.instance_manager
-    }
-
-    #[must_use]
-    pub const fn account_list(&self) -> &AccountList {
-        &self.account_list
-    }
-
-    pub fn account_list_mut(&mut self) -> &mut AccountList {
-        &mut self.account_list
-    }
-
-    #[must_use]
-    pub const fn global_settings(&self) -> &GlobalSettings {
-        &self.global_settings
-    }
-
-    pub fn global_settings_mut(&mut self) -> &mut GlobalSettings {
-        &mut self.global_settings
-    }
-
-    #[must_use]
     pub const fn log_buffer(&self) -> &LogBuffer {
         &self.log_buffer
-    }
-
-    #[must_use]
-    pub const fn http_provider(&self) -> &reqwest::Client {
-        &self.http_provider
     }
 
     #[must_use]
@@ -235,8 +203,7 @@ impl Coordinator {
     }
 
     // ----------------------------------------------------------------------
-    // T2.0 facade: the only API surface the UI uses for stateful/IO work. The
-    // legacy getters above remain public until T2.10 removes them.
+    // Facade: the only API surface the UI uses for stateful/IO work.
     // ----------------------------------------------------------------------
 
     /// Returns a lightweight snapshot of the instance, or `None` if it does not

@@ -115,12 +115,7 @@ impl App {
 
     #[must_use]
     pub fn instance_ids(&self) -> Vec<String> {
-        self.coordinator
-            .instance_manager()
-            .list()
-            .iter()
-            .map(|i| i.id.clone())
-            .collect()
+        self.coordinator.instance_ids()
     }
 
     pub fn log(&self, level: LogLevel, message: &str) {
