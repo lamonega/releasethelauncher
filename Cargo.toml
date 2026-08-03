@@ -10,7 +10,7 @@ members = [
     "crates/ui",
 ]
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 
 [package]
 name = "release-the-launcher"
