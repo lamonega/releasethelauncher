@@ -137,78 +137,85 @@ fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut Deta
     });
 }
 
-struct ModEntry {
-    name: String,
-    path: std::path::PathBuf,
-    enabled: bool,
-    details: Option<release_the_launcher_mods::ModDetails>,
-}
-
-fn filter_mods(
-    mods: &[release_the_launcher_mods::ModEntry],
-    metadata_list: &[release_the_launcher_mods::ModDetails],
-    tab_state: &DetailTabState,
-) -> Vec<ModEntry> {
-    let query = tab_state.mod_search_query.trim().to_lowercase();
-    mods.iter()
-        .filter(|m| match tab_state.mod_filter {
-            ModFilter::EnabledOnly if !m.enabled => false,
-            ModFilter::DisabledOnly if m.enabled => false,
-            ModFilter::None => false,
-            _ => query.is_empty() || m.name.to_lowercase().contains(&query),
-        })
-        .map(|m| {
-            let details = metadata_list
-                .iter()
-                .find(|d| {
-                    d.mod_id.eq_ignore_ascii_case(&m.name)
-                        || m.name.to_lowercase().contains(&d.mod_id.to_lowercase())
-                        || m.name.to_lowercase().contains(&d.name.to_lowercase())
-                })
-                .cloned()
-                .or_else(|| release_the_launcher_mods::parser::parse_mod_metadata(&m.path).ok());
-            ModEntry {
-                name: m.name.clone(),
-                path: m.path.clone(),
-                enabled: m.enabled,
-                details,
-            }
-        })
-        .collect()
-}
+use super::CachedModEntry;
 
 fn show_mod_list(
     app: &mut App,
     ui: &mut egui::Ui,
     root_path: &std::path::Path,
     id: &str,
-    tab_state: &DetailTabState,
+    tab_state: &mut DetailTabState,
 ) {
-    let mods_dir = root_path.join(".minecraft").join("mods");
-    let mods = release_the_launcher_mods::list_mods(&mods_dir);
-    let metadata_list = app.coordinator.mods_metadata(id);
+    let cache = &mut tab_state.mods_cache;
 
-    if mods.is_empty() {
+    // Refresh cache if instance changed or cache marked dirty
+    if cache.instance_id != id || cache.dirty || cache.mods.is_empty() {
+        let mods_dir = root_path.join(".minecraft").join("mods");
+        let mods = release_the_launcher_mods::list_mods(&mods_dir);
+        let metadata_list = app.coordinator.mods_metadata(id);
+
+        cache.mods = mods
+            .into_iter()
+            .map(|m| {
+                let details = metadata_list
+                    .iter()
+                    .find(|d| {
+                        d.mod_id.eq_ignore_ascii_case(&m.name)
+                            || m.name.to_lowercase().contains(&d.mod_id.to_lowercase())
+                            || m.name.to_lowercase().contains(&d.name.to_lowercase())
+                    })
+                    .cloned()
+                    .or_else(|| {
+                        release_the_launcher_mods::parser::parse_mod_metadata(&m.path).ok()
+                    });
+                CachedModEntry {
+                    name: m.name,
+                    path: m.path,
+                    enabled: m.enabled,
+                    details,
+                }
+            })
+            .collect();
+        cache.instance_id = id.to_string();
+        cache.dirty = false;
+    }
+
+    if cache.mods.is_empty() {
         ui.colored_label(app.theme.text_secondary, "No mods installed.");
         return;
     }
 
-    let entries = filter_mods(&mods, &metadata_list, tab_state);
+    let query = tab_state.mod_search_query.trim().to_lowercase();
+    let filter = tab_state.mod_filter;
 
-    if entries.is_empty() {
+    let matching_indices: Vec<usize> = cache
+        .mods
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| match filter {
+            ModFilter::EnabledOnly if !m.enabled => false,
+            ModFilter::DisabledOnly if m.enabled => false,
+            ModFilter::None => false,
+            _ => query.is_empty() || m.name.to_lowercase().contains(&query),
+        })
+        .map(|(i, _)| i)
+        .collect();
+
+    if matching_indices.is_empty() {
         ui.colored_label(app.theme.text_secondary, "No mods match search or filters.");
         return;
     }
 
-    let mut toggle_path = None;
+    let mut toggle_idx = None;
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for entry in &entries {
+            for &idx in &matching_indices {
+                let entry = &cache.mods[idx];
                 ui.horizontal(|ui| {
                     let mut enabled = entry.enabled;
                     if ui.checkbox(&mut enabled, &entry.name).changed() {
-                        toggle_path = Some(entry.path.clone());
+                        toggle_idx = Some(idx);
                     }
 
                     if let Some(details) = &entry.details {
@@ -230,24 +237,25 @@ fn show_mod_list(
             }
         });
 
-    if let Some(path) = toggle_path {
-        if let Some(entry) = mods.iter().find(|m| m.path == path) {
-            let action = if entry.enabled { "disabled" } else { "enabled" };
+    if let Some(idx) = toggle_idx {
+        let entry = &mut cache.mods[idx];
+        let action = if entry.enabled { "disabled" } else { "enabled" };
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Mod '{}' {action}", entry.name),
+        );
+        let result = if entry.enabled {
+            release_the_launcher_mods::disable_mod(&entry.path)
+        } else {
+            release_the_launcher_mods::enable_mod(&entry.path)
+        };
+        if let Err(e) = result {
             app.log(
-                crate::log::LogLevel::Info,
-                &format!("UI: Mod '{}' {action}", entry.name),
+                crate::log::LogLevel::Error,
+                &format!("Failed to toggle mod: {e}"),
             );
-            let result = if entry.enabled {
-                release_the_launcher_mods::disable_mod(&path)
-            } else {
-                release_the_launcher_mods::enable_mod(&path)
-            };
-            if let Err(e) = result {
-                app.log(
-                    crate::log::LogLevel::Error,
-                    &format!("Failed to toggle mod: {e}"),
-                );
-            }
+        } else {
+            cache.dirty = true;
         }
     }
 }

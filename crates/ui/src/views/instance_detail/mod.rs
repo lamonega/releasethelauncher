@@ -20,6 +20,30 @@ pub struct InstanceView<'a> {
     pub java_settings: &'a release_the_launcher_core::JavaSettings,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LogCache {
+    pub file_path: Option<std::path::PathBuf>,
+    pub last_mtime: Option<std::time::SystemTime>,
+    pub file_len: u64,
+    pub disk_lines: Vec<String>,
+    pub buffer_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedModEntry {
+    pub name: String,
+    pub path: std::path::PathBuf,
+    pub enabled: bool,
+    pub details: Option<release_the_launcher_mods::ModDetails>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ModsCache {
+    pub instance_id: String,
+    pub mods: Vec<CachedModEntry>,
+    pub dirty: bool,
+}
+
 pub struct DetailTabState {
     pub log_scroll_to_end: bool,
     pub mod_search_query: String,
@@ -29,6 +53,8 @@ pub struct DetailTabState {
     pub config_memory_min: String,
     pub config_memory_max: String,
     pub mod_updates: ModUpdatesState,
+    pub log_cache: LogCache,
+    pub mods_cache: ModsCache,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +84,8 @@ impl Default for DetailTabState {
             config_memory_min: String::new(),
             config_memory_max: String::new(),
             mod_updates: ModUpdatesState::default(),
+            log_cache: LogCache::default(),
+            mods_cache: ModsCache::default(),
         }
     }
 }
@@ -222,7 +250,7 @@ fn show_tab_content(
             show_config(app, ui, view.id, tab_state);
         }
         DetailTab::Logs => {
-            show_logs(app, ui, view.id, view.root_path);
+            show_logs(app, ui, view.id, view.root_path, tab_state);
         }
         DetailTab::Mods => {
             if view.loader_name == "Vanilla" {

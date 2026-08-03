@@ -41,7 +41,7 @@ impl eframe::App for LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let live = drain_ui_messages(self);
         if live {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            ctx.request_repaint();
         }
         toolbar::show(&mut self.app, &mut self.maximized, ctx);
         status_bar::show(ctx, &self.app);

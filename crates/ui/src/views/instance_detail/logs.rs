@@ -1,16 +1,40 @@
+use super::DetailTabState;
 use crate::App;
 
-pub fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path: &std::path::Path) {
-    let mc_log_path = root_path.join(".minecraft").join("logs").join("latest.log");
-    let alt_log_path = root_path.join("logs").join("latest.log");
+pub fn show_logs(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    instance_id: &str,
+    root_path: &std::path::Path,
+    tab_state: &mut DetailTabState,
+) {
+    let cache = &mut tab_state.log_cache;
 
-    let log_file_path = if mc_log_path.exists() {
-        Some(mc_log_path)
-    } else if alt_log_path.exists() {
-        Some(alt_log_path)
-    } else {
-        None
-    };
+    // Determine target log file path if not already resolved or changed
+    if cache.file_path.is_none() {
+        let mc_log_path = root_path.join(".minecraft").join("logs").join("latest.log");
+        let alt_log_path = root_path.join("logs").join("latest.log");
+        if mc_log_path.exists() {
+            cache.file_path = Some(mc_log_path);
+        } else if alt_log_path.exists() {
+            cache.file_path = Some(alt_log_path);
+        }
+    }
+
+    // Check disk file mtime / len to reload only when file on disk changes
+    if let Some(ref path) = cache.file_path {
+        let metadata = std::fs::metadata(path).ok();
+        let current_mtime = metadata.as_ref().and_then(|m| m.modified().ok());
+        let current_len = metadata.as_ref().map_or(0, |m| m.len());
+
+        if cache.last_mtime != current_mtime || cache.file_len != current_len {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                cache.disk_lines = content.lines().map(String::from).collect();
+                cache.last_mtime = current_mtime;
+                cache.file_len = current_len;
+            }
+        }
+    }
 
     let target_key = format!("instance:{instance_id}");
     let buffer_entries: Vec<_> = app
@@ -21,8 +45,7 @@ pub fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path:
         .filter(|e| e.target == target_key || e.target == instance_id)
         .collect();
 
-    let disk_content = log_file_path.and_then(|p| std::fs::read_to_string(p).ok());
-    let has_disk_logs = disk_content.as_ref().is_some_and(|c| !c.trim().is_empty());
+    let has_disk_logs = !cache.disk_lines.is_empty();
     let has_buffer_logs = !buffer_entries.is_empty();
 
     show_logs_header(
@@ -30,7 +53,7 @@ pub fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path:
         ui,
         instance_id,
         &buffer_entries,
-        disk_content.as_ref(),
+        &cache.disk_lines,
         has_disk_logs,
         has_buffer_logs,
     );
@@ -45,7 +68,7 @@ pub fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path:
         return;
     }
 
-    show_logs_content(app, ui, &buffer_entries, disk_content.as_ref());
+    show_logs_content(app, ui, &buffer_entries, &cache.disk_lines);
 }
 
 fn show_logs_header(
@@ -53,7 +76,7 @@ fn show_logs_header(
     ui: &mut egui::Ui,
     instance_id: &str,
     buffer_entries: &[crate::log::LogEntry],
-    disk_content: Option<&String>,
+    disk_lines: &[String],
     has_disk_logs: bool,
     has_buffer_logs: bool,
 ) {
@@ -76,8 +99,9 @@ fn show_logs_header(
                         entry.message
                     );
                 }
-                if let Some(content) = disk_content {
-                    full_logs.push_str(content);
+                for line in disk_lines {
+                    full_logs.push_str(line);
+                    full_logs.push('\n');
                 }
                 ui.output_mut(|o| o.copied_text = full_logs);
                 app.status_message = "Logs copied to clipboard!".to_string();
@@ -94,16 +118,21 @@ fn show_logs_content(
     app: &App,
     ui: &mut egui::Ui,
     buffer_entries: &[crate::log::LogEntry],
-    disk_content: Option<&String>,
+    disk_lines: &[String],
 ) {
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+    let total_rows = buffer_entries.len() + disk_lines.len();
+
     egui::ScrollArea::both()
         .auto_shrink([false, false])
         .stick_to_bottom(true)
-        .show(ui, |ui| {
+        .show_rows(ui, row_height, total_rows, |ui, row_range| {
             ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
 
-            if !buffer_entries.is_empty() {
-                for entry in buffer_entries {
+            let buffer_len = buffer_entries.len();
+            for row in row_range {
+                if row < buffer_len {
+                    let entry = &buffer_entries[row];
                     let color = match entry.level {
                         crate::log::LogLevel::Error => app.theme.log_colors.error,
                         crate::log::LogLevel::Warn => app.theme.log_colors.warn,
@@ -118,11 +147,8 @@ fn show_logs_content(
                         entry.message
                     );
                     ui.colored_label(color, text);
-                }
-            }
-
-            if let Some(content) = disk_content {
-                for line in content.lines() {
+                } else {
+                    let line = &disk_lines[row - buffer_len];
                     let color = if line.contains("/ERROR")
                         || line.contains("ERROR")
                         || line.contains("FATAL")

@@ -185,12 +185,13 @@ fn show_modrinth_results(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceSt
         return;
     }
 
+    let count = state.modrinth_results.len();
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            let results = state.modrinth_results.clone();
-            for result in &results {
-                show_modrinth_result_card(app, ui, state, result);
+            for i in 0..count {
+                let result = state.modrinth_results[i].clone();
+                show_modrinth_result_card(app, ui, state, &result);
             }
         });
 }
