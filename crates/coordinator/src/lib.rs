@@ -385,7 +385,10 @@ impl Coordinator {
         let Some(inst) = inst else {
             return;
         };
-        let mods_dir = inst.root.join("mods");
+        let mods_dir = inst
+            .root
+            .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
+            .join(release_the_launcher_constants::paths::MODS_DIR);
         let mc_version = inst.settings.minecraft_version.clone();
         let loader_str = inst.settings.loader_name().to_string();
 

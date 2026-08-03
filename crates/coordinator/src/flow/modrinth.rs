@@ -49,11 +49,16 @@ pub async fn search_mods(
     } else {
         vec![mc_version]
     };
-    let loader_clean = loader_name.split_whitespace().next().unwrap_or("");
+    let loader_clean = loader_name
+        .to_lowercase()
+        .split_whitespace()
+        .next()
+        .map(ToOwned::to_owned)
+        .unwrap_or_default();
     let loaders = if loader_clean.is_empty() || loader_clean == "vanilla" {
         vec![]
     } else {
-        vec![loader_clean.to_string()]
+        vec![loader_clean.clone()]
     };
     let args = SearchArgs {
         query,

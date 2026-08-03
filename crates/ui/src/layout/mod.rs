@@ -100,6 +100,7 @@ pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
             UiMessage::DownloadError(err) => {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = format!("Download error: {err}");
+                let _ = state.app.ui_queue.send(UiMessage::DownloadError(err));
                 live = true;
             }
             view_msg @ (UiMessage::ModrinthSearchResult(_)

@@ -59,6 +59,10 @@ fn process_messages(app: &App, state: &mut ModBrowserState) {
                 state.status = format!("Installed: {name}");
                 state.installing_mod_id = None;
             }
+            crate::UiMessage::DownloadError(err) => {
+                state.status = format!("Install failed: {err}");
+                state.installing_mod_id = None;
+            }
             _ => {}
         }
     }

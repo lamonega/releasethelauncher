@@ -355,17 +355,23 @@ impl ModrinthProvider {
                             return;
                         };
                         let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
-                        let _ = download_to_file(
+                        if download_to_file(
                             &client,
                             &url,
                             &dest,
                             checksum_ref,
                             None::<fn(u64, u64)>,
                         )
-                        .await;
+                        .await
+                        .is_ok()
+                        {
+                            downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+                        } else {
+                            log::warn!("Failed to download mod file {display_name}");
+                        }
+                    } else {
+                        downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
                     }
-
-                    downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
                     let cur = downloaded_cnt.load(std::sync::atomic::Ordering::SeqCst);
                     let tot = total_cnt.load(std::sync::atomic::Ordering::SeqCst);
                     progress_ref(cur, tot.max(cur), &display_name);
