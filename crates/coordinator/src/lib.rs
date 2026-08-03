@@ -1,17 +1,20 @@
+pub mod dto;
 pub mod flow;
 
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::log::LogBuffer;
 use release_the_launcher_core::settings::GlobalSettings;
-use release_the_launcher_core::InstanceManager;
+use release_the_launcher_core::{InstanceManager, InstanceSettings, ModLoader};
 
 pub use release_the_launcher_core::log;
 
 pub use flow::launch::{do_launch, extract_account_data, AccountData, LaunchParams};
+
+pub use dto::{AccountSummary, InstanceSummary, InstalledModEntry};
 
 pub type Queue = tokio::sync::mpsc::UnboundedSender<Event>;
 
@@ -231,6 +234,264 @@ impl Coordinator {
         self.global_settings.save(&self.settings_path)
     }
 
+    // ----------------------------------------------------------------------
+    // T2.0 facade: the only API surface the UI uses for stateful/IO work. The
+    // legacy getters above remain public until T2.10 removes them.
+    // ----------------------------------------------------------------------
+
+    /// Returns a lightweight snapshot of the instance, or `None` if it does not
+    /// exist.
+    #[must_use]
+    pub fn instance_summary(&self, id: &str) -> Option<InstanceSummary> {
+        self.instance_manager
+            .get(&id.to_string())
+            .map(|inst| InstanceSummary {
+                id: inst.id.clone(),
+                name: inst.settings.name.clone(),
+                mc_version: inst.settings.minecraft_version.clone(),
+                loader_name: inst.settings.loader_name().to_string(),
+                root: inst.root.clone(),
+            })
+    }
+
+    /// Returns the ids of all discovered instances.
+    #[must_use]
+    pub fn instance_ids(&self) -> Vec<String> {
+        self.instance_manager
+            .list()
+            .iter()
+            .map(|inst| inst.id.clone())
+            .collect()
+    }
+
+    /// Lists the installed mods of an instance, including parsed metadata when
+    /// available.
+    #[must_use]
+    pub fn list_instance_mods(&self, id: &str) -> Vec<InstalledModEntry> {
+        let Some(inst) = self.instance_manager.get(&id.to_string()) else {
+            return Vec::new();
+        };
+        let mods_dir = inst.mods_dir();
+        let metadata_list = Self::parse_enabled_mod_metadata(&mods_dir);
+        release_the_launcher_mods::list_mods(&mods_dir)
+            .into_iter()
+            .map(|entry| {
+                let details = metadata_list
+                    .iter()
+                    .find(|d| {
+                        d.mod_id.eq_ignore_ascii_case(&entry.name)
+                            || entry.name.to_lowercase().contains(&d.mod_id.to_lowercase())
+                            || entry.name.to_lowercase().contains(&d.name.to_lowercase())
+                    })
+                    .cloned()
+                    .or_else(|| {
+                        release_the_launcher_mods::parser::parse_mod_metadata(&entry.path).ok()
+                    });
+                InstalledModEntry {
+                    name: entry.name,
+                    path: entry.path,
+                    enabled: entry.enabled,
+                    details,
+                }
+            })
+            .collect()
+    }
+
+    /// Parses metadata for every enabled mod in `mods_dir`.
+    fn parse_enabled_mod_metadata(mods_dir: &Path) -> Vec<release_the_launcher_mods::ModDetails> {
+        let entries = release_the_launcher_mods::list_mods(mods_dir);
+        let mut results = Vec::new();
+        for entry in entries {
+            if entry.enabled {
+                if let Ok(details) =
+                    release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
+                {
+                    results.push(details);
+                }
+            }
+        }
+        results
+    }
+
+    /// Returns the mods directory for an instance, or `None` if it does not
+    /// exist.
+    #[must_use]
+    pub fn instance_mods_dir(&self, id: &str) -> Option<PathBuf> {
+        self.instance_manager.get_mods_dir(&id.to_string())
+    }
+
+    /// Resolves the `latest.log` path for an instance, preferring the
+    /// `.minecraft/logs` location and falling back to `logs` next to the
+    /// instance root. The caller owns the disk read and any mtime/size caching.
+    #[must_use]
+    pub fn instance_log_path(&self, id: &str) -> Option<PathBuf> {
+        let inst = self.instance_manager.get(&id.to_string())?;
+        let mc_log_path = inst.minecraft_dir().join("logs").join("latest.log");
+        let alt_log_path = inst.root.join("logs").join("latest.log");
+        if mc_log_path.exists() {
+            Some(mc_log_path)
+        } else if alt_log_path.exists() {
+            Some(alt_log_path)
+        } else {
+            None
+        }
+    }
+
+    /// Returns a snapshot of every account for rendering.
+    #[must_use]
+    pub fn accounts(&self) -> Vec<AccountSummary> {
+        self.account_list
+            .accounts
+            .iter()
+            .enumerate()
+            .map(|(i, account)| AccountSummary {
+                name: account.display_name().to_string(),
+                account_type: account.account_type.clone(),
+                auth_state: account.auth_state(),
+                skin_url: account.skin_texture_url(),
+                is_active: Some(i) == self.account_list.active_index,
+            })
+            .collect()
+    }
+
+    /// Returns a clone of the current global settings.
+    #[must_use]
+    pub fn settings(&self) -> GlobalSettings {
+        self.global_settings.clone()
+    }
+
+    /// Deletes the instance with the given id, removing it from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the instance does not exist or its directory cannot
+    /// be removed.
+    pub fn delete_instance(&mut self, id: &str) -> Result<(), String> {
+        self.instance_manager
+            .delete(&id.to_string())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Creates a new instance and returns its id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an instance with the same name already exists or
+    /// writing the instance config fails.
+    pub fn create_instance(
+        &mut self,
+        name: String,
+        mc_version: String,
+        loader: ModLoader,
+        modpack_project_id: Option<String>,
+        modpack_version_id: Option<String>,
+    ) -> Result<String, String> {
+        let mut settings = InstanceSettings::new(name.clone(), mc_version, loader);
+        settings.modpack_project_id = modpack_project_id;
+        settings.modpack_version_id = modpack_version_id;
+        self.instance_manager
+            .create(&name, settings)
+            .map(|inst| inst.id.clone())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Updates and persists an instance's Java path and memory settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the instance is not found or saving fails.
+    pub fn update_instance_java_settings(
+        &mut self,
+        id: &str,
+        java_path: Option<String>,
+        memory_min: Option<String>,
+        memory_max: Option<String>,
+    ) -> Result<(), String> {
+        self.instance_manager
+            .update_instance_java_settings(id, java_path, memory_min, memory_max)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Enables or disables the mod at `mod_path` according to its current state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path is not a recognised mod file or the rename
+    /// fails.
+    pub fn toggle_mod(&mut self, id: &str, mod_path: &Path) -> Result<(), String> {
+        let _ = id;
+        let result = if mod_path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with(".disabled"))
+        {
+            release_the_launcher_mods::enable_mod(mod_path)
+        } else {
+            release_the_launcher_mods::disable_mod(mod_path)
+        };
+        result.map_err(|e| e.to_string())
+    }
+
+    /// Adds an offline account and persists the account list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if saving the account list fails.
+    pub fn add_offline_account(&mut self, username: &str) -> Result<(), String> {
+        let account = release_the_launcher_auth::AccountData::offline(username);
+        self.account_list.add(account);
+        self.account_list.save().map_err(|e| e.to_string())
+    }
+
+    /// Adds an account and persists the account list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if saving the account list fails.
+    pub fn add_account(
+        &mut self,
+        account: release_the_launcher_auth::AccountData,
+    ) -> Result<(), String> {
+        self.account_list.add(account);
+        self.account_list.save().map_err(|e| e.to_string())
+    }
+
+    /// Marks the account at `index` as active and persists the account list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `index` is out of bounds or saving fails.
+    pub fn set_active_account(&mut self, index: usize) -> Result<(), String> {
+        if !self.account_list.set_active(index) {
+            return Err(format!("No account at index {index}"));
+        }
+        self.account_list.save().map_err(|e| e.to_string())
+    }
+
+    /// Removes the account at `index` and persists the account list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `index` is out of bounds or saving fails.
+    pub fn remove_account(&mut self, index: usize) -> Result<(), String> {
+        if index >= self.account_list.accounts.len() {
+            return Err(format!("No account at index {index}"));
+        }
+        self.account_list.remove(index);
+        self.account_list.save().map_err(|e| e.to_string())
+    }
+
+    /// Replaces the global settings in memory and persists them to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization or file writing fails.
+    pub fn update_settings(&mut self, settings: GlobalSettings) -> Result<(), String> {
+        self.global_settings = settings;
+        self.global_settings
+            .save(&self.settings_path)
+            .map_err(|e| e.to_string())
+    }
+
     fn run_async<F: Future<Output = ()> + Send + 'static>(
         &self,
         f: impl FnOnce(Queue) -> F + Send + 'static,
@@ -408,19 +669,7 @@ impl Coordinator {
         let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             return Vec::new();
         };
-        let mods_dir = inst.mods_dir();
-        let entries = release_the_launcher_mods::list_mods(&mods_dir);
-        let mut results = Vec::new();
-        for entry in entries {
-            if entry.enabled {
-                if let Ok(details) =
-                    release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
-                {
-                    results.push(details);
-                }
-            }
-        }
-        results
+        Self::parse_enabled_mod_metadata(&inst.mods_dir())
     }
 
     pub fn request_mods_metadata(&self, instance_id: String) {
@@ -432,18 +681,7 @@ impl Coordinator {
 
         self.run_async(move |queue| async move {
             let mods = tokio::task::spawn_blocking(move || {
-                let entries = release_the_launcher_mods::list_mods(&mods_dir);
-                let mut results = Vec::new();
-                for entry in entries {
-                    if entry.enabled {
-                        if let Ok(details) =
-                            release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
-                        {
-                            results.push(details);
-                        }
-                    }
-                }
-                results
+                Self::parse_enabled_mod_metadata(&mods_dir)
             })
             .await
             .unwrap_or_default();
@@ -459,13 +697,14 @@ impl Coordinator {
     }
 
     pub fn check_mod_updates(&self, instance_id: String) {
-        let inst = self.instance_manager.get(&instance_id);
-        let Some(inst) = inst else {
+        let Some(summary) = self.instance_summary(&instance_id) else {
             return;
         };
-        let mods_dir = inst.mods_dir();
-        let mc_version = inst.settings.minecraft_version.clone();
-        let loader_str = inst.settings.loader_name().to_string();
+        let Some(mods_dir) = self.instance_mods_dir(&instance_id) else {
+            return;
+        };
+        let mc_version = summary.mc_version;
+        let loader_str = summary.loader_name;
 
         self.run_async(move |queue| async move {
             use release_the_launcher_mods::ModProvider;
