@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::AccountData;
@@ -49,7 +52,15 @@ impl AccountList {
         };
         let json = serde_json::to_string_pretty(&data)?;
         let tmp = self.file_path.with_extension("json.tmp");
-        fs::write(&tmp, &json)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        // Restrictive ACLs are out of scope on Windows (documented limitation);
+        // the default file permissions are used there.
+        let mut file = opts.open(&tmp)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
         fs::rename(&tmp, &self.file_path)?;
         Ok(())
     }
@@ -92,5 +103,30 @@ impl AccountList {
         } else {
             false
         }
+    }
+}
+
+#[cfg(unix)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn saved_file_has_restrictive_permissions() {
+        let path = std::env::temp_dir().join(format!(
+            "account_list_perms_test_{}.json",
+            std::process::id()
+        ));
+        let mut list = AccountList::load(&path);
+        list.add(AccountData::offline("TestUser"));
+        list.save().unwrap();
+
+        let perms = fs::metadata(&path).unwrap().permissions();
+        assert_eq!(perms.mode() & 0o777, 0o600);
+
+        let reloaded = AccountList::load(&path);
+        assert_eq!(reloaded.accounts.len(), 1);
+
+        fs::remove_file(&path).ok();
     }
 }
