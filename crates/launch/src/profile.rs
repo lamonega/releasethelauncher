@@ -34,22 +34,11 @@ fn maven_version(name: &str) -> &str {
     }
 }
 
-fn parse_version_segments(v: &str) -> Vec<u32> {
-    v.split('.')
-        .filter_map(|s| {
-            s.chars()
-                .take_while(char::is_ascii_digit)
-                .collect::<String>()
-                .parse()
-                .ok()
-        })
-        .collect()
-}
-
 fn is_higher_version(a: &str, b: &str) -> bool {
-    let va = parse_version_segments(a);
-    let vb = parse_version_segments(b);
-    va > vb
+    match (version_compare::Version::from(a), version_compare::Version::from(b)) {
+        (Some(va), Some(vb)) => va > vb,
+        _ => a > b,
+    }
 }
 
 #[derive(Debug, Clone)]

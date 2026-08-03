@@ -26,6 +26,29 @@ pub struct Token {
     pub refresh_token: Option<String>,
 }
 
+impl Token {
+    #[must_use]
+    pub fn new(token: String, refresh_token: Option<String>, expires_in: u64) -> Self {
+        let now = msa::now_unix();
+        Self {
+            issue_instant: now,
+            not_after: Some(now + expires_in),
+            token,
+            refresh_token,
+        }
+    }
+
+    #[must_use]
+    pub fn new_no_expiry(token: String) -> Self {
+        Self {
+            issue_instant: msa::now_unix(),
+            not_after: None,
+            token,
+            refresh_token: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AuthState {
     Offline,
@@ -78,9 +101,10 @@ impl AccountData {
     #[must_use]
     pub fn offline(username: &str) -> Self {
         let uuid = offline_uuid(username);
+        let id = uuid.simple().to_string();
         Self {
             account_type: AccountType::Offline,
-            internal_id: uuid.to_string().replace('-', ""),
+            internal_id: id.clone(),
             active: None,
             msa_client_id: None,
             msa_token: None,
@@ -88,7 +112,7 @@ impl AccountData {
             xsts_token: None,
             mc_token: None,
             profile: Some(MinecraftProfile {
-                id: uuid.to_string().replace('-', ""),
+                id,
                 name: username.to_string(),
                 skin_url: None,
                 skin_data: None,

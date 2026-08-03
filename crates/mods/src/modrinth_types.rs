@@ -71,3 +71,31 @@ pub struct ModrinthFile {
     #[serde(default)]
     pub size: u64,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MrpackIndex {
+    #[serde(default)]
+    pub format_version: u32,
+    #[serde(default)]
+    pub game: String,
+    #[serde(default)]
+    pub version_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub files: Vec<MrpackFile>,
+    #[serde(default)]
+    pub dependencies: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MrpackFile {
+    pub path: String,
+    #[serde(default)]
+    pub hashes: HashMap<String, String>,
+    #[serde(default)]
+    pub downloads: Vec<String>,
+    pub file_size: u64,
+}

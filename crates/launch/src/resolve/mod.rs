@@ -1,5 +1,6 @@
 pub mod fabric;
 pub mod forge;
+pub mod loader;
 pub mod neoforge;
 pub mod parsers;
 pub mod prism;
@@ -24,7 +25,7 @@ impl Default for DependencyResolver {
 impl DependencyResolver {
     #[must_use]
     pub fn new() -> Self {
-        Self::with_client(release_the_launcher_net::HttpClientProvider::default().clone_client())
+        Self::with_client(release_the_launcher_net::default_client())
     }
 
     #[must_use]
@@ -142,72 +143,80 @@ impl DependencyResolver {
     }
 }
 
+use std::collections::{HashMap, HashSet, VecDeque};
+
 /// # Errors
-/// Returns an error if a dependency fetch fails.
+/// Returns an error if a dependency fetch fails or a conflict is detected.
 pub async fn resolve_dependencies(
     resolver: &mut DependencyResolver,
     components: Vec<Component>,
 ) -> Result<Vec<Component>, LaunchError> {
-    let mut resolved_deps: std::collections::HashMap<String, Component> =
-        std::collections::HashMap::new();
+    let mut resolved_deps: HashMap<String, Component> = HashMap::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<Requirement> = VecDeque::new();
 
     for component in components {
+        visited.insert(component.uid.clone());
+        if !component.is_locked {
+            for req in &component.dependencies {
+                queue.push_back(req.clone());
+            }
+        }
         resolved_deps.insert(component.uid.clone(), component);
     }
 
-    for _ in 0..50 {
-        let new_reqs: Vec<Requirement> = resolved_deps
-            .values()
-            .flat_map(|c| c.dependencies.clone())
-            .filter(|req| !resolved_deps.contains_key(&req.uid))
-            .collect();
+    while let Some(req) = queue.pop_front() {
+        if visited.contains(&req.uid) || resolved_deps.contains_key(&req.uid) {
+            continue;
+        }
+        visited.insert(req.uid.clone());
 
-        if new_reqs.is_empty() {
-            break;
+        let version = req
+            .equals
+            .clone()
+            .or_else(|| req.suggests.clone())
+            .unwrap_or_default();
+
+        let url = if version.is_empty() {
+            format!("{}/v1/{}/index.json", prism::PRISM_META_BASE, req.uid)
+        } else {
+            format!("{}/v1/{}/{version}.json", prism::PRISM_META_BASE, req.uid)
+        };
+
+        let resp: serde_json::Value = resolver.http.get(&url).send().await?.json().await?;
+        let version_file = parse_version_json(&resp);
+        let dependencies = parsers::parse_requires(&resp);
+        let actual_version = resp
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&version)
+            .to_string();
+
+        let comp = Component {
+            uid: req.uid.clone(),
+            version: actual_version,
+            is_locked: false,
+            dependencies: dependencies.clone(),
+            conflicts: Vec::new(),
+            version_file,
+        };
+
+        if !comp.is_locked {
+            for dep in &dependencies {
+                queue.push_back(dep.clone());
+            }
         }
 
-        for req in new_reqs {
-            if resolved_deps.contains_key(&req.uid) {
-                continue;
-            }
+        resolved_deps.insert(req.uid.clone(), comp);
+    }
 
-            let version = req
-                .equals
-                .clone()
-                .or_else(|| req.suggests.clone())
-                .unwrap_or_default();
-
-            let url = if version.is_empty() {
-                format!("https://meta.prismlauncher.org/v1/{}/index.json", req.uid)
-            } else {
-                format!(
-                    "https://meta.prismlauncher.org/v1/{}/{version}.json",
-                    req.uid
-                )
-            };
-
-            if let Ok(resp) = resolver.http.get(&url).send().await {
-                if let Ok(component_json) = resp.json::<serde_json::Value>().await {
-                    let version_file = parse_version_json(&component_json);
-                    let dependencies = parsers::parse_requires(&component_json);
-                    let actual_version = component_json
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&version)
-                        .to_string();
-
-                    resolved_deps.insert(
-                        req.uid.clone(),
-                        Component {
-                            uid: req.uid.clone(),
-                            version: actual_version,
-                            is_locked: false,
-                            dependencies,
-                            conflicts: Vec::new(),
-                            version_file,
-                        },
-                    );
-                }
+    for comp in resolved_deps.values() {
+        for conflict in &comp.conflicts {
+            if resolved_deps.keys().any(|other_uid| other_uid == conflict || other_uid.starts_with(conflict)) {
+                return Err(LaunchError::DependencyConflict {
+                    component: comp.uid.clone(),
+                    conflict: conflict.clone(),
+                });
             }
         }
     }

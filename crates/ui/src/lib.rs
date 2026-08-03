@@ -1,6 +1,7 @@
 pub mod layout;
 pub mod theme;
 pub mod views;
+pub mod widgets;
 
 pub use layout::LauncherApp;
 pub use release_the_launcher_coordinator::Event as UiMessage;
@@ -70,21 +71,21 @@ pub struct DownloadState {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new(Coordinator::new())
+        Self::new(Coordinator::new(), Theme::default(), None)
     }
 }
 
 impl App {
     #[must_use]
-    pub fn new(coordinator: Coordinator) -> Self {
+    pub fn new(coordinator: Coordinator, theme: Theme, ctx: Option<egui::Context>) -> Self {
         let ui_queue = coordinator.queue();
         Self {
             coordinator,
             current_view: View::InstanceList,
             status_message: String::new(),
             download_state: DownloadState::default(),
-            theme: Theme::default(),
-            ctx: None,
+            theme,
+            ctx,
             ui_queue,
         }
     }
@@ -92,6 +93,20 @@ impl App {
     #[must_use]
     pub fn drain_messages(&self) -> Vec<UiMessage> {
         self.coordinator.drain_events()
+    }
+
+    #[must_use]
+    pub fn drain_ui_queue(&self) -> Vec<UiMessage> {
+        self.coordinator.drain_events()
+    }
+
+    pub fn instance_ids(&self) -> Vec<String> {
+        self.coordinator
+            .instance_manager
+            .list()
+            .iter()
+            .map(|i| i.id.clone())
+            .collect()
     }
 
     pub fn log(&self, level: LogLevel, message: &str) {
@@ -153,7 +168,12 @@ impl App {
             .install_modpack_as_instance(project_id, version_id, instances_dir);
     }
 
+    pub fn check_mod_updates(&self, instance_id: String) {
+        self.coordinator.check_mod_updates(instance_id);
+    }
+
     pub fn start_ms_login(&self) {
         self.coordinator.start_ms_login();
     }
 }
+

@@ -1,5 +1,4 @@
-use crate::App;
-use crate::View;
+use crate::{widgets, App, View};
 
 pub fn show(
     app: &mut App,
@@ -7,20 +6,11 @@ pub fn show(
     username_input: &mut String,
     login_state: &mut LoginState,
 ) {
-    if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
-        app.log(
-            crate::log::LogLevel::Info,
-            "UI: Navigated back from Add Account",
-        );
-        app.current_view = View::AccountList;
+    if widgets::page_header(ui, app, "Add Account", Some(View::AccountList)) {
         *login_state = LoginState::Idle;
         return;
     }
 
-    ui.add_space(app.theme.spacing.sm);
-    ui.heading("Add Account");
-
-    ui.add_space(app.theme.spacing.sm);
     match login_state {
         LoginState::Idle => {
             ui.label("Enter a username for offline play:");
@@ -29,7 +19,7 @@ pub fn show(
             ui.add_space(app.theme.spacing.sm);
             if ui
                 .add(
-                    egui::Button::new(format!(" {} Add Offline Account", crate::icons::ADD))
+                    widgets::icon_button(crate::icons::ADD, "Add Offline Account")
                         .fill(app.theme.accent),
                 )
                 .clicked()
@@ -88,8 +78,7 @@ pub fn show(
             }
         }
         LoginState::MicrosoftPolling => {
-            ui.label("Waiting for you to approve in the browser...");
-            ui.spinner();
+            widgets::loading_row(ui, "Waiting for you to approve in the browser...");
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
                 app.log(

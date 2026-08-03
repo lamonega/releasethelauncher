@@ -1,7 +1,7 @@
 use crate::theme;
-use crate::{App, LogLevel, View};
+use crate::{widgets, App, LogLevel, View};
 
-pub fn show(app: &App, maximized: &mut bool, ctx: &egui::Context, navigate_to: &mut Option<View>) {
+pub fn show(app: &mut App, maximized: &mut bool, ctx: &egui::Context) {
     egui::TopBottomPanel::top("toolbar")
         .frame(
             egui::Frame::none()
@@ -14,7 +14,7 @@ pub fn show(app: &App, maximized: &mut bool, ctx: &egui::Context, navigate_to: &
             ui.horizontal(|ui| {
                 ui.heading("Release The Launcher");
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::right_aligned(ui, |ui| {
                     let btn_size = egui::vec2(28.0, 24.0);
 
                     // Close Button "X"
@@ -49,11 +49,11 @@ pub fn show(app: &App, maximized: &mut bool, ctx: &egui::Context, navigate_to: &
 
                     if ui.button("Accounts").clicked() {
                         app.log(LogLevel::Info, "UI: Navigated to Accounts");
-                        *navigate_to = Some(View::AccountList);
+                        app.current_view = View::AccountList;
                     }
-                    if ui.button(format!(" {}", theme::icons::SETTINGS)).clicked() {
+                    if ui.add(widgets::icon_button(theme::icons::SETTINGS, "Settings")).clicked() {
                         app.log(LogLevel::Info, "UI: Navigated to Settings");
-                        *navigate_to = Some(View::Settings);
+                        app.current_view = View::Settings;
                     }
 
                     // Calculate left edge of the right-side button group

@@ -7,16 +7,15 @@ use crate::settings::InstanceSettings;
 
 pub type InstanceId = String;
 
+const INSTANCE_CONFIG_FILE_NAME: &str = "instance.toml";
+const MINECRAFT_DIR_NAME: &str = ".minecraft";
+const MODS_DIR_NAME: &str = "mods";
+const INDEX_DIR_NAME: &str = ".index";
+
 #[derive(Error, Debug)]
 pub enum CoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("TOML parse error: {0}")]
-    Toml(#[from] toml::de::Error),
-    #[error("TOML serialize error: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
     #[error("Instance '{0}' not found")]
     InstanceNotFound(String),
     #[error("Instance '{0}' already exists")]
@@ -52,8 +51,7 @@ impl InstanceManager {
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError::Io`] if reading the directory or instance config fails,
-    /// or [`CoreError::Toml`] if parsing an instance config fails.
+    /// Returns [`CoreError::Io`] if reading the directory fails.
     pub fn discover(instances_dir: PathBuf) -> Result<Self, CoreError> {
         let mut instances = HashMap::new();
         if instances_dir.exists() {
@@ -61,9 +59,9 @@ impl InstanceManager {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() {
-                    let config_path = path.join("instance.toml");
+                    let config_path = path.join(INSTANCE_CONFIG_FILE_NAME);
                     if config_path.exists() {
-                        let settings = InstanceSettings::load(&config_path)?;
+                        let settings = InstanceSettings::load(&config_path);
                         let id = path.file_name().map_or_else(
                             || "unknown".to_string(),
                             |n| n.to_string_lossy().to_string(),
@@ -103,12 +101,12 @@ impl InstanceManager {
         }
 
         let instance_dir = self.instances_dir.join(&id);
-        let minecraft_dir = instance_dir.join(".minecraft");
-        let mods_dir = minecraft_dir.join("mods");
+        let minecraft_dir = instance_dir.join(MINECRAFT_DIR_NAME);
+        let mods_dir = minecraft_dir.join(MODS_DIR_NAME);
         let config_dir = minecraft_dir.join("config");
         let saves_dir = minecraft_dir.join("saves");
         let resourcepacks_dir = minecraft_dir.join("resourcepacks");
-        let index_dir = instance_dir.join(".index");
+        let index_dir = instance_dir.join(INDEX_DIR_NAME);
         let server_resource_packs_dir = minecraft_dir.join("server-resource-packs");
 
         fs::create_dir_all(&mods_dir)?;
@@ -118,7 +116,7 @@ impl InstanceManager {
         fs::create_dir_all(&index_dir)?;
         fs::create_dir_all(&server_resource_packs_dir)?;
 
-        let config_path = instance_dir.join("instance.toml");
+        let config_path = instance_dir.join(INSTANCE_CONFIG_FILE_NAME);
         settings.save(&config_path)?;
 
         let instance = Instance {
@@ -126,10 +124,7 @@ impl InstanceManager {
             root: instance_dir,
             settings,
         };
-        self.instances.insert(id.clone(), instance);
-        self.instances
-            .get(&id)
-            .ok_or(CoreError::InstanceNotFound(id))
+        Ok(self.instances.entry(id).or_insert(instance))
     }
 
     /// Deletes the instance with the given ID, removing it from disk.
@@ -162,12 +157,7 @@ impl InstanceManager {
     pub fn get_mods_dir(&self, id: &InstanceId) -> Option<PathBuf> {
         self.instances
             .get(id)
-            .map(|i| i.root.join(".minecraft").join("mods"))
-    }
-
-    #[must_use = "Returns the index directory path for the given instance, or None if not found"]
-    pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances.get(id).map(|i| i.root.join(".index"))
+            .map(|i| i.root.join(MINECRAFT_DIR_NAME).join(MODS_DIR_NAME))
     }
 
     /// Updates and saves Java settings for a specific instance.
@@ -190,7 +180,7 @@ impl InstanceManager {
         instance.settings.java.path = path;
         instance.settings.java.memory_min = memory_min;
         instance.settings.java.memory_max = memory_max;
-        let config_path = instance.root.join("instance.toml");
+        let config_path = instance.root.join(INSTANCE_CONFIG_FILE_NAME);
         instance.settings.save(&config_path)?;
         Ok(())
     }

@@ -85,8 +85,141 @@ fn replace_placeholders(
     res
 }
 
+pub const DEFAULT_WINDOW_WIDTH: &str = "854";
+pub const DEFAULT_WINDOW_HEIGHT: &str = "480";
+
+pub fn jvm_args(
+    profile: &LaunchProfile,
+    instance_dir: &Path,
+    java_path: &Path,
+    player: &PlayerAuth,
+    cp_str: &str,
+    memory_min: &str,
+    memory_max: &str,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut has_min_mem = false;
+    let mut has_max_mem = false;
+    let mut has_java_lib_path = false;
+    let mut has_lwjgl_lib_path = false;
+
+    for arg in &profile.jvm_args {
+        if arg.starts_with("-Xms") {
+            has_min_mem = true;
+        }
+        if arg.starts_with("-Xmx") {
+            has_max_mem = true;
+        }
+        let processed = replace_placeholders(arg, profile, instance_dir, player, cp_str);
+        if processed.starts_with("-Djava.library.path=") {
+            has_java_lib_path = true;
+        }
+        if processed.starts_with("-Dorg.lwjgl.librarypath=") {
+            has_lwjgl_lib_path = true;
+        }
+        if processed.contains("sun-misc-unsafe-memory-access") {
+            continue;
+        }
+        args.push(processed);
+    }
+
+    if !has_min_mem {
+        args.push(format!("-Xms{memory_min}"));
+    }
+    if !has_max_mem {
+        args.push(format!("-Xmx{memory_max}"));
+    }
+
+    let natives_dir = instance_dir.join("natives");
+    if !has_java_lib_path {
+        args.push(format!("-Djava.library.path={}", natives_dir.display()));
+    }
+    if !has_lwjgl_lib_path {
+        args.push(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()));
+    }
+
+    if !profile.jvm_args.iter().any(|a| a.contains("-cp")) {
+        args.push("-cp".to_string());
+        args.push(cp_str.to_string());
+    }
+    let java_major = crate::java::detect_java_major_version(java_path).unwrap_or(8);
+    if java_major >= 9
+        && !profile
+            .jvm_args
+            .iter()
+            .any(|a| a.contains("java.base/java.net"))
+    {
+        args.push("--add-opens".to_string());
+        args.push("java.base/java.net=ALL-UNNAMED".to_string());
+    }
+
+    args
+}
+
+pub fn game_args(
+    profile: &LaunchProfile,
+    instance_dir: &Path,
+    player: &PlayerAuth,
+    cp_str: &str,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    let game_args_raw = if profile.game_args_template.is_empty() {
+        "--username {auth_player_name} --version {version_name} --gameDir {game_directory} --assetsDir {assets_root} --assetIndex {assets_index_name} --uuid {auth_uuid} --accessToken {auth_access_token} --userType {user_type}".to_string()
+    } else {
+        profile.game_args_template.clone()
+    };
+
+    let mut has_tweak_class = game_args_raw.contains("--tweakClass");
+
+    for arg in game_args_raw.split_whitespace() {
+        let processed = replace_placeholders(arg, profile, instance_dir, player, cp_str);
+        if processed == "--demo"
+            || processed.starts_with("--quickPlay")
+            || processed.contains("${quickPlay")
+            || (processed.starts_with("${") && processed.ends_with('}'))
+        {
+            continue;
+        }
+        if processed == "--tweakClass" {
+            has_tweak_class = true;
+        }
+        args.push(processed);
+    }
+
+    if !has_tweak_class
+        && (profile.main_class == "net.minecraft.launchwrapper.Launch"
+            || profile.traits.iter().any(|t| t == "legacyFML"))
+    {
+        if profile.tweakers.is_empty() {
+            let tweak = if profile.mc_version.starts_with("1.8")
+                || profile.mc_version.starts_with("1.9")
+                || profile.mc_version.starts_with("1.10")
+                || profile.mc_version.starts_with("1.11")
+                || profile.mc_version.starts_with("1.12")
+            {
+                "net.minecraftforge.fml.common.launcher.FMLTweaker"
+            } else {
+                "cpw.mods.fml.common.launcher.FMLTweaker"
+            };
+            args.push("--tweakClass".to_string());
+            args.push(tweak.to_string());
+        } else {
+            for tweak in &profile.tweakers {
+                args.push("--tweakClass".to_string());
+                args.push(tweak.clone());
+            }
+        }
+    }
+
+    args.push("--width".to_string());
+    args.push(DEFAULT_WINDOW_WIDTH.to_string());
+    args.push("--height".to_string());
+    args.push(DEFAULT_WINDOW_HEIGHT.to_string());
+
+    args
+}
+
 #[must_use]
-#[allow(clippy::too_many_lines)] // ponytail: flat java arg builder, splitting adds nothing
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -109,109 +242,13 @@ pub fn build_command(
     classpath.push(mc_jar.display().to_string());
     let cp_str = classpath.join(crate::platform::classpath_separator());
 
-    let mut has_min_mem = false;
-    let mut has_max_mem = false;
-    let mut has_java_lib_path = false;
-    let mut has_lwjgl_lib_path = false;
-
-    for arg in &profile.jvm_args {
-        if arg.starts_with("-Xms") {
-            has_min_mem = true;
-        }
-        if arg.starts_with("-Xmx") {
-            has_max_mem = true;
-        }
-        let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
-        if processed.starts_with("-Djava.library.path=") {
-            has_java_lib_path = true;
-        }
-        if processed.starts_with("-Dorg.lwjgl.librarypath=") {
-            has_lwjgl_lib_path = true;
-        }
-        if processed.contains("sun-misc-unsafe-memory-access") {
-            continue;
-        }
-        cmd.arg(&processed);
-    }
-
-    if !has_min_mem {
-        cmd.arg(format!("-Xms{memory_min}"));
-    }
-    if !has_max_mem {
-        cmd.arg(format!("-Xmx{memory_max}"));
-    }
-
-    let natives_dir = instance_dir.join("natives");
-    if !has_java_lib_path {
-        cmd.arg(format!("-Djava.library.path={}", natives_dir.display()));
-    }
-    if !has_lwjgl_lib_path {
-        cmd.arg(format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()));
-    }
-
-    if !profile.jvm_args.iter().any(|a| a.contains("-cp")) {
-        cmd.arg("-cp").arg(&cp_str);
-    }
-    let java_major = crate::java::detect_java_major_version(java_path).unwrap_or(8);
-    if java_major >= 9
-        && !profile
-            .jvm_args
-            .iter()
-            .any(|a| a.contains("java.base/java.net"))
-    {
-        cmd.arg("--add-opens").arg("java.base/java.net=ALL-UNNAMED");
-    }
+    let jvm = jvm_args(profile, instance_dir, java_path, player, &cp_str, memory_min, memory_max);
+    cmd.args(jvm);
 
     cmd.arg(&profile.main_class);
 
-    let game_args_raw = if profile.game_args_template.is_empty() {
-        "--username {auth_player_name} --version {version_name} --gameDir {game_directory} --assetsDir {assets_root} --assetIndex {assets_index_name} --uuid {auth_uuid} --accessToken {auth_access_token} --userType {user_type}".to_string()
-    } else {
-        profile.game_args_template.clone()
-    };
-
-    let mut has_tweak_class = game_args_raw.contains("--tweakClass");
-
-    for arg in game_args_raw.split_whitespace() {
-        let processed = replace_placeholders(arg, profile, instance_dir, player, &cp_str);
-        if processed == "--demo"
-            || processed.starts_with("--quickPlay")
-            || processed.contains("${quickPlay")
-            || (processed.starts_with("${") && processed.ends_with('}'))
-        {
-            continue;
-        }
-        if processed == "--tweakClass" {
-            has_tweak_class = true;
-        }
-        cmd.arg(&processed);
-    }
-
-    if !has_tweak_class
-        && (profile.main_class == "net.minecraft.launchwrapper.Launch"
-            || profile.traits.iter().any(|t| t == "legacyFML"))
-    {
-        if profile.tweakers.is_empty() {
-            let tweak = if profile.mc_version.starts_with("1.8")
-                || profile.mc_version.starts_with("1.9")
-                || profile.mc_version.starts_with("1.10")
-                || profile.mc_version.starts_with("1.11")
-                || profile.mc_version.starts_with("1.12")
-            {
-                "net.minecraftforge.fml.common.launcher.FMLTweaker"
-            } else {
-                "cpw.mods.fml.common.launcher.FMLTweaker"
-            };
-            cmd.arg("--tweakClass").arg(tweak);
-        } else {
-            for tweak in &profile.tweakers {
-                cmd.arg("--tweakClass").arg(tweak);
-            }
-        }
-    }
-
-    cmd.arg("--width").arg("854");
-    cmd.arg("--height").arg("480");
+    let game = game_args(profile, instance_dir, player, &cp_str);
+    cmd.args(game);
 
     cmd
 }
@@ -228,23 +265,18 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
         if !platform::should_include_library(lib) {
             continue;
         }
-        let parts: Vec<&str> = lib.name.split(':').collect();
-        if parts.len() >= 3 {
+        if let Some(coord) = crate::MavenCoord::parse(&lib.name) {
             if !seen.insert(lib.name.clone()) {
                 continue;
             }
-            let group = parts[0].replace('.', "/");
-            let artifact = parts[1];
-            let version = parts[2];
             let filename = crate::download::library_filename(lib);
-
             let jar_path = libraries_dir
-                .join(&group)
-                .join(artifact)
-                .join(version)
+                .join(coord.group.replace('.', "/"))
+                .join(&coord.artifact)
+                .join(&coord.version)
                 .join(filename);
 
-            let is_jarmod = lib.name.contains("@zip")
+            let is_jarmod = coord.is_zip_artifact()
                 || lib.name.contains("net.minecraftforge:forge")
                 || std::path::Path::new(lib.url.as_deref().unwrap_or(""))
                     .extension()
@@ -261,8 +293,7 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
 
 /// # Errors
 /// Returns an error if the process fails to spawn or wait.
-pub async fn launch_game(command: &mut std::process::Command) -> Result<ExitStatus, LaunchError> {
-    let mut command = std::mem::replace(command, std::process::Command::new(""));
+pub async fn launch_game(mut command: std::process::Command) -> Result<ExitStatus, LaunchError> {
     tokio::task::spawn_blocking(move || {
         command
             .spawn()
@@ -275,73 +306,58 @@ pub async fn launch_game(command: &mut std::process::Command) -> Result<ExitStat
 }
 
 /// # Errors
+/// Returns an error if executing the shell command fails and `fail_on_error` is true.
+pub async fn run_shell_command(
+    command: &str,
+    instance_root: &Path,
+    fail_on_error: bool,
+) -> Result<(), LaunchError> {
+    if command.is_empty() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = tokio::process::Command::new("cmd");
+    #[cfg(target_os = "windows")]
+    cmd.arg("/C");
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = tokio::process::Command::new("sh");
+    #[cfg(not(target_os = "windows"))]
+    cmd.arg("-c");
+
+    cmd.arg(command).current_dir(instance_root);
+
+    let status = cmd
+        .status()
+        .await
+        .map_err(|e| LaunchError::Launch(e.to_string()))?;
+
+    if fail_on_error && !status.success() {
+        Err(LaunchError::Launch(format!(
+            "Command failed with status: {status}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// # Errors
 /// Returns an error if the pre-launch command fails.
 pub async fn run_pre_launch_command(
     command: &str,
     instance_root: &Path,
 ) -> Result<(), LaunchError> {
-    if command.is_empty() {
-        return Ok(());
-    }
-
-    #[cfg(target_os = "windows")]
-    let status = tokio::process::Command::new("cmd")
-        .arg("/C")
-        .arg(command)
-        .current_dir(instance_root)
-        .status()
-        .await
-        .map_err(|e| LaunchError::Launch(e.to_string()))?;
-
-    #[cfg(not(target_os = "windows"))]
-    let status = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(instance_root)
-        .status()
-        .await
-        .map_err(|e| LaunchError::Launch(e.to_string()))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(LaunchError::Launch(format!(
-            "Pre-launch command failed with status: {status}"
-        )))
-    }
+    run_shell_command(command, instance_root, true).await
 }
 
 /// # Errors
-/// This function currently always returns Ok.
+/// Returns an error if the post-launch command fails.
 pub async fn run_post_launch_command(
     command: &str,
     instance_root: &Path,
 ) -> Result<(), LaunchError> {
-    if command.is_empty() {
-        return Ok(());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let _ = tokio::process::Command::new("cmd")
-            .arg("/C")
-            .arg(command)
-            .current_dir(instance_root)
-            .status()
-            .await;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .current_dir(instance_root)
-            .status()
-            .await;
-    }
-
-    Ok(())
+    run_shell_command(command, instance_root, false).await
 }
 
 #[cfg(test)]

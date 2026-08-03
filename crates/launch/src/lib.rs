@@ -9,6 +9,7 @@ pub mod platform;
 pub mod profile;
 pub mod resolve;
 
+use std::path::PathBuf;
 use thiserror::Error;
 
 pub use command::{
@@ -19,6 +20,70 @@ pub use fml::ensure_fml_deobfuscation_data;
 pub use natives::{extract_natives, is_native_binary, verify_natives_dir};
 pub use profile::{assemble_launch_profile, AssetIndex, LaunchProfile};
 pub use resolve::DependencyResolver;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MavenCoord {
+    pub group: String,
+    pub artifact: String,
+    pub version: String,
+    pub classifier: Option<String>,
+    pub ext: String,
+}
+
+impl MavenCoord {
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        let (base, ext) = if let Some((b, e)) = name.split_once('@') {
+            (b, e.to_string())
+        } else {
+            (name, "jar".to_string())
+        };
+
+        let parts: Vec<&str> = base.split(':').collect();
+        if parts.len() < 3 {
+            return None;
+        }
+
+        let group = parts[0].to_string();
+        let artifact = parts[1].to_string();
+        let version = parts[2].to_string();
+        let classifier = if parts.len() > 3 {
+            Some(parts[3..].join(":"))
+        } else {
+            None
+        };
+
+        Some(Self {
+            group,
+            artifact,
+            version,
+            classifier,
+            ext,
+        })
+    }
+
+    #[must_use]
+    pub fn filename(&self) -> String {
+        match &self.classifier {
+            Some(cls) => format!("{}-{}-{}.{}", self.artifact, self.version, cls, self.ext),
+            None => format!("{}-{}.{}", self.artifact, self.version, self.ext),
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> PathBuf {
+        let group_path = self.group.replace('.', "/");
+        PathBuf::from(group_path)
+            .join(&self.artifact)
+            .join(&self.version)
+            .join(self.filename())
+    }
+
+    #[must_use]
+    pub fn is_zip_artifact(&self) -> bool {
+        self.ext.eq_ignore_ascii_case("zip")
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Component {
@@ -49,8 +114,8 @@ pub enum LaunchError {
     Zip(#[from] zip::result::ZipError),
     #[error("Version not found: {0}")]
     VersionNotFound(String),
-    #[error("Dependency conflict: {0}")]
-    DependencyConflict(String),
+    #[error("Dependency conflict: component {component} conflicts with {conflict}")]
+    DependencyConflict { component: String, conflict: String },
     #[error("Launch error: {0}")]
     Launch(String),
     #[error("Java not found: {0}")]

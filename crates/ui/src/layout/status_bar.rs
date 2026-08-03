@@ -1,4 +1,4 @@
-use crate::{App, DownloadPhase};
+use crate::{widgets, App, DownloadPhase};
 
 #[must_use]
 pub fn progress_ratio(completed: u64, total: u64) -> f32 {
@@ -18,27 +18,21 @@ pub fn show(ctx: &egui::Context, app: &App) {
             match &app.download_state.phase {
                 DownloadPhase::Idle => {}
                 DownloadPhase::Resolving => {
-                    ui.spinner();
-                    ui.label("Resolving dependencies...");
+                    widgets::loading_row(ui, "Resolving dependencies...");
                 }
                 DownloadPhase::Downloading { message } => {
-                    ui.spinner();
-                    ui.label(message.as_str());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(pct) = app
-                            .download_state
-                            .completed
-                            .saturating_mul(100)
-                            .checked_div(app.download_state.total)
-                        {
-                            let progress =
-                                f32::from(u16::try_from(pct).unwrap_or(u16::MAX)) / 100.0;
-                            ui.add(
-                                egui::ProgressBar::new(progress)
-                                    .text(format!("{pct}%"))
-                                    .desired_width(140.0),
-                            );
-                        }
+                    widgets::loading_row(ui, message.as_str());
+                    widgets::right_aligned(ui, |ui| {
+                        let ratio = progress_ratio(
+                            app.download_state.completed,
+                            app.download_state.total,
+                        );
+                        let pct = (ratio * 100.0) as u32;
+                        ui.add(
+                            egui::ProgressBar::new(ratio)
+                                .text(format!("{pct}%"))
+                                .desired_width(140.0),
+                        );
                     });
                 }
             }

@@ -1,5 +1,6 @@
 pub mod flow;
 
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -10,9 +11,9 @@ use release_the_launcher_core::InstanceManager;
 
 pub use release_the_launcher_core::log;
 
-pub use flow::launch::{do_launch, extract_account_data, LaunchParams};
+pub use flow::launch::{do_launch, extract_account_data, AccountData, LaunchParams};
 
-pub type Queue = Arc<Mutex<Vec<Event>>>;
+pub type Queue = tokio::sync::mpsc::UnboundedSender<Event>;
 
 /// Events emitted by async flows and consumed by the UI.
 #[derive(Debug, Clone)]
@@ -31,7 +32,16 @@ pub enum Event {
         project_id: String,
         result: Result<Vec<release_the_launcher_mods::ModVersion>, String>,
     },
-    ModrinthInstallResult(Result<String, String>),
+    ModrinthInstallResult {
+        instance_id: String,
+        name: String,
+        mc_version: String,
+        loader: String,
+    },
+    ModUpdatesResult {
+        instance_id: String,
+        updates: Vec<release_the_launcher_mods::ModUpdate>,
+    },
     VersionListResult(Result<Vec<(String, String)>, String>),
     LoaderVersionsResult {
         loader_type: String,
@@ -53,9 +63,7 @@ pub enum Event {
 
 /// Queues an event for the UI to pick up.
 pub fn push_event(queue: &Queue, event: Event) {
-    if let Ok(mut q) = queue.lock() {
-        q.push(event);
-    }
+    let _ = queue.send(event);
 }
 
 /// Owns application state and drives every async flow. UI-agnostic.
@@ -65,8 +73,9 @@ pub struct Coordinator {
     pub global_settings: GlobalSettings,
     pub log_buffer: LogBuffer,
     pub settings_path: PathBuf,
-    pub http_provider: release_the_launcher_net::HttpClientProvider,
+    pub http_provider: reqwest::Client,
     queue: Queue,
+    rx: Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<Event>>>,
     tokio_handle: Option<tokio::runtime::Handle>,
 }
 
@@ -117,14 +126,17 @@ impl Coordinator {
             target: "launcher".to_string(),
         });
 
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
         Self {
             instance_manager,
             account_list,
             global_settings,
             log_buffer,
             settings_path,
-            http_provider: release_the_launcher_net::HttpClientProvider::default(),
-            queue: Arc::new(Mutex::new(Vec::new())),
+            http_provider: release_the_launcher_net::default_client(),
+            queue: tx,
+            rx: Arc::new(Mutex::new(rx)),
             tokio_handle: None,
         }
     }
@@ -135,16 +147,19 @@ impl Coordinator {
 
     #[must_use]
     pub fn queue(&self) -> Queue {
-        Arc::clone(&self.queue)
+        self.queue.clone()
     }
 
     /// Drains all pending events.
     #[must_use]
     pub fn drain_events(&self) -> Vec<Event> {
-        self.queue
-            .lock()
-            .map(|mut q| std::mem::take(&mut *q))
-            .unwrap_or_default()
+        let mut events = Vec::new();
+        if let Ok(mut rx) = self.rx.lock() {
+            while let Ok(ev) = rx.try_recv() {
+                events.push(ev);
+            }
+        }
+        events
     }
 
     pub fn log(&self, level: log::LogLevel, message: &str) {
@@ -166,13 +181,22 @@ impl Coordinator {
         self.global_settings.save(&self.settings_path)
     }
 
-    pub fn launch_instance(&self, instance_id: &str) {
+    fn run_async<F: Future<Output = ()> + Send + 'static>(
+        &self,
+        f: impl FnOnce(Queue) -> F + Send + 'static,
+    ) -> bool {
         let queue = self.queue();
         let Some(handle) = self.tokio_handle.clone() else {
-            return;
+            return false;
         };
+        handle.spawn(f(queue));
+        true
+    }
 
+    pub fn launch_instance(&self, instance_id: &str) {
         let account_data = extract_account_data(&self.account_list);
+        let active_auth_account = self.account_list.active().cloned();
+        let http_client = self.http_provider.clone();
 
         let inst = if let Some(inst) = self.instance_manager.get(&instance_id.to_string()) {
             let gs = &self.global_settings;
@@ -192,15 +216,15 @@ impl Coordinator {
                 inst.settings.minecraft_version.clone(),
                 inst.settings.loader.clone(),
                 gs.java_path_for(inst.settings.java.path.as_deref()),
-                gs.memory_min_for(&inst.settings.java.memory_min),
-                gs.memory_max_for(&inst.settings.java.memory_max),
+                gs.memory_min_for(inst.settings.java.memory_min.as_deref()),
+                gs.memory_max_for(inst.settings.java.memory_max.as_deref()),
                 pre,
                 post,
                 close,
             )
         } else {
             push_event(
-                &queue,
+                &self.queue(),
                 Event::DownloadError(format!("Instance '{instance_id}' not found")),
             );
             return;
@@ -218,10 +242,12 @@ impl Coordinator {
         ) = inst;
 
         let id_str = instance_id.to_string();
-        handle.spawn(async move {
+        self.run_async(move |queue| {
             do_launch(LaunchParams {
                 queue,
                 account_data,
+                active_auth_account,
+                http_client,
                 instance_id: id_str,
                 instance_root,
                 mc_version,
@@ -233,40 +259,31 @@ impl Coordinator {
                 post_launch_command,
                 close_after_launch,
             })
-            .await;
         });
     }
 
     pub fn fetch_versions_list(&self) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::launch::fetch_versions_list(&queue, &handle);
+        self.run_async(flow::launch::fetch_versions_list);
     }
 
     pub fn fetch_loader_versions(&self, loader_type: &str, mc_version: &str) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::launch::fetch_loader_versions(&queue, &handle, loader_type, mc_version);
+        let loader_type = loader_type.to_string();
+        let mc_version = mc_version.to_string();
+        self.run_async(move |queue| {
+            flow::launch::fetch_loader_versions(queue, loader_type, mc_version)
+        });
     }
 
     pub fn search_modpacks(&self, query: String, mc_version: String, loader: String) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::modrinth::search_modpacks(&queue, &handle, query, mc_version, loader);
+        self.run_async(move |queue| {
+            flow::modrinth::search_modpacks(queue, query, mc_version, loader)
+        });
     }
 
     pub fn search_mods(&self, query: String, mc_version: String, loader_name: String) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::modrinth::search_mods(&queue, &handle, query, mc_version, loader_name);
+        self.run_async(move |queue| {
+            flow::modrinth::search_mods(queue, query, mc_version, loader_name)
+        });
     }
 
     pub fn install_mod(
@@ -276,26 +293,21 @@ impl Coordinator {
         mc_version: Option<String>,
         loader_name: Option<String>,
     ) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::modrinth::install_mod(
-            &queue,
-            &handle,
-            project_id,
-            mods_dir,
-            mc_version,
-            loader_name,
-        );
+        self.run_async(move |queue| {
+            flow::modrinth::install_mod(
+                queue,
+                project_id,
+                mods_dir,
+                mc_version,
+                loader_name,
+            )
+        });
     }
 
     pub fn fetch_modpack_versions(&self, project_id: String) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::modrinth::fetch_modpack_versions(&queue, &handle, project_id);
+        self.run_async(move |queue| {
+            flow::modrinth::fetch_modpack_versions(queue, project_id)
+        });
     }
 
     pub fn install_modpack_as_instance(
@@ -304,25 +316,121 @@ impl Coordinator {
         version_id: Option<String>,
         instances_dir: PathBuf,
     ) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return;
-        };
-        flow::modrinth::install_modpack_as_instance(
-            &queue,
-            &handle,
-            project_id,
-            version_id,
-            instances_dir,
-        );
+        self.run_async(move |queue| {
+            flow::modrinth::install_modpack_as_instance(
+                queue,
+                project_id,
+                version_id,
+                instances_dir,
+            )
+        });
     }
 
     pub fn start_ms_login(&self) {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
+        self.run_async(flow::msa::start_login);
+    }
+
+    pub fn refresh_active_account(&self) {
+        let active = self.account_list.active().cloned();
+        let http = self.http_provider.clone();
+        self.run_async(move |queue| async move {
+            if let Some(ref mut account) = active {
+                if release_the_launcher_auth::refresh::needs_refresh(account) {
+                    let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
+                    match release_the_launcher_auth::refresh::try_refresh_if_needed(
+                        account,
+                        &http,
+                        client_id,
+                    )
+                    .await
+                    {
+                        Ok(Some(refreshed)) => {
+                            push_event(
+                                &queue,
+                                Event::MsLoginSuccess {
+                                    account: Box::new(refreshed),
+                                },
+                            );
+                            push_event(
+                                &queue,
+                                Event::Status("Account refreshed".to_string()),
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            push_event(&queue, Event::MsLoginError(e.to_string()));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn mods_metadata(&self, instance_id: &str) -> Vec<release_the_launcher_mods::ModDetails> {
+        let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
+            return Vec::new();
+        };
+        let mods_dir = inst.root.join("mods");
+        let entries = release_the_launcher_mods::list_mods(&mods_dir);
+        let mut results = Vec::new();
+        for entry in entries {
+            if entry.enabled {
+                if let Ok(details) =
+                    release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
+                {
+                    results.push(details);
+                }
+            }
+        }
+        results
+    }
+
+    pub fn check_mod_updates(&self, instance_id: String) {
+        let inst = self.instance_manager.get(&instance_id);
+        let Some(inst) = inst else {
             return;
         };
-        flow::msa::start_login(&queue, &handle);
+        let mods_dir = inst.root.join("mods");
+        let mc_version = inst.settings.minecraft_version.clone();
+        let loader_str = inst.settings.loader.loader_type().to_string();
+
+        self.run_async(move |queue| async move {
+            use release_the_launcher_mods::ModProvider;
+            let entries = release_the_launcher_mods::list_mods(&mods_dir);
+            let mut installed_mods = Vec::new();
+            for entry in entries {
+                if entry.enabled {
+                    if let Ok(bytes) = std::fs::read(&entry.path) {
+                        let hash = release_the_launcher_core::hash::compute_sha1_bytes(&bytes);
+                        installed_mods.push(release_the_launcher_mods::InstalledMod {
+                            path: entry.path,
+                            hash,
+                            hash_type: "sha1".to_string(),
+                            project_id: None,
+                            version_id: None,
+                        });
+                    }
+                }
+            }
+            let provider = release_the_launcher_mods::ModrinthProvider::new(None);
+            let updates = match provider
+                .check_updates(&installed_mods, &[mc_version], &[loader_str])
+                .await
+            {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::warn!("Failed to check mod updates: {e}");
+                    Vec::new()
+                }
+            };
+            push_event(
+                &queue,
+                Event::ModUpdatesResult {
+                    instance_id,
+                    updates,
+                },
+            );
+        });
     }
 }
 

@@ -144,7 +144,7 @@ fn extract_jar_to_dir(
 mod tests {
     use super::*;
     use std::io::Write;
-    use zip::write::FileOptions;
+    use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
     #[test]
@@ -177,28 +177,28 @@ mod tests {
         let mut zip = ZipWriter::new(file);
 
         // LWJGL 2.x root files
-        zip.start_file("lwjgl.dll", FileOptions::default()).unwrap();
+        zip.start_file("lwjgl.dll", SimpleFileOptions::default()).unwrap();
         zip.write_all(b"dummy dll content").unwrap();
 
-        zip.start_file("lwjgl64.dll", FileOptions::default())
+        zip.start_file("lwjgl64.dll", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"dummy dll 64 content").unwrap();
 
-        zip.start_file("OpenAL32.dll", FileOptions::default())
+        zip.start_file("OpenAL32.dll", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"dummy openal 32 content").unwrap();
 
-        zip.start_file("OpenAL64.dll", FileOptions::default())
+        zip.start_file("OpenAL64.dll", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"dummy openal 64 content").unwrap();
 
         // META-INF should be excluded
-        zip.start_file("META-INF/MANIFEST.MF", FileOptions::default())
+        zip.start_file("META-INF/MANIFEST.MF", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"Manifest-Version: 1.0").unwrap();
 
         // Nested native binary
-        zip.start_file("x64/custom_native.dll", FileOptions::default())
+        zip.start_file("x64/custom_native.dll", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"dummy nested binary").unwrap();
 

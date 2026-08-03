@@ -1,56 +1,48 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::msa::now_unix;
 use crate::AuthError;
 use crate::Token;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[allow(dead_code)]
 struct XblAuthResponse {
-    #[serde(rename = "IssueInstant")]
-    _issue_instant: String,
-    #[serde(rename = "NotAfter")]
-    _not_after: String,
-    #[serde(rename = "Token")]
+    issue_instant: String,
+    not_after: String,
     token: String,
-    #[serde(rename = "DisplayClaims")]
     display_claims: Option<XblDisplayClaims>,
 }
 
 #[derive(Debug, Deserialize)]
 struct XblDisplayClaims {
-    #[serde(rename = "xui")]
     xui: Option<Vec<XblXui>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct XblXui {
-    #[serde(rename = "uhs")]
     uhs: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[allow(dead_code)]
 struct XstsAuthResponse {
-    #[serde(rename = "IssueInstant")]
-    _issue_instant: String,
-    #[serde(rename = "NotAfter")]
-    _not_after: String,
-    #[serde(rename = "Token")]
+    issue_instant: String,
+    not_after: String,
     token: String,
-    #[serde(rename = "DisplayClaims")]
-    _display_claims: Option<XblDisplayClaims>,
+    display_claims: Option<XblDisplayClaims>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[allow(dead_code)]
 struct XstsErrorResponse {
-    #[serde(rename = "Identity")]
-    _identity: Option<serde_json::Value>,
+    identity: Option<serde_json::Value>,
     #[serde(rename = "XErr")]
     xerr: Option<u64>,
-    #[serde(rename = "Message")]
     message: Option<String>,
-    #[serde(rename = "Redirect")]
-    _redirect: Option<String>,
+    redirect: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,12 +87,7 @@ pub async fn get_xbox_tokens(
         .and_then(|x| x.uhs.clone())
         .ok_or_else(|| AuthError::Flow("Missing UHS in XBL response".into()))?;
 
-    let user_token = Token {
-        issue_instant: now_unix(),
-        not_after: None,
-        token: body.token,
-        refresh_token: None,
-    };
+    let user_token = Token::new_no_expiry(body.token);
 
     let xsts_payload = serde_json::json!({
         "Properties": {
@@ -165,12 +152,7 @@ pub async fn get_xbox_tokens(
     }
 
     let xsts: XstsAuthResponse = serde_json::from_str(&body_text)?;
-    let xsts_token = Token {
-        issue_instant: now_unix(),
-        not_after: Some(now_unix() + 86400),
-        token: xsts.token,
-        refresh_token: None,
-    };
+    let xsts_token = Token::new(xsts.token, None, 86400);
 
     Ok(XboxTokens {
         user_token,

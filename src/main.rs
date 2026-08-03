@@ -34,9 +34,7 @@ fn main() -> Result<(), eframe::Error> {
             let theme = Theme::apply(&cc.egui_ctx);
             let mut coordinator = Coordinator::new();
             coordinator.attach_runtime(tokio::runtime::Handle::current());
-            let mut app = App::new(coordinator);
-            app.theme = theme;
-            app.ctx = Some(cc.egui_ctx.clone());
+            let app = App::new(coordinator, theme, Some(cc.egui_ctx.clone()));
             Box::new(LauncherApp::new(app))
         }),
     )

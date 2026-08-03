@@ -5,7 +5,6 @@ use crate::{LaunchError, LaunchProfile};
 
 struct FmlLibSeed {
     sha1: &'static str,
-    url: &'static str,
 }
 
 // ponytail: fallback for jars that have no usable hash in fmlversion.properties
@@ -18,7 +17,6 @@ const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
     "1.5.2",
     FmlLibSeed {
         sha1: "446e55cd986582c70fcf12cb27bc00114c5adfd9",
-        url: "https://files.prismlauncher.org/fmllibs/deobfuscation_data_1.5.2.zip",
     },
 )];
 
@@ -50,12 +48,13 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     };
     let file_name = format!("deobfuscation_data_{mc}.zip");
-    let primary_url = seed.map_or_else(
-        || format!("https://files.prismlauncher.org/fmllibs/{file_name}"),
-        |s| s.url.to_string(),
+    let primary_url = format!(
+        "{}/{file_name}",
+        release_the_launcher_constants::urls::PRISM_FML_BASE
     );
     let fallback_url = format!(
-        "https://web.archive.org/web/20210118183729id_/http://files.minecraftforge.net/fmllibs/{file_name}"
+        "{}/{file_name}",
+        release_the_launcher_constants::urls::WAYBACK_FML_BASE
     );
 
     let lib_dir = dirs::home_dir()
@@ -67,7 +66,7 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     }
 
-    let client = release_the_launcher_net::HttpClientProvider::default().clone_client();
+    let client = release_the_launcher_net::default_client();
     let bytes_opt = match client.get(&primary_url).send().await {
         Ok(resp) if resp.status().is_success() => resp.bytes().await.ok(),
         _ => None,

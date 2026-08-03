@@ -122,13 +122,13 @@ fn find_system_java(
 }
 
 fn scan_common_java_paths(
-    check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>,
+    _check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>,
 ) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let candidates = find_java_from_registry();
         for path in candidates {
-            if let Some(valid) = check_candidate(&path) {
+            if let Some(valid) = _check_candidate(&path) {
                 return Some(valid);
             }
         }
@@ -145,7 +145,7 @@ fn scan_common_java_paths(
                         let path = entry.path();
                         for exe in &["bin/javaw.exe", "bin/java.exe", "bin/java"] {
                             let candidate = path.join(exe);
-                            if let Some(valid) = check_candidate(&candidate) {
+                            if let Some(valid) = _check_candidate(&candidate) {
                                 return Some(valid);
                             }
                         }
@@ -172,7 +172,7 @@ fn scan_common_java_paths(
         ];
         for fallback in &fallbacks {
             let path = PathBuf::from(fallback);
-            if let Some(valid) = check_candidate(&path) {
+            if let Some(valid) = _check_candidate(&path) {
                 return Some(valid);
             }
         }
@@ -231,24 +231,17 @@ fn find_java_from_registry() -> Vec<PathBuf> {
 
     let mut candidates = Vec::new();
 
-    let subkeys = [
-        r"SOFTWARE\JavaSoft\Java Runtime Environment",
-        r"SOFTWARE\JavaSoft\Java Development Kit",
-        r"SOFTWARE\JavaSoft\JRE",
-        r"SOFTWARE\JavaSoft\JDK",
-        r"SOFTWARE\Eclipse Adoptium\JRE",
-        r"SOFTWARE\Eclipse Adoptium\JDK",
-        r"SOFTWARE\Eclipse Foundation\JDK",
-        r"SOFTWARE\AdoptOpenJDK\JRE",
-        r"SOFTWARE\AdoptOpenJDK\JDK",
+    let roots = [
+        r"SOFTWARE\JavaSoft",
+        r"SOFTWARE\Eclipse Adoptium",
+        r"SOFTWARE\Eclipse Foundation",
+        r"SOFTWARE\AdoptOpenJDK",
         r"SOFTWARE\Microsoft\JDK",
         r"SOFTWARE\Azul Systems\Zulu",
         r"SOFTWARE\BellSoft\Liberica",
-        r"SOFTWARE\Semeru\JRE",
-        r"SOFTWARE\Semeru\JDK",
+        r"SOFTWARE\Semeru",
     ];
 
-    let value_names = ["JavaHome", "Path", "InstallationPath"];
     let hives = [
         RegKey::predef(HKEY_LOCAL_MACHINE),
         RegKey::predef(HKEY_CURRENT_USER),
@@ -257,48 +250,38 @@ fn find_java_from_registry() -> Vec<PathBuf> {
 
     for hive in &hives {
         for view in &views {
-            for subkey_path in &subkeys {
-                if let Ok(subkey) = hive.open_subkey_with_flags(subkey_path, *view) {
-                    for value_name in &value_names {
-                        if let Ok(java_home) = subkey.get_value::<String, _>(value_name) {
-                            add_java_bin_candidates(&java_home, &mut candidates);
-                        }
-                    }
-
-                    for version_name in subkey.enum_keys().filter_map(std::result::Result::ok) {
-                        if let Ok(version_key) = subkey.open_subkey_with_flags(&version_name, *view)
-                        {
-                            for value_name in &value_names {
-                                if let Ok(java_home) =
-                                    version_key.get_value::<String, _>(value_name)
-                                {
-                                    add_java_bin_candidates(&java_home, &mut candidates);
-                                }
-                            }
-
-                            for sub_version_name in
-                                version_key.enum_keys().filter_map(std::result::Result::ok)
-                            {
-                                if let Ok(nested_key) =
-                                    version_key.open_subkey_with_flags(&sub_version_name, *view)
-                                {
-                                    for value_name in &value_names {
-                                        if let Ok(java_home) =
-                                            nested_key.get_value::<String, _>(value_name)
-                                        {
-                                            add_java_bin_candidates(&java_home, &mut candidates);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            for root_path in &roots {
+                if let Ok(key) = hive.open_subkey_with_flags(root_path, *view) {
+                    traverse_registry_key(&key, *view, &mut candidates, 0);
                 }
             }
         }
     }
 
     candidates
+}
+
+#[cfg(target_os = "windows")]
+fn traverse_registry_key(
+    key: &winreg::RegKey,
+    view: u32,
+    candidates: &mut Vec<PathBuf>,
+    depth: usize,
+) {
+    if depth > 4 {
+        return;
+    }
+    const VALUE_NAMES: [&str; 3] = ["JavaHome", "Path", "InstallationPath"];
+    for val_name in &VALUE_NAMES {
+        if let Ok(java_home) = key.get_value::<String, _>(val_name) {
+            add_java_bin_candidates(&java_home, candidates);
+        }
+    }
+    for sub_name in key.enum_keys().filter_map(std::result::Result::ok) {
+        if let Ok(sub_key) = key.open_subkey_with_flags(&sub_name, view) {
+            traverse_registry_key(&sub_key, view, candidates, depth + 1);
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -374,22 +357,6 @@ pub fn parse_java_version_output(output: &str) -> Option<u32> {
         let line = line.trim();
         if line.is_empty() {
             continue;
-        }
-
-        if let Some(idx) = line.find("version ") {
-            let after_version = &line[idx + "version ".len()..];
-            let ver_str = after_version.strip_prefix('"').map_or_else(
-                || {
-                    after_version
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or(after_version)
-                },
-                |inside| inside.split('"').next().unwrap_or(inside),
-            );
-            if let Some(major) = extract_major_version(ver_str) {
-                return Some(major);
-            }
         }
 
         if let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) {

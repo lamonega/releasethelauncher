@@ -13,9 +13,18 @@ use release_the_launcher_launch::{
 use crate::log::LogLevel;
 use crate::{push_event, Event, Queue};
 
+#[derive(Clone, Debug)]
+pub struct AccountData {
+    pub name: String,
+    pub uuid: String,
+    pub token: String,
+}
+
 pub struct LaunchParams {
     pub queue: Queue,
-    pub account_data: Option<(String, String, String)>,
+    pub account_data: Option<AccountData>,
+    pub active_auth_account: Option<release_the_launcher_auth::AccountData>,
+    pub http_client: reqwest::Client,
     pub instance_id: String,
     pub instance_root: std::path::PathBuf,
     pub mc_version: String,
@@ -28,15 +37,33 @@ pub struct LaunchParams {
     pub close_after_launch: bool,
 }
 
-pub fn extract_account_data(account_list: &AccountList) -> Option<(String, String, String)> {
+pub fn extract_account_data(account_list: &AccountList) -> Option<AccountData> {
     let active = account_list.active()?;
-    let player_name = active.display_name().to_string();
-    let player_uuid = active.internal_id.clone();
-    let access_token = active
-        .mc_token
-        .as_ref()
-        .map_or_else(String::new, |t| t.token.clone());
-    Some((player_name, player_uuid, access_token))
+    Some(AccountData {
+        name: active.display_name().to_string(),
+        uuid: active.internal_id.clone(),
+        token: active
+            .mc_token
+            .as_ref()
+            .map_or_else(String::new, |t| t.token.clone()),
+    })
+}
+
+fn fail(queue: &Queue, msg: impl Into<String>) -> anyhow::Error {
+    let message = msg.into();
+    send_log(queue, LogLevel::Error, &message);
+    anyhow::anyhow!(message)
+}
+
+fn emit_progress(queue: &Queue, message: String, done: u64, total: u64) {
+    push_event(
+        queue,
+        Event::DownloadProgress {
+            message,
+            done,
+            total,
+        },
+    );
 }
 
 pub fn send_log(queue: &Queue, level: LogLevel, message: impl Into<String>) {
@@ -60,9 +87,7 @@ pub fn send_log_with_target(
     );
 }
 
-pub async fn do_launch(params: LaunchParams) {
-    let send = |msg: Event| push_event(&params.queue, msg);
-
+pub async fn do_launch(mut params: LaunchParams) {
     send_log(
         &params.queue,
         LogLevel::Info,
@@ -72,12 +97,68 @@ pub async fn do_launch(params: LaunchParams) {
         ),
     );
 
-    let Some((ref player_name, ref player_uuid, ref access_token)) = params.account_data else {
-        let err = "No active account. Add an account before launching.".to_string();
-        send_log(&params.queue, LogLevel::Error, &err);
-        send(Event::DownloadError(err));
-        return;
-    };
+    if let Err(err) = do_launch_pipeline(&mut params).await {
+        push_event(&params.queue, Event::DownloadError(err.to_string()));
+    }
+}
+
+async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
+    // 1. Refresh Microsoft token if near expiry
+    if let Some(ref mut auth_account) = params.active_auth_account {
+        if release_the_launcher_auth::refresh::needs_refresh(auth_account) {
+            send_log(
+                &params.queue,
+                LogLevel::Info,
+                "Refreshing Microsoft account session before launch...",
+            );
+            let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
+            match release_the_launcher_auth::refresh::try_refresh_if_needed(
+                auth_account,
+                &params.http_client,
+                client_id,
+            )
+            .await
+            {
+                Ok(Some(refreshed)) => {
+                    params.account_data = Some(AccountData {
+                        name: refreshed.display_name().to_string(),
+                        uuid: refreshed.internal_id.clone(),
+                        token: refreshed
+                            .mc_token
+                            .as_ref()
+                            .map_or_else(String::new, |t| t.token.clone()),
+                    });
+                    push_event(
+                        &params.queue,
+                        Event::MsLoginSuccess {
+                            account: Box::new(refreshed),
+                        },
+                    );
+                    push_event(
+                        &params.queue,
+                        Event::Status("Account refreshed".to_string()),
+                    );
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(fail(
+                        &params.queue,
+                        format!("Session expired: re-login required ({e})"),
+                    ));
+                }
+            }
+        }
+    }
+
+    // 2. Validate account data
+    let account = params
+        .account_data
+        .as_ref()
+        .ok_or_else(|| fail(&params.queue, "No active account. Add an account before launching."))?;
+
+    let player_name = account.name.clone();
+    let player_uuid = account.uuid.clone();
+    let access_token = account.token.clone();
 
     send_log(
         &params.queue,
@@ -93,41 +174,62 @@ pub async fn do_launch(params: LaunchParams) {
         ),
     );
 
-    if run_pre_launch(&params).await.is_err() {
-        send_log(&params.queue, LogLevel::Error, "Pre-launch command failed");
-        return;
+    // 3. Pre-launch memory check
+    let memory_max_mb = parse_memory_mb(&params.memory_max);
+    if !release_the_launcher_launch::memory::has_enough_memory(memory_max_mb) {
+        send_log(
+            &params.queue,
+            LogLevel::Warn,
+            format!("Low system memory warning: requested {memory_max_mb} MB but available physical RAM is lower."),
+        );
+        push_event(
+            &params.queue,
+            Event::Status("Warning: system memory may be insufficient".to_string()),
+        );
     }
 
-    download_modpack_mods(&params).await;
+    // 4. Pre-launch command
+    run_pre_launch(params).await?;
 
-    let Ok(profile) = resolve_and_prepare_downloads(&params).await else {
-        return;
-    };
+    // 5. Download modpack mods
+    download_modpack_mods(params).await;
 
+    // 6. Resolve version components & profile
+    let profile = resolve_and_prepare_downloads(params).await?;
+
+    // 7. Resolve Java runtime
     send_log(&params.queue, LogLevel::Info, "Resolving Java runtime...");
-    let Some(java_path) = resolve_java_path(
+    let java_path = resolve_java_path(
         &params.queue,
         params.java_path_override.as_deref(),
         &profile.compatible_java_majors,
-    ) else {
-        send_log(
-            &params.queue,
-            LogLevel::Error,
-            "Failed to resolve Java path",
-        );
-        return;
-    };
+    )?;
 
+    // 8. Build command
     let cmd = build_launch_command(
-        &params,
+        params,
         &profile,
         &java_path,
-        player_name,
-        player_uuid,
-        access_token,
+        &player_name,
+        &player_uuid,
+        &access_token,
     );
 
-    spawn_and_monitor_game(&params, cmd).await;
+    // 9. Spawn and monitor process
+    spawn_and_monitor_game(params, cmd).await?;
+
+    Ok(())
+}
+
+fn parse_memory_mb(mem_str: &str) -> u64 {
+    let s = mem_str.trim();
+    if s.ends_with('G') || s.ends_with('g') {
+        s[..s.len() - 1].parse::<u64>().unwrap_or(2048) * 1024
+    } else if s.ends_with('M') || s.ends_with('m') {
+        s[..s.len() - 1].parse::<u64>().unwrap_or(2048)
+    } else {
+        s.parse::<u64>().unwrap_or(2048)
+    }
 }
 
 fn build_launch_command(
@@ -166,8 +268,9 @@ fn build_launch_command(
     cmd
 }
 
-async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchProfile, ()> {
-    let send = |msg: Event| push_event(&params.queue, msg);
+async fn resolve_and_prepare_downloads(
+    params: &LaunchParams,
+) -> Result<LaunchProfile, anyhow::Error> {
     send_log(
         &params.queue,
         LogLevel::Info,
@@ -175,15 +278,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
     );
 
     let components =
-        match resolve_components(&params.queue, &params.loader, &params.mc_version).await {
-            Ok(c) => c,
-            Err(e) => {
-                let msg = format!("Failed to resolve version components: {e}");
-                send_log(&params.queue, LogLevel::Error, &msg);
-                send(Event::DownloadError(msg));
-                return Err(());
-            }
-        };
+        resolve_components(&params.queue, &params.loader, &params.mc_version).await?;
 
     send_log(
         &params.queue,
@@ -191,15 +286,8 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         format!("Resolved {} component(s)", components.len()),
     );
 
-    let profile = match assemble_launch_profile(&components) {
-        Ok(p) => p,
-        Err(e) => {
-            let msg = format!("Failed to assemble profile: {e}");
-            send_log(&params.queue, LogLevel::Error, &msg);
-            send(Event::DownloadError(msg));
-            return Err(());
-        }
-    };
+    let profile = assemble_launch_profile(&components)
+        .map_err(|e| fail(&params.queue, format!("Failed to assemble profile: {e}")))?;
 
     send_log(
         &params.queue,
@@ -217,7 +305,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         LogLevel::Info,
         "Checking & downloading required game libraries...",
     );
-    download_game_files(&params.queue, &params.instance_root, &profile).await;
+    download_game_files(&params.queue, &params.instance_root, &profile).await?;
 
     send_log(
         &params.queue,
@@ -227,7 +315,7 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
     if let Err(e) = ensure_fml_deobfuscation_data(&profile, &params.instance_root).await {
         send_log(
             &params.queue,
-            LogLevel::Error,
+            LogLevel::Warn,
             format!("Failed to prepare FML libraries: {e}"),
         );
     }
@@ -237,21 +325,24 @@ async fn resolve_and_prepare_downloads(params: &LaunchParams) -> Result<LaunchPr
         LogLevel::Info,
         "Extracting native libraries...",
     );
-    extract_natives_files(&params.queue, &params.instance_root, &profile);
+    extract_natives_files(&params.queue, &params.instance_root, &profile)?;
 
     send_log(
         &params.queue,
         LogLevel::Info,
         "Checking & downloading game assets...",
     );
-    download_assets(&params.queue, &params.instance_root, &profile.asset_index).await;
+    download_assets(&params.queue, &params.instance_root, &profile.asset_index).await?;
 
     download_client_jar(params, &profile).await?;
 
     Ok(profile)
 }
 
-async fn download_client_jar(params: &LaunchParams, profile: &LaunchProfile) -> Result<(), ()> {
+async fn download_client_jar(
+    params: &LaunchParams,
+    profile: &LaunchProfile,
+) -> Result<(), anyhow::Error> {
     let Some(client_dl) = profile.client_download.as_ref() else {
         return Ok(());
     };
@@ -279,23 +370,16 @@ async fn download_client_jar(params: &LaunchParams, profile: &LaunchProfile) -> 
         )),
     );
     let dl_mgr = DownloadManager::new(params.instance_root.clone());
-    if let Err(e) = dl_mgr
+    dl_mgr
         .download_client_jar(&client_jar, &client_dl.url, client_dl.sha1.as_deref())
         .await
-    {
-        let msg = format!("Failed to download client.jar: {e}");
-        send_log(&params.queue, LogLevel::Error, &msg);
-        push_event(&params.queue, Event::DownloadError(msg));
-        return Err(());
-    }
-    Ok(())
+        .map_err(|e| fail(&params.queue, format!("Failed to download client.jar: {e}")))
 }
 
-/// Spawns the game and streams its output. Reading happens on std threads:
-/// tokio's child pipes on Windows lose everything but the first stderr line
-/// when the process dies right after writing (javaw crash after ~67 of 950
-/// bytes); sync reads drain the pipe before the OS cancels the pending I/O.
-async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Command) {
+async fn spawn_and_monitor_game(
+    params: &LaunchParams,
+    cmd: std::process::Command,
+) -> Result<(), anyhow::Error> {
     push_event(
         &params.queue,
         Event::Status("Launching game...".to_string()),
@@ -306,7 +390,7 @@ async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Comman
     let result =
         tokio::task::spawn_blocking(move || spawn_and_stream_output(cmd, &queue, &instance_id))
             .await
-            .unwrap_or_else(|_| Err("Log streaming task failed".to_string()));
+            .map_err(|_| fail(&params.queue, "Log streaming task failed"))?;
 
     match result {
         Ok(status) => {
@@ -320,9 +404,7 @@ async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Comman
             push_event(&params.queue, Event::DownloadComplete(msg));
         }
         Err(e) => {
-            let msg = format!("Failed to run game process: {e}");
-            send_log(&params.queue, LogLevel::Error, &msg);
-            push_event(&params.queue, Event::DownloadError(msg));
+            return Err(fail(&params.queue, format!("Failed to run game process: {e}")));
         }
     }
 
@@ -331,6 +413,7 @@ async fn spawn_and_monitor_game(params: &LaunchParams, cmd: std::process::Comman
     if params.close_after_launch {
         push_event(&params.queue, Event::RequestClose);
     }
+    Ok(())
 }
 
 fn spawn_and_stream_output(
@@ -343,7 +426,7 @@ fn spawn_and_stream_output(
 
     push_event(
         queue,
-        Event::DownloadComplete("Game is running".to_string()),
+        Event::Status("Game is running".to_string()),
     );
     send_log(
         queue,
@@ -428,18 +511,17 @@ async fn download_modpack_mods(params: &LaunchParams) {
     let progress_queue = params.queue.clone();
     let _ = mod_manager
         .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
-            let _ = progress_queue.lock().map(|mut q| {
-                q.push(Event::DownloadProgress {
-                    message: format!("Downloading mod: {mod_name}"),
-                    done,
-                    total,
-                });
-            });
+            emit_progress(
+                &progress_queue,
+                format!("Downloading mod: {mod_name}"),
+                done,
+                total,
+            );
         })
         .await;
 }
 
-async fn run_pre_launch(params: &LaunchParams) -> Result<(), ()> {
+async fn run_pre_launch(params: &LaunchParams) -> Result<(), anyhow::Error> {
     if params.pre_launch_command.is_empty() {
         return Ok(());
     }
@@ -447,21 +529,12 @@ async fn run_pre_launch(params: &LaunchParams) -> Result<(), ()> {
         &params.queue,
         Event::Status("Running pre-launch command...".to_string()),
     );
-    match release_the_launcher_launch::run_pre_launch_command(
+    release_the_launcher_launch::run_pre_launch_command(
         &params.pre_launch_command,
         &params.instance_root,
     )
     .await
-    {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            push_event(
-                &params.queue,
-                Event::DownloadError(format!("Pre-launch command failed: {e}")),
-            );
-            Err(())
-        }
-    }
+    .map_err(|e| fail(&params.queue, format!("Pre-launch command failed: {e}")))
 }
 
 async fn run_post_launch(params: &LaunchParams) {
@@ -478,9 +551,10 @@ async fn run_post_launch(params: &LaunchParams) {
     )
     .await
     {
-        push_event(
+        send_log(
             &params.queue,
-            Event::DownloadError(format!("Post-launch command failed: {e}")),
+            LogLevel::Error,
+            format!("Post-launch command failed: {e}"),
         );
     }
 }
@@ -489,143 +563,100 @@ async fn resolve_components(
     queue: &Queue,
     loader: &ModLoader,
     mc_version: &str,
-) -> Result<Vec<release_the_launcher_launch::Component>, String> {
-    let send = |msg: Event| push_event(queue, msg);
+) -> Result<Vec<release_the_launcher_launch::Component>, anyhow::Error> {
     let mut resolver = DependencyResolver::new();
 
-    send(Event::Status("Fetching version manifest...".to_string()));
-    if let Err(e) = resolver.fetch_manifest().await {
-        let err_msg = format!("Failed to fetch version manifest: {e}");
-        send(Event::DownloadError(err_msg.clone()));
-        return Err(err_msg);
-    }
+    push_event(queue, Event::Status("Fetching version manifest...".to_string()));
+    resolver
+        .fetch_manifest()
+        .await
+        .map_err(|e| fail(queue, format!("Failed to fetch version manifest: {e}")))?;
 
     let mut components = Vec::new();
 
-    match resolver.fetch_vanilla_component(mc_version).await {
-        Ok(comp) => components.push(comp),
-        Err(e) => {
-            let err_msg = format!("Failed to fetch Minecraft version: {e}");
-            send(Event::DownloadError(err_msg.clone()));
-            return Err(err_msg);
-        }
+    let vanilla_comp = resolver
+        .fetch_vanilla_component(mc_version)
+        .await
+        .map_err(|e| fail(queue, format!("Failed to fetch Minecraft version: {e}")))?;
+    components.push(vanilla_comp);
+
+    let loader_comp = match loader {
+        ModLoader::Fabric { loader_version } => resolver
+            .fetch_fabric_component(mc_version, Some(loader_version.as_str()))
+            .await
+            .map(Some),
+        ModLoader::Forge { loader_version } => resolver
+            .fetch_forge_component(mc_version, loader_version)
+            .await
+            .map(Some),
+        ModLoader::NeoForge { loader_version } => resolver
+            .fetch_neoforge_component(mc_version, loader_version)
+            .await
+            .map(Some),
+        ModLoader::Quilt { loader_version } => resolver
+            .fetch_quilt_component(mc_version, Some(loader_version.as_str()))
+            .await
+            .map(Some),
+        ModLoader::Vanilla => Ok(None),
+    };
+
+    if let Some(comp) =
+        loader_comp.map_err(|e| fail(queue, format!("Failed to fetch {loader} loader: {e}")))?
+    {
+        components.push(comp);
     }
 
-    match loader {
-        ModLoader::Fabric { loader_version } => {
-            let lv = loader_version.as_str();
-            match resolver.fetch_fabric_component(mc_version, Some(lv)).await {
-                Ok(comp) => components.push(comp),
-                Err(e) => {
-                    let err_msg = format!("Failed to fetch Fabric loader: {e}");
-                    send(Event::DownloadError(err_msg.clone()));
-                    return Err(err_msg);
-                }
-            }
-        }
-        ModLoader::Forge { loader_version } => {
-            match resolver
-                .fetch_forge_component(mc_version, loader_version)
-                .await
-            {
-                Ok(comp) => components.push(comp),
-                Err(e) => {
-                    let err_msg = format!("Failed to fetch Forge loader: {e}");
-                    send(Event::DownloadError(err_msg.clone()));
-                    return Err(err_msg);
-                }
-            }
-        }
-        ModLoader::NeoForge { loader_version } => {
-            match resolver
-                .fetch_neoforge_component(mc_version, loader_version)
-                .await
-            {
-                Ok(comp) => components.push(comp),
-                Err(e) => {
-                    let err_msg = format!("Failed to fetch NeoForge loader: {e}");
-                    send(Event::DownloadError(err_msg.clone()));
-                    return Err(err_msg);
-                }
-            }
-        }
-        ModLoader::Quilt { loader_version } => {
-            let lv = loader_version.as_str();
-            match resolver.fetch_quilt_component(mc_version, Some(lv)).await {
-                Ok(comp) => components.push(comp),
-                Err(e) => {
-                    let err_msg = format!("Failed to fetch Quilt loader: {e}");
-                    send(Event::DownloadError(err_msg.clone()));
-                    return Err(err_msg);
-                }
-            }
-        }
-        ModLoader::Vanilla => {}
-    }
-
-    send(Event::Status("Resolving dependencies...".to_string()));
+    push_event(queue, Event::Status("Resolving dependencies...".to_string()));
     let merged =
         release_the_launcher_launch::resolve::resolve_dependencies(&mut resolver, components)
             .await
-            .map_err(|e| {
-                let err_msg = format!("Failed to resolve dependencies: {e}");
-                send(Event::DownloadError(err_msg.clone()));
-                err_msg
-            })?;
+            .map_err(|e| fail(queue, format!("Failed to resolve dependencies: {e}")))?;
 
-    send(Event::Status("Components resolved.".to_string()));
+    push_event(queue, Event::Status("Components resolved.".to_string()));
     Ok(merged)
 }
 
-async fn download_game_files(queue: &Queue, instance_root: &Path, profile: &LaunchProfile) {
-    let send = |msg: Event| push_event(queue, msg);
+async fn download_game_files(
+    queue: &Queue,
+    instance_root: &Path,
+    profile: &LaunchProfile,
+) -> Result<(), anyhow::Error> {
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
 
     let mut all_libraries = profile.libraries.clone();
     all_libraries.extend(profile.native_libraries.clone());
 
-    send(Event::DownloadProgress {
-        message: format!("Preparing {} libraries...", all_libraries.len()),
-        done: 0,
-        total: 0,
-    });
+    emit_progress(
+        queue,
+        format!("Preparing {} libraries...", all_libraries.len()),
+        0,
+        0,
+    );
 
     let progress_queue = Arc::clone(queue);
-    if let Err(e) = dl_manager
+    dl_manager
         .download_libraries(&all_libraries, move |done, lib_total, lib_name| {
-            let _ = progress_queue.lock().map(|mut q| {
-                q.push(Event::DownloadProgress {
-                    message: format!("Downloading library: {lib_name}"),
-                    done,
-                    total: lib_total,
-                });
-            });
+            emit_progress(
+                &progress_queue,
+                format!("Downloading library: {lib_name}"),
+                done,
+                lib_total,
+            );
         })
         .await
-    {
-        send(Event::DownloadError(format!(
-            "Failed to download libraries: {e}"
-        )));
-    }
+        .map_err(|e| fail(queue, format!("Failed to download libraries: {e}")))
 }
 
-fn extract_natives_files(queue: &Queue, instance_root: &Path, profile: &LaunchProfile) {
-    let send = |msg: Event| push_event(queue, msg);
-    let send_log = |level: LogLevel, msg: String| {
-        push_event(
-            queue,
-            Event::Log(crate::log::LogEntry {
-                timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                level,
-                message: msg,
-                target: "launcher".to_string(),
-            }),
-        );
-    };
+fn extract_natives_files(
+    queue: &Queue,
+    instance_root: &Path,
+    profile: &LaunchProfile,
+) -> Result<(), anyhow::Error> {
     let libraries_dir = instance_root.join("libraries");
     let natives_dir = instance_root.join("natives");
 
     send_log(
+        queue,
         LogLevel::Info,
         format!(
             "Extracting {} native libraries",
@@ -634,6 +665,7 @@ fn extract_natives_files(queue: &Queue, instance_root: &Path, profile: &LaunchPr
     );
     for lib in &profile.native_libraries {
         send_log(
+            queue,
             LogLevel::Info,
             format!("  native: {} url={:?}", lib.name, lib.url),
         );
@@ -644,38 +676,40 @@ fn extract_natives_files(queue: &Queue, instance_root: &Path, profile: &LaunchPr
         &libraries_dir,
         &natives_dir,
     ) {
-        send(Event::DownloadError(format!(
-            "Failed to extract natives: {e}"
-        )));
+        Err(fail(queue, format!("Failed to extract natives: {e}")))
     } else {
         let count = release_the_launcher_launch::natives::verify_natives_dir(&natives_dir);
         send_log(
+            queue,
             LogLevel::Info,
             format!(
                 "Extracted {count} native dynamic library binaries to {}",
                 natives_dir.display()
             ),
         );
+        Ok(())
     }
 }
 
-async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &AssetIndex) {
-    let send = |msg: Event| push_event(queue, msg);
-
+async fn download_assets(
+    queue: &Queue,
+    instance_root: &Path,
+    asset_index: &AssetIndex,
+) -> Result<(), anyhow::Error> {
     if asset_index.url.is_empty() {
         send_log(
             queue,
             LogLevel::Warn,
             "Asset index URL is empty, skipping asset download",
         );
-        return;
+        return Ok(());
     }
 
     let asset_mgr = AssetManager::new(instance_root);
-    let http = release_the_launcher_net::HttpClientProvider::default().clone_client();
+    let http = release_the_launcher_net::default_client();
 
-    send(Event::Status("Downloading asset index...".to_string()));
-    match asset_mgr
+    push_event(queue, Event::Status("Downloading asset index...".to_string()));
+    let index_path = asset_mgr
         .download_asset_index(
             &http,
             &asset_index.id,
@@ -683,119 +717,94 @@ async fn download_assets(queue: &Queue, instance_root: &Path, asset_index: &Asse
             asset_index.sha1.as_deref(),
         )
         .await
-    {
-        Ok(index_path) => {
-            send(Event::Status("Downloading assets...".to_string()));
-            let dl_manager = DownloadManager::new(instance_root.to_path_buf());
-            let progress_queue = Arc::clone(queue);
-            if let Err(e) = dl_manager
-                .download_asset_objects(&http, &index_path, move |done, total, asset_name| {
-                    let _ = progress_queue.lock().map(|mut q| {
-                        q.push(Event::DownloadProgress {
-                            message: format!("Downloading asset: {asset_name}"),
-                            done,
-                            total,
-                        });
-                    });
-                })
-                .await
-            {
-                send(Event::DownloadError(format!(
-                    "Failed to download assets: {e}"
-                )));
-                return;
-            }
+        .map_err(|e| fail(queue, format!("Failed to download asset index: {e}")))?;
 
-            send(Event::Status(
-                "Reconstructing virtual assets...".to_string(),
-            ));
-            match asset_mgr.parse_asset_index(&index_path) {
-                Ok(parsed_index) => {
-                    let mc_dir = instance_root.join(".minecraft");
-                    if let Err(e) = asset_mgr.reconstruct_virtual_assets(&mc_dir, &parsed_index) {
-                        send_log(
-                            queue,
-                            LogLevel::Warn,
-                            format!("Failed to reconstruct virtual assets: {e}"),
-                        );
-                    }
-                }
-                Err(e) => {
-                    send_log(
-                        queue,
-                        LogLevel::Warn,
-                        format!("Failed to parse asset index for virtual reconstruction: {e}"),
-                    );
-                }
+    push_event(queue, Event::Status("Downloading assets...".to_string()));
+    let dl_manager = DownloadManager::new(instance_root.to_path_buf());
+    let progress_queue = Arc::clone(queue);
+    dl_manager
+        .download_asset_objects(&http, &index_path, move |done, total, asset_name| {
+            emit_progress(
+                &progress_queue,
+                format!("Downloading asset: {asset_name}"),
+                done,
+                total,
+            );
+        })
+        .await
+        .map_err(|e| fail(queue, format!("Failed to download assets: {e}")))?;
+
+    push_event(
+        queue,
+        Event::Status("Reconstructing virtual assets...".to_string()),
+    );
+    match asset_mgr.parse_asset_index(&index_path) {
+        Ok(parsed_index) => {
+            let mc_dir = instance_root.join(".minecraft");
+            if let Err(e) = asset_mgr.reconstruct_virtual_assets(&mc_dir, &parsed_index) {
+                send_log(
+                    queue,
+                    LogLevel::Warn,
+                    format!("Failed to reconstruct virtual assets: {e}"),
+                );
             }
         }
         Err(e) => {
-            send(Event::DownloadError(format!(
-                "Failed to download asset index: {e}"
-            )));
+            send_log(
+                queue,
+                LogLevel::Warn,
+                format!("Failed to parse asset index for virtual reconstruction: {e}"),
+            );
         }
     }
+    Ok(())
 }
 
 fn resolve_java_path(
     queue: &Queue,
     java_path_override: Option<&str>,
     compatible_java_majors: &[u32],
-) -> Option<std::path::PathBuf> {
-    let send = |msg: Event| push_event(queue, msg);
-
+) -> Result<std::path::PathBuf, anyhow::Error> {
     match release_the_launcher_launch::java::resolve_java(
         java_path_override,
         compatible_java_majors,
     ) {
         Ok(path) => {
-            send(Event::Status(format!("Using Java: {}", path.display())));
-            Some(path)
+            push_event(queue, Event::Status(format!("Using Java: {}", path.display())));
+            Ok(path)
         }
-        Err(e) => {
-            send(Event::DownloadError(format!("Java resolution failed: {e}")));
-            None
-        }
+        Err(e) => Err(fail(queue, format!("Java resolution failed: {e}"))),
     }
 }
 
-pub fn fetch_versions_list(queue: &Queue, handle: &tokio::runtime::Handle) {
-    let queue = Arc::clone(queue);
-    handle.spawn(async move {
-        let mut resolver = DependencyResolver::new();
-        let result = match resolver.fetch_manifest().await {
-            Ok(()) => {
-                let versions: Vec<(String, String)> = resolver.available_versions_with_types();
-                Ok(versions)
-            }
-            Err(e) => Err(e.to_string()),
-        };
-        push_event(&queue, Event::VersionListResult(result));
-    });
+pub async fn fetch_versions_list(queue: Queue) {
+    let mut resolver = DependencyResolver::new();
+    let result = match resolver.fetch_manifest().await {
+        Ok(()) => {
+            let versions: Vec<(String, String)> = resolver.available_versions_with_types();
+            Ok(versions)
+        }
+        Err(e) => Err(e.to_string()),
+    };
+    push_event(&queue, Event::VersionListResult(result));
 }
 
-pub fn fetch_loader_versions(
-    queue: &Queue,
-    handle: &tokio::runtime::Handle,
-    loader_type: &str,
-    mc_version: &str,
+pub async fn fetch_loader_versions(
+    queue: Queue,
+    loader_type: String,
+    mc_version: String,
 ) {
-    let queue = Arc::clone(queue);
-    let loader_type = loader_type.to_string();
-    let mc_version = mc_version.to_string();
-    handle.spawn(async move {
-        let resolver = DependencyResolver::new();
-        let result = resolver
-            .fetch_loader_versions(&loader_type, &mc_version)
-            .await
-            .map_err(|e| e.to_string());
-        push_event(
-            &queue,
-            Event::LoaderVersionsResult {
-                loader_type,
-                mc_version,
-                result,
-            },
-        );
-    });
+    let resolver = DependencyResolver::new();
+    let result = resolver
+        .fetch_loader_versions(&loader_type, &mc_version)
+        .await
+        .map_err(|e| e.to_string());
+    push_event(
+        &queue,
+        Event::LoaderVersionsResult {
+            loader_type,
+            mc_version,
+            result,
+        },
+    );
 }

@@ -22,11 +22,10 @@ pub async fn fetch_neoforge_component(
     let url = format!("{}/{neoforge_version}.json", neoforge_prism_meta_url());
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
     let mut libraries = Vec::new();
-    let mut main_class = None;
-
-    if let Some(mc_main) = resp.get("mainClass").and_then(|v| v.as_str()) {
-        main_class = Some(mc_main.to_string());
-    }
+    let main_class = resp
+        .get("mainClass")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
     if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
         for lib in libs {
             libraries.extend(parse_library(lib));
@@ -54,6 +53,8 @@ pub async fn fetch_neoforge_component(
         },
     })
 }
+
+use super::loader::MavenMetadata;
 
 /// Fetches available `NeoForge` loader versions for a given Minecraft version.
 ///
@@ -83,17 +84,11 @@ pub async fn fetch_neoforge_loader_versions(
         },
     );
 
-    let tag_prefix = format!("<version>{neoforge_prefix}");
     let mut versions = Vec::new();
-    for line in resp.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(&tag_prefix) && trimmed.ends_with("</version>") {
-            let ver = trimmed
-                .strip_prefix("<version>")
-                .and_then(|s| s.strip_suffix("</version>"))
-                .unwrap_or("");
-            if !ver.is_empty() && !versions.contains(&ver.to_string()) {
-                versions.push(ver.to_string());
+    if let Ok(meta) = quick_xml::de::from_str::<MavenMetadata>(&resp) {
+        for ver in meta.versioning.versions.version {
+            if ver.starts_with(&neoforge_prefix) && !versions.contains(&ver) {
+                versions.push(ver);
             }
         }
     }

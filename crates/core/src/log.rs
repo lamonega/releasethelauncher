@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -39,7 +39,7 @@ impl LogLevel {
 #[derive(Clone)]
 pub struct LogBuffer {
     entries: Arc<Mutex<VecDeque<LogEntry>>>,
-    log_file_path: Arc<Mutex<Option<PathBuf>>>,
+    log_file: Arc<Mutex<Option<File>>>,
 }
 
 impl Default for LogBuffer {
@@ -53,14 +53,21 @@ impl LogBuffer {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES))),
-            log_file_path: Arc::new(Mutex::new(None)),
+            log_file: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn set_log_file_path(&self, path: PathBuf) {
-        if let Ok(mut p) = self.log_file_path.lock() {
-            *p = Some(path);
-        }
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok();
+        let mut guard = self
+            .log_file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = file;
     }
 
     pub fn push(&self, entry: LogEntry) {
@@ -73,19 +80,21 @@ impl LogBuffer {
             entry.message
         );
 
-        // Write to log file if path is set
-        if let Ok(path_opt) = self.log_file_path.lock() {
-            if let Some(ref path) = *path_opt {
-                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-                    let _ = writeln!(
-                        file,
-                        "[{}] [{}/{}] {}",
-                        entry.timestamp,
-                        entry.level.as_str(),
-                        entry.target,
-                        entry.message
-                    );
-                }
+        // Write to log file if open
+        {
+            let mut file_guard = self
+                .log_file
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(ref mut file) = *file_guard {
+                let _ = writeln!(
+                    file,
+                    "[{}] [{}/{}] {}",
+                    entry.timestamp,
+                    entry.level.as_str(),
+                    entry.target,
+                    entry.message
+                );
             }
         }
 
@@ -107,18 +116,5 @@ impl LogBuffer {
             .iter()
             .cloned()
             .collect()
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }

@@ -4,54 +4,41 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-const FILE_BUFFER_SIZE: usize = 8192;
+fn hash_file<D: Digest>(path: &Path, mut hasher: D) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
 
 #[must_use]
 pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(bytes);
-    hex::encode(hasher.finalize())
+    hex::encode(Sha1::digest(bytes))
 }
 
 /// # Errors
 ///
 /// Returns [`io::Error`] if opening or reading the file fails.
 pub fn compute_sha1_file(path: &Path) -> Result<String, io::Error> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha1::new();
-    let mut buffer = [0u8; FILE_BUFFER_SIZE];
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    hash_file(path, Sha1::new())
 }
 
 #[must_use]
 pub fn compute_sha256_bytes(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hex::encode(hasher.finalize())
+    hex::encode(Sha256::digest(bytes))
 }
 
 /// # Errors
 ///
 /// Returns [`io::Error`] if opening or reading the file fails.
 pub fn compute_sha256_file(path: &Path) -> Result<String, io::Error> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; FILE_BUFFER_SIZE];
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    hash_file(path, Sha256::new())
 }
 
 #[cfg(test)]

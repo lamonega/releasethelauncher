@@ -9,7 +9,7 @@ pub mod net {
     pub const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 10;
     pub const DEFAULT_MAX_RETRIES: u32 = 3;
     pub const POLL_INTERVAL_SECS: u64 = 5;
-    pub const USER_AGENT: &str = "release-the-launcher/0.6.0";
+    pub const USER_AGENT: &str = concat!("release-the-launcher/", env!("CARGO_PKG_VERSION"));
 }
 
 pub mod paths {
@@ -18,7 +18,6 @@ pub mod paths {
     pub const ACCOUNTS_FILE_NAME: &str = "accounts.json";
     pub const SETTINGS_FILE_NAME: &str = "settings.toml";
     pub const LOG_FILE_NAME: &str = "launcher.log";
-    pub const INSTANCE_CONFIG_FILE_NAME: &str = "instance.json";
     pub const MMC_PACK_FILE_NAME: &str = "mmc-pack.json";
     pub const PACK_TOML_FILE_NAME: &str = "pack.toml";
 }
