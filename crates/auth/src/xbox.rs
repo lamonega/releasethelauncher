@@ -6,10 +6,9 @@ use crate::Token;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
 struct XblAuthResponse {
-    issue_instant: String,
-    not_after: String,
+    _issue_instant: String,
+    _not_after: String,
     token: String,
     display_claims: Option<XblDisplayClaims>,
 }
@@ -26,23 +25,21 @@ struct XblXui {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
 struct XstsAuthResponse {
-    issue_instant: String,
-    not_after: String,
+    _issue_instant: String,
+    _not_after: String,
     token: String,
-    display_claims: Option<XblDisplayClaims>,
+    _display_claims: Option<XblDisplayClaims>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
 struct XstsErrorResponse {
-    identity: Option<serde_json::Value>,
+    _identity: Option<serde_json::Value>,
     #[serde(rename = "XErr")]
     xerr: Option<u64>,
     message: Option<String>,
-    redirect: Option<String>,
+    _redirect: Option<String>,
 }
 
 #[derive(Debug, Clone)]

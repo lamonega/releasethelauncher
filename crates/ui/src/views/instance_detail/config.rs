@@ -48,10 +48,7 @@ pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut D
     ui.add_space(app.theme.spacing.md);
 
     if ui
-        .add(
-            crate::widgets::icon_button(crate::icons::ADD, "Save Settings")
-                .fill(app.theme.accent),
-        )
+        .add(crate::widgets::icon_button(crate::icons::ADD, "Save Settings").fill(app.theme.accent))
         .clicked()
     {
         let java_path = if tab_state.config_java_path.trim().is_empty() {

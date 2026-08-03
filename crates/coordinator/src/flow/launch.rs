@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
 
 use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::settings::ModLoader;
@@ -154,10 +153,12 @@ async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Err
     }
 
     // 2. Validate account data
-    let account = params
-        .account_data
-        .as_ref()
-        .ok_or_else(|| fail(&params.queue, "No active account. Add an account before launching."))?;
+    let account = params.account_data.as_ref().ok_or_else(|| {
+        fail(
+            &params.queue,
+            "No active account. Add an account before launching.",
+        )
+    })?;
 
     let player_name = account.name.clone();
     let player_uuid = account.uuid.clone();
@@ -280,8 +281,7 @@ async fn resolve_and_prepare_downloads(
         "Resolving version components & manifests...",
     );
 
-    let components =
-        resolve_components(&params.queue, &params.loader, &params.mc_version).await?;
+    let components = resolve_components(&params.queue, &params.loader, &params.mc_version).await?;
 
     send_log(
         &params.queue,
@@ -407,7 +407,10 @@ async fn spawn_and_monitor_game(
             push_event(&params.queue, Event::DownloadComplete(msg));
         }
         Err(e) => {
-            return Err(fail(&params.queue, format!("Failed to run game process: {e}")));
+            return Err(fail(
+                &params.queue,
+                format!("Failed to run game process: {e}"),
+            ));
         }
     }
 
@@ -427,10 +430,7 @@ fn spawn_and_stream_output(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
-    push_event(
-        queue,
-        Event::Status("Game is running".to_string()),
-    );
+    push_event(queue, Event::Status("Game is running".to_string()));
     send_log(
         queue,
         LogLevel::Info,
@@ -440,12 +440,7 @@ fn spawn_and_stream_output(
     let target = format!("instance:{instance_id}");
     let mut readers = Vec::new();
     if let Some(out) = child.stdout.take() {
-        readers.push(spawn_line_reader(
-            out,
-            queue.clone(),
-            target.clone(),
-            true,
-        ));
+        readers.push(spawn_line_reader(out, queue.clone(), target.clone(), true));
     }
     if let Some(err) = child.stderr.take() {
         readers.push(spawn_line_reader(err, queue.clone(), target, false));
@@ -505,12 +500,15 @@ fn stderr_level(line: &str) -> LogLevel {
 }
 
 async fn download_modpack_mods(params: &LaunchParams) {
-    let index_path = params.instance_root.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
+    let index_path = params
+        .instance_root
+        .join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
     if !index_path.exists() {
         return;
     }
     send_log(&params.queue, LogLevel::Info, "Downloading modpack mods...");
-    let mod_manager = release_the_launcher_mods::ModrinthProvider::with_client(params.http.clone(), None);
+    let mod_manager =
+        release_the_launcher_mods::ModrinthProvider::with_client(params.http.clone(), None);
     let progress_queue = params.queue.clone();
     if let Err(e) = mod_manager
         .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
@@ -526,7 +524,7 @@ async fn download_modpack_mods(params: &LaunchParams) {
         send_log(
             &params.queue,
             LogLevel::Warn,
-            &format!("Modpack download encountered errors: {e}"),
+            format!("Modpack download encountered errors: {e}"),
         );
     }
 }
@@ -576,7 +574,10 @@ async fn resolve_components(
 ) -> Result<Vec<release_the_launcher_launch::Component>, anyhow::Error> {
     let mut resolver = DependencyResolver::new();
 
-    push_event(queue, Event::Status("Fetching version manifest...".to_string()));
+    push_event(
+        queue,
+        Event::Status("Fetching version manifest...".to_string()),
+    );
     resolver
         .fetch_manifest()
         .await
@@ -616,7 +617,10 @@ async fn resolve_components(
         components.push(comp);
     }
 
-    push_event(queue, Event::Status("Resolving dependencies...".to_string()));
+    push_event(
+        queue,
+        Event::Status("Resolving dependencies...".to_string()),
+    );
     let merged =
         release_the_launcher_launch::resolve::resolve_dependencies(&mut resolver, components)
             .await
@@ -718,7 +722,10 @@ async fn download_assets(
     let asset_mgr = AssetManager::new(instance_root);
     let http = release_the_launcher_net::default_client();
 
-    push_event(queue, Event::Status("Downloading asset index...".to_string()));
+    push_event(
+        queue,
+        Event::Status("Downloading asset index...".to_string()),
+    );
     let index_path = asset_mgr
         .download_asset_index(
             &http,
@@ -780,7 +787,10 @@ fn resolve_java_path(
         compatible_java_majors,
     ) {
         Ok(path) => {
-            push_event(queue, Event::Status(format!("Using Java: {}", path.display())));
+            push_event(
+                queue,
+                Event::Status(format!("Using Java: {}", path.display())),
+            );
             Ok(path)
         }
         Err(e) => Err(fail(queue, format!("Java resolution failed: {e}"))),
@@ -799,11 +809,7 @@ pub async fn fetch_versions_list(queue: Queue) {
     push_event(&queue, Event::VersionListResult(result));
 }
 
-pub async fn fetch_loader_versions(
-    queue: Queue,
-    loader_type: String,
-    mc_version: String,
-) {
+pub async fn fetch_loader_versions(queue: Queue, loader_type: String, mc_version: String) {
     let resolver = DependencyResolver::new();
     let result = resolver
         .fetch_loader_versions(&loader_type, &mc_version)

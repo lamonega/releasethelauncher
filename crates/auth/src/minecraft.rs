@@ -7,9 +7,8 @@ use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 use release_the_launcher_constants::{defaults, urls};
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct LauncherLoginResponse {
-    username: Option<String>,
+    _username: Option<String>,
     access_token: Option<String>,
     error: Option<String>,
     #[serde(rename = "errorMessage")]

@@ -10,6 +10,8 @@ use crate::platform;
 use crate::{LaunchError, Library};
 use release_the_launcher_constants::{defaults, net, urls};
 
+type ProgressCallback = dyn Fn(u64, u64, &str) + Send + Sync;
+
 pub struct DownloadManager {
     http: Client,
     libraries_dir: PathBuf,
@@ -149,130 +151,22 @@ impl DownloadManager {
         let total_bytes = Arc::new(AtomicU64::new(initial_downloaded));
         let downloaded_bytes = Arc::new(AtomicU64::new(initial_downloaded));
         let semaphore = Arc::new(Semaphore::new(net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
-        let progress_cb = Arc::new(progress);
+        let progress_cb: Arc<ProgressCallback> = Arc::new(progress);
 
         let mut join_set = JoinSet::new();
 
         for lib in applicable {
-            let Some(local_path) = Self::local_path_for_library(lib) else {
-                warn!(
-                    name = %lib.name,
-                    is_native = lib.is_native,
-                    "Skipping library: invalid Maven coordinates"
-                );
-                continue;
-            };
-
-            let full_local_path = self.libraries_dir.join(&local_path);
-            let parts: Vec<&str> = lib.name.split(':').collect();
-            let display_name = if parts.len() >= 2 {
-                parts[1].to_string()
-            } else {
-                lib.name.clone()
-            };
-
-            let exists_ok = full_local_path.exists()
-                && full_local_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE);
-
-            let Some(url) = Self::maven_url_for_library(lib) else {
-                warn!(
-                    name = %lib.name,
-                    is_native = lib.is_native,
-                    "Skipping library: could not resolve Maven download URL"
-                );
-                continue;
-            };
-
-            if exists_ok {
-                debug!(
-                    name = %lib.name,
-                    is_native = lib.is_native,
-                    path = %full_local_path.display(),
-                    "Library already downloaded and cached, skipping"
-                );
-            } else {
-                info!(
-                    name = %lib.name,
-                    is_native = lib.is_native,
-                    url = %url,
-                    "Queuing library download"
-                );
-            }
-
-            let sem = semaphore.clone();
-            let http = self.http.clone();
-            let lib_name = lib.name.clone();
-            let sha1 = lib.sha1.clone();
-            let total_bytes = total_bytes.clone();
-            let downloaded_bytes = downloaded_bytes.clone();
-            let progress_cb = progress_cb.clone();
-
-            join_set.spawn(async move {
-                if !exists_ok {
-                    let _permit = sem.acquire().await.map_err(|e| {
-                        LaunchError::Launch(format!(
-                            "Semaphore permit error for library '{lib_name}': {e}"
-                        ))
-                    })?;
-
-                    let checksum =
-                        sha1.as_deref().map(|s| (release_the_launcher_net::HashKind::Sha1, s));
-
-                    release_the_launcher_net::download_to_file(
-                        &http,
-                        &url,
-                        &full_local_path,
-                        checksum,
-                        None::<fn(u64, u64)>,
-                    )
-                    .await
-                    .map_err(|e| {
-                        LaunchError::Launch(format!(
-                            "HTTP error downloading library '{lib_name}' from '{url}': {e}"
-                        ))
-                    })?;
-
-                    if let Ok(meta) = full_local_path.metadata() {
-                        let len = meta.len();
-                        total_bytes.fetch_add(len, Ordering::SeqCst);
-                        downloaded_bytes.fetch_add(len, Ordering::SeqCst);
-                    }
-                }
-
-                let cur = downloaded_bytes.load(Ordering::SeqCst);
-                let tot = total_bytes.load(Ordering::SeqCst);
-                progress_cb(cur, tot.max(cur), &display_name);
-
-                Ok::<(), LaunchError>(())
-            });
+            self.spawn_library_download(
+                lib,
+                &semaphore,
+                &total_bytes,
+                &downloaded_bytes,
+                &progress_cb,
+                &mut join_set,
+            );
         }
 
-        let mut first_err = None;
-        while let Some(res) = join_set.join_next().await {
-            match res {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    if first_err.is_none() {
-                        first_err = Some(e);
-                    }
-                }
-                Err(e) => {
-                    if first_err.is_none() {
-                        first_err = Some(LaunchError::Launch(format!(
-                            "Join error during library download: {e}"
-                        )));
-                    }
-                }
-            }
-        }
-
-        first_err.map_or_else(
-            || {
-                info!("All applicable libraries processed successfully");
-                Ok(())
-            },
-            Err,
-        )
+        collect_join_results(join_set).await
     }
 
     fn calculate_initial_downloaded(&self, applicable: &[&Library]) -> u64 {
@@ -280,13 +174,122 @@ impl DownloadManager {
         for lib in applicable {
             if let Some(ref p) = Self::local_path_for_library(lib) {
                 let full_path = self.libraries_dir.join(p);
-                if full_path.exists() && full_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE) {
+                if full_path.exists()
+                    && full_path
+                        .metadata()
+                        .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE)
+                {
                     let size = full_path.metadata().map_or(0, |m| m.len());
                     initial_downloaded += size;
                 }
             }
         }
         initial_downloaded
+    }
+
+    fn spawn_library_download(
+        &self,
+        lib: &Library,
+        semaphore: &Arc<Semaphore>,
+        total_bytes: &Arc<AtomicU64>,
+        downloaded_bytes: &Arc<AtomicU64>,
+        progress_cb: &Arc<ProgressCallback>,
+        join_set: &mut JoinSet<Result<(), LaunchError>>,
+    ) {
+        let Some(local_path) = Self::local_path_for_library(lib) else {
+            warn!(
+                name = %lib.name,
+                is_native = lib.is_native,
+                "Skipping library: invalid Maven coordinates"
+            );
+            return;
+        };
+
+        let full_local_path = self.libraries_dir.join(&local_path);
+        let parts: Vec<&str> = lib.name.split(':').collect();
+        let display_name = if parts.len() >= 2 {
+            parts[1].to_string()
+        } else {
+            lib.name.clone()
+        };
+
+        let exists_ok = full_local_path.exists()
+            && full_local_path
+                .metadata()
+                .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE);
+
+        let Some(url) = Self::maven_url_for_library(lib) else {
+            warn!(
+                name = %lib.name,
+                is_native = lib.is_native,
+                "Skipping library: could not resolve Maven download URL"
+            );
+            return;
+        };
+
+        if exists_ok {
+            debug!(
+                name = %lib.name,
+                is_native = lib.is_native,
+                path = %full_local_path.display(),
+                "Library already downloaded and cached, skipping"
+            );
+        } else {
+            info!(
+                name = %lib.name,
+                is_native = lib.is_native,
+                url = %url,
+                "Queuing library download"
+            );
+        }
+
+        let sem = semaphore.clone();
+        let http = self.http.clone();
+        let lib_name = lib.name.clone();
+        let sha1 = lib.sha1.clone();
+        let total_bytes = total_bytes.clone();
+        let downloaded_bytes = downloaded_bytes.clone();
+        let progress_cb = progress_cb.clone();
+
+        join_set.spawn(async move {
+            if !exists_ok {
+                let _permit = sem.acquire().await.map_err(|e| {
+                    LaunchError::Launch(format!(
+                        "Semaphore permit error for library '{lib_name}': {e}"
+                    ))
+                })?;
+
+                let checksum = sha1
+                    .as_deref()
+                    .map(|s| (release_the_launcher_net::HashKind::Sha1, s));
+
+                release_the_launcher_net::download_to_file(
+                    &http,
+                    &url,
+                    &full_local_path,
+                    checksum,
+                    None::<fn(u64, u64)>,
+                )
+                .await
+                .map_err(|e| {
+                    LaunchError::Launch(format!(
+                        "HTTP error downloading library '{lib_name}' from '{url}': {e}"
+                    ))
+                })?;
+
+                if let Ok(meta) = full_local_path.metadata() {
+                    let len = meta.len();
+                    total_bytes.fetch_add(len, Ordering::SeqCst);
+                    downloaded_bytes.fetch_add(len, Ordering::SeqCst);
+                }
+            }
+
+            let cur = downloaded_bytes.load(Ordering::SeqCst);
+            let tot = total_bytes.load(Ordering::SeqCst);
+            progress_cb(cur, tot.max(cur), &display_name);
+
+            Ok::<(), LaunchError>(())
+        });
     }
 }
 
@@ -314,6 +317,37 @@ fn filter_applicable_libraries(libraries: &[Library]) -> Vec<&Library> {
         "Applicable libraries for current platform"
     );
     applicable
+}
+
+async fn collect_join_results(
+    mut join_set: JoinSet<Result<(), LaunchError>>,
+) -> Result<(), LaunchError> {
+    let mut first_err = None;
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(LaunchError::Launch(format!(
+                        "Join error during library download: {e}"
+                    )));
+                }
+            }
+        }
+    }
+
+    first_err.map_or_else(
+        || {
+            info!("All applicable libraries processed successfully");
+            Ok(())
+        },
+        Err,
+    )
 }
 
 impl DownloadManager {
@@ -358,7 +392,7 @@ impl DownloadManager {
             let total_b = Arc::new(AtomicU64::new(total_bytes));
             let downloaded_b = Arc::new(AtomicU64::new(initial_downloaded));
             let semaphore = Arc::new(Semaphore::new(net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
-            let progress_cb = Arc::new(progress);
+            let progress_cb: Arc<ProgressCallback> = Arc::new(progress);
 
             let mut join_set = JoinSet::new();
 
@@ -437,7 +471,11 @@ impl DownloadManager {
         url: &str,
         expected_sha1: Option<&str>,
     ) -> Result<(), LaunchError> {
-        if target_path.exists() && target_path.metadata().is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE) {
+        if target_path.exists()
+            && target_path
+                .metadata()
+                .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE)
+        {
             debug!(path = %target_path.display(), "Client JAR already cached, skipping download");
             return Ok(());
         }

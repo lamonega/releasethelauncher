@@ -1,8 +1,8 @@
 use crate::{Component, LaunchError};
 use reqwest::Client;
 
+use super::loader::{fetch_meta_component, fetch_meta_loader_versions, LoaderParams};
 use release_the_launcher_constants::urls::PRISM_META_BASE;
-use super::loader::{fetch_meta_component, fetch_meta_loader_versions};
 
 #[must_use]
 pub fn quilt_prism_meta_url() -> String {
@@ -19,16 +19,20 @@ pub async fn fetch_quilt_component(
     mc_version: &str,
     loader_version: Option<&str>,
 ) -> Result<Component, LaunchError> {
-    fetch_meta_component(
+    fetch_meta_component(LoaderParams {
         client,
-        &quilt_prism_meta_url(),
-        "org.quiltmc.quilt-loader",
+        base_url: &quilt_prism_meta_url(),
+        uid: "org.quiltmc.quilt-loader",
         mc_version,
         loader_version,
-        &["net.neoforged", "net.minecraftforge", "net.fabricmc.fabric-loader"],
-        "org.quiltmc.quilt-intermediary",
-        "0.26.13",
-    )
+        conflict_uids: vec![
+            "net.neoforged",
+            "net.minecraftforge",
+            "net.fabricmc.fabric-loader",
+        ],
+        intermediary_uid: "org.quiltmc.quilt-intermediary",
+        default_fallback_version: "0.26.13",
+    })
     .await
 }
 

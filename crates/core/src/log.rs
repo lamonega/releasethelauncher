@@ -58,11 +58,7 @@ impl LogBuffer {
     }
 
     pub fn set_log_file_path(&self, path: PathBuf) {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .ok();
+        let file = OpenOptions::new().create(true).append(true).open(path).ok();
         let mut guard = self
             .log_file
             .lock()

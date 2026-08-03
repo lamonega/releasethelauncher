@@ -8,11 +8,6 @@ use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
 
-const INSTANCE_CONFIG_FILE_NAME: &str = "instance.toml";
-const MINECRAFT_DIR_NAME: &str = ".minecraft";
-const MODS_DIR_NAME: &str = "mods";
-const INDEX_DIR_NAME: &str = ".index";
-
 #[derive(Error, Debug)]
 pub enum CoreError {
     #[error("IO error: {0}")]
@@ -165,7 +160,9 @@ impl InstanceManager {
 
     #[must_use = "Returns the index directory path for the given instance, or None if not found"]
     pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances.get(id).map(|i| i.root.join(paths::INDEX_DIR))
+        self.instances
+            .get(id)
+            .map(|i| i.root.join(paths::INDEX_DIR))
     }
 
     /// Updates and saves Java settings for a specific instance.

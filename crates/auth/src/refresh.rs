@@ -49,11 +49,10 @@ pub async fn refresh_account(
         None => return Ok(false),
     };
 
-    let oauth_client = BasicClient::new(ClientId::new(client_id.to_string()))
-        .set_token_uri(
-            TokenUrl::new(urls::MS_TOKEN_URL.to_string())
-                .map_err(|e| AuthError::Flow(e.to_string()))?,
-        );
+    let oauth_client = BasicClient::new(ClientId::new(client_id.to_string())).set_token_uri(
+        TokenUrl::new(urls::MS_TOKEN_URL.to_string())
+            .map_err(|e| AuthError::Flow(e.to_string()))?,
+    );
 
     let token_resp = oauth_client
         .exchange_refresh_token(&RefreshToken::new(refresh_token.clone()))

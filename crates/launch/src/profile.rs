@@ -35,7 +35,10 @@ fn maven_version(name: &str) -> &str {
 }
 
 fn is_higher_version(a: &str, b: &str) -> bool {
-    match (version_compare::Version::from(a), version_compare::Version::from(b)) {
+    match (
+        version_compare::Version::from(a),
+        version_compare::Version::from(b),
+    ) {
         (Some(va), Some(vb)) => va > vb,
         _ => a > b,
     }

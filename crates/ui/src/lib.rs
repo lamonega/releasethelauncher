@@ -100,6 +100,7 @@ impl App {
         self.coordinator.drain_events()
     }
 
+    #[must_use]
     pub fn instance_ids(&self) -> Vec<String> {
         self.coordinator
             .instance_manager
@@ -176,4 +177,3 @@ impl App {
         self.coordinator.start_ms_login();
     }
 }
-

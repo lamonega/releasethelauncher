@@ -23,14 +23,28 @@ pub struct InstanceView<'a> {
 pub struct DetailTabState {
     pub log_scroll_to_end: bool,
     pub mod_search_query: String,
-    pub show_enabled_mods: bool,
-    pub show_disabled_mods: bool,
+    pub mod_filter: ModFilter,
     pub config_instance_id: String,
     pub config_java_path: String,
     pub config_memory_min: String,
     pub config_memory_max: String,
-    pub checking_mod_updates: bool,
-    pub mod_updates: Option<Vec<release_the_launcher_mods::ModUpdate>>,
+    pub mod_updates: ModUpdatesState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModFilter {
+    All,
+    EnabledOnly,
+    DisabledOnly,
+    None,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum ModUpdatesState {
+    #[default]
+    Idle,
+    Checking,
+    Loaded(Vec<release_the_launcher_mods::ModUpdate>),
 }
 
 impl Default for DetailTabState {
@@ -38,14 +52,12 @@ impl Default for DetailTabState {
         Self {
             log_scroll_to_end: false,
             mod_search_query: String::new(),
-            show_enabled_mods: true,
-            show_disabled_mods: true,
+            mod_filter: ModFilter::All,
             config_instance_id: String::new(),
             config_java_path: String::new(),
             config_memory_min: String::new(),
             config_memory_max: String::new(),
-            checking_mod_updates: false,
-            mod_updates: None,
+            mod_updates: ModUpdatesState::default(),
         }
     }
 }
@@ -132,16 +144,16 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
     let mut action = None;
     ui.horizontal(|ui| {
         if ui
-            .add(
-                crate::widgets::icon_button(crate::icons::LAUNCH, "Launch")
-                    .fill(app.theme.accent),
-            )
+            .add(crate::widgets::icon_button(crate::icons::LAUNCH, "Launch").fill(app.theme.accent))
             .clicked()
         {
             action = Some("launch");
         }
         if ui
-            .add(crate::widgets::icon_button(crate::icons::FOLDER, "Open Folder"))
+            .add(crate::widgets::icon_button(
+                crate::icons::FOLDER,
+                "Open Folder",
+            ))
             .clicked()
         {
             action = Some("open_folder");

@@ -213,7 +213,10 @@ pub async fn resolve_dependencies(
 
     for comp in resolved_deps.values() {
         for conflict in &comp.conflicts {
-            if resolved_deps.keys().any(|other_uid| other_uid == conflict || other_uid.starts_with(conflict)) {
+            if resolved_deps
+                .keys()
+                .any(|other_uid| other_uid == conflict || other_uid.starts_with(conflict))
+            {
                 return Err(LaunchError::DependencyConflict {
                     component: comp.uid.clone(),
                     conflict: conflict.clone(),

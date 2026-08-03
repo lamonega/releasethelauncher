@@ -84,8 +84,14 @@ async fn fetch_forge_metadata(
 ) {
     let full_ver = format!("{mc_version}-{forge_version}");
     let meta_urls = vec![
-        format!("{}/net.minecraftforge/{forge_version}.json", urls::PRISM_META_BASE),
-        format!("{}/net.minecraftforge/{full_ver}.json", urls::PRISM_META_BASE),
+        format!(
+            "{}/net.minecraftforge/{forge_version}.json",
+            urls::PRISM_META_BASE
+        ),
+        format!(
+            "{}/net.minecraftforge/{full_ver}.json",
+            urls::PRISM_META_BASE
+        ),
     ];
 
     for url in meta_urls {
@@ -172,8 +178,14 @@ async fn fetch_legacy_installer_metadata(
 ) {
     let full_ver = format!("{mc_version}-{forge_version}");
     let urls = [
-        format!("{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar", urls::FORGE_MAVEN),
-        format!("{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar", urls::FORGE_MAVEN_ALT),
+        format!(
+            "{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar",
+            urls::FORGE_MAVEN
+        ),
+        format!(
+            "{}/net/minecraftforge/forge/{full_ver}/forge-{full_ver}-installer.jar",
+            urls::FORGE_MAVEN_ALT
+        ),
     ];
     for url in urls {
         let Ok(resp) = client.get(&url).send().await else {
@@ -275,9 +287,10 @@ fn ensure_forge_compatibility(
         if !libraries.iter().any(|l| l.name.contains("launchwrapper")) {
             libraries.push(crate::Library {
                 name: "net.minecraft:launchwrapper:1.12".to_string(),
-                url: Some(
-                    format!("{}/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar", urls::MOJANG_LIBRARIES)
-                ),
+                url: Some(format!(
+                    "{}/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar",
+                    urls::MOJANG_LIBRARIES
+                )),
                 sha1: None,
                 size: None,
                 is_native: false,
@@ -289,9 +302,10 @@ fn ensure_forge_compatibility(
         if !libraries.iter().any(|l| l.name.contains("asm-all")) {
             libraries.push(crate::Library {
                 name: "org.ow2.asm:asm-all:5.0.3".to_string(),
-                url: Some(
-                    format!("{}/org/ow2/asm/asm-all/5.0.3/asm-all-5.0.3.jar", urls::MOJANG_LIBRARIES)
-                ),
+                url: Some(format!(
+                    "{}/org/ow2/asm/asm-all/5.0.3/asm-all-5.0.3.jar",
+                    urls::MOJANG_LIBRARIES
+                )),
                 sha1: None,
                 size: None,
                 is_native: false,
@@ -330,7 +344,10 @@ pub async fn fetch_forge_loader_versions(
     client: &Client,
     mc_version: &str,
 ) -> Result<Vec<String>, LaunchError> {
-    let url = format!("{}/net/minecraftforge/forge/maven-metadata.xml", urls::FORGE_MAVEN_ALT);
+    let url = format!(
+        "{}/net/minecraftforge/forge/maven-metadata.xml",
+        urls::FORGE_MAVEN_ALT
+    );
     let mut versions = Vec::new();
 
     if let Ok(resp) = client.get(url).send().await {
@@ -354,15 +371,21 @@ pub async fn fetch_forge_loader_versions(
     }
 
     versions.sort_by(|a, b| {
-        match (version_compare::Version::from(b), version_compare::Version::from(a)) {
-            (Some(vb), Some(va)) => vb.compare(&va).ord().map_or_else(|| b.cmp(a), |ord| ord),
+        match (
+            version_compare::Version::from(b),
+            version_compare::Version::from(a),
+        ) {
+            (Some(vb), Some(va)) => vb.compare(&va).ord().unwrap_or_else(|| b.cmp(a)),
             _ => b.cmp(a),
         }
     });
 
     if versions.is_empty() {
         if let Ok(promo_resp) = client
-            .get(format!("{}/net/minecraftforge/forge/promotions_slim.json", urls::FORGE_MAVEN))
+            .get(format!(
+                "{}/net/minecraftforge/forge/promotions_slim.json",
+                urls::FORGE_MAVEN
+            ))
             .send()
             .await
         {

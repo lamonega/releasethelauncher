@@ -51,7 +51,10 @@ pub fn show(app: &mut App, maximized: &mut bool, ctx: &egui::Context) {
                         app.log(LogLevel::Info, "UI: Navigated to Accounts");
                         app.current_view = View::AccountList;
                     }
-                    if ui.add(widgets::icon_button(theme::icons::SETTINGS, "Settings")).clicked() {
+                    if ui
+                        .add(widgets::icon_button(theme::icons::SETTINGS, "Settings"))
+                        .clicked()
+                    {
                         app.log(LogLevel::Info, "UI: Navigated to Settings");
                         app.current_view = View::Settings;
                     }

@@ -55,7 +55,10 @@ pub async fn fetch_version_metadata(
     let url = if url_or_version.starts_with("http://") || url_or_version.starts_with("https://") {
         url_or_version.to_string()
     } else {
-        format!("{}/net.minecraft/{url_or_version}.json", urls::PRISM_META_BASE)
+        format!(
+            "{}/net.minecraft/{url_or_version}.json",
+            urls::PRISM_META_BASE
+        )
     };
 
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;

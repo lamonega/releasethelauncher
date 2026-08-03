@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::Client;
 
-use super::modrinth_types::{
-    ModrinthProject, ModrinthVersion, MrpackIndex, SearchResponse,
-};
+use super::modrinth_types::{ModrinthProject, ModrinthVersion, MrpackIndex, SearchResponse};
 use crate::{
     InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo, ProjectSummary,
     ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
@@ -29,13 +27,14 @@ impl From<&ModrinthVersion> for ModVersion {
 
         let (hash, hash_type) = primary_file
             .and_then(|f| {
-                if let Some(h) = f.hashes.get("sha512") {
-                    Some((Some(h.clone()), Some("sha512".to_string())))
-                } else if let Some(h) = f.hashes.get("sha1") {
-                    Some((Some(h.clone()), Some("sha1".to_string())))
-                } else {
-                    None
-                }
+                f.hashes
+                    .get("sha512")
+                    .map(|h| (Some(h.clone()), Some("sha512".to_string())))
+                    .or_else(|| {
+                        f.hashes
+                            .get("sha1")
+                            .map(|h| (Some(h.clone()), Some("sha1".to_string())))
+                    })
             })
             .unwrap_or((None, None));
 
@@ -226,15 +225,9 @@ impl ModrinthProvider {
             _ => None,
         };
 
-        download_to_file(
-            &self.http,
-            url,
-            &zip_path,
-            checksum,
-            None::<fn(u64, u64)>,
-        )
-        .await
-        .map_err(|e| ModsError::Provider(e.to_string()))?;
+        download_to_file(&self.http, url, &zip_path, checksum, None::<fn(u64, u64)>)
+            .await
+            .map_err(|e| ModsError::Provider(e.to_string()))?;
 
         let file = fs::File::open(&zip_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
@@ -247,7 +240,8 @@ impl ModrinthProvider {
             let name_str = entry_path.to_string_lossy();
 
             if name_str == release_the_launcher_constants::paths::MODRINTH_INDEX_FILE {
-                let out_path = target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
+                let out_path =
+                    target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
                 let mut out_file = fs::File::create(&out_path)?;
                 std::io::copy(&mut entry, &mut out_file)?;
                 continue;
@@ -260,7 +254,9 @@ impl ModrinthProvider {
             let first = components[0].as_os_str().to_string_lossy();
             if first == "overrides" || first == "client-overrides" {
                 let rel: PathBuf = components[1..].iter().collect();
-                let out_path = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(rel);
+                let out_path = target_dir
+                    .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
+                    .join(rel);
                 if entry.is_dir() {
                     fs::create_dir_all(&out_path)?;
                 } else {
@@ -290,7 +286,8 @@ impl ModrinthProvider {
         target_dir: &Path,
         progress: impl Fn(u64, u64, &str) + Send + Sync + 'static,
     ) -> Result<(), ModsError> {
-        let index_path = target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
+        let index_path =
+            target_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
         if !index_path.exists() {
             return Ok(());
         }
@@ -341,28 +338,31 @@ impl ModrinthProvider {
                 let progress_ref = progress_cb.clone();
                 let size = file_obj.file_size;
 
-                let checksum = if let Some(h) = file_obj.hashes.get("sha512") {
-                    Some((HashKind::Sha512, h.clone()))
-                } else if let Some(h) = file_obj.hashes.get("sha1") {
-                    Some((HashKind::Sha1, h.clone()))
-                } else {
-                    None
-                };
+                let checksum = file_obj
+                    .hashes
+                    .get("sha512")
+                    .map(|h| (HashKind::Sha512, h.clone()))
+                    .or_else(|| {
+                        file_obj
+                            .hashes
+                            .get("sha1")
+                            .map(|h| (HashKind::Sha1, h.clone()))
+                    });
 
                 tasks.push(tokio::spawn(async move {
                     if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
-                    let Ok(_permit) = sem.acquire().await else {
-                        return;
-                    };
-                    let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
-                    let _ = download_to_file(
-                        &client,
-                        &url,
-                        &dest,
-                        checksum_ref,
-                        None::<fn(u64, u64)>,
-                    )
-                    .await;
+                        let Ok(_permit) = sem.acquire().await else {
+                            return;
+                        };
+                        let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
+                        let _ = download_to_file(
+                            &client,
+                            &url,
+                            &dest,
+                            checksum_ref,
+                            None::<fn(u64, u64)>,
+                        )
+                        .await;
                     }
 
                     downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
@@ -418,8 +418,16 @@ impl ModrinthProvider {
 
         self.download_modpack(version, &instance_dir).await?;
 
-        let index_path = instance_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
+        let index_path =
+            instance_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
         let (mc_version, loader) = if index_path.exists() {
+            const LOADER_MAP: &[(&str, &str)] = &[
+                ("fabric-loader", "Fabric"),
+                ("forge", "Forge"),
+                ("neoforge", "NeoForge"),
+                ("quilt-loader", "Quilt"),
+            ];
+
             let content = fs::read_to_string(&index_path)?;
             let index: MrpackIndex = serde_json::from_str(&content)?;
 
@@ -429,13 +437,6 @@ impl ModrinthProvider {
                 .get("minecraft")
                 .cloned()
                 .unwrap_or(fallback_mc);
-
-            const LOADER_MAP: &[(&str, &str)] = &[
-                ("fabric-loader", "Fabric"),
-                ("forge", "Forge"),
-                ("neoforge", "NeoForge"),
-                ("quilt-loader", "Quilt"),
-            ];
 
             let loader = LOADER_MAP
                 .iter()
@@ -678,15 +679,9 @@ impl ModProvider for ModrinthProvider {
             _ => None,
         };
 
-        download_to_file(
-            &self.http,
-            url,
-            &path,
-            checksum,
-            None::<fn(u64, u64)>,
-        )
-        .await
-        .map_err(|e| ModsError::Provider(e.to_string()))?;
+        download_to_file(&self.http, url, &path, checksum, None::<fn(u64, u64)>)
+            .await
+            .map_err(|e| ModsError::Provider(e.to_string()))?;
 
         let final_path = unpack_structured_mod_archive_if_needed(&path, target_dir);
         Ok(final_path)
@@ -777,8 +772,8 @@ fn repack_jar_entries<R: std::io::Read + std::io::Seek>(
         return;
     };
     let mut zip_writer = zip::ZipWriter::new(jar_file);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     for i in 0..archive.len() {
         if let Ok(mut zip_entry) = archive.by_index(i) {

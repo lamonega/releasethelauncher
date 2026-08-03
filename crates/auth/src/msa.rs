@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::Token;
 
-use release_the_launcher_constants::{auth, urls};
+use release_the_launcher_constants::urls;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -105,15 +105,11 @@ impl MsAuthFlow {
     /// # Errors
     ///
     /// Returns an error if authorization is declined, device code expires, or network/polling fails.
-    pub async fn poll_for_token(
-        &self,
-        code_resp: &MsDeviceCode,
-    ) -> Result<MsaTokens, AuthError> {
-        let client = BasicClient::new(ClientId::new(self.client_id.clone()))
-            .set_token_uri(
-                TokenUrl::new(urls::MS_TOKEN_URL.to_string())
-                    .map_err(|e| AuthError::Flow(e.to_string()))?,
-            );
+    pub async fn poll_for_token(&self, code_resp: &MsDeviceCode) -> Result<MsaTokens, AuthError> {
+        let client = BasicClient::new(ClientId::new(self.client_id.clone())).set_token_uri(
+            TokenUrl::new(urls::MS_TOKEN_URL.to_string())
+                .map_err(|e| AuthError::Flow(e.to_string()))?,
+        );
 
         let token_resp = client
             .exchange_device_access_token(&code_resp.inner)
@@ -126,9 +122,7 @@ impl MsAuthFlow {
             .refresh_token()
             .map(|t| t.secret().clone())
             .ok_or_else(|| AuthError::Flow("No refresh token in MSA response".to_string()))?;
-        let expires_in = token_resp
-            .expires_in()
-            .map_or(3600, |d| d.as_secs());
+        let expires_in = token_resp.expires_in().map_or(3600, |d| d.as_secs());
 
         Ok(MsaTokens {
             access_token,

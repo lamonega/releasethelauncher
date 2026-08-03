@@ -23,15 +23,20 @@ pub fn show(ctx: &egui::Context, app: &App) {
                 DownloadPhase::Downloading { message } => {
                     widgets::loading_row(ui, message.as_str());
                     widgets::right_aligned(ui, |ui| {
-                        let ratio = progress_ratio(
-                            app.download_state.completed,
-                            app.download_state.total,
-                        );
-                        let pct = (ratio * 100.0) as u32;
+                        let raw_pct = app
+                            .download_state
+                            .completed
+                            .checked_mul(100)
+                            .and_then(|v| v.checked_div(app.download_state.total))
+                            .unwrap_or(0);
+                        let pct = u32::try_from(raw_pct).unwrap_or(100);
                         ui.add(
-                            egui::ProgressBar::new(ratio)
-                                .text(format!("{pct}%"))
-                                .desired_width(140.0),
+                            egui::ProgressBar::new(progress_ratio(
+                                app.download_state.completed,
+                                app.download_state.total,
+                            ))
+                            .text(format!("{pct}%"))
+                            .desired_width(140.0),
                         );
                     });
                 }

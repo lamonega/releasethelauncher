@@ -33,10 +33,18 @@ fn save_toml<T: Serialize>(value: &T, path: &Path) -> std::io::Result<()> {
 pub enum ModLoader {
     #[default]
     Vanilla,
-    Fabric { loader_version: String },
-    Quilt { loader_version: String },
-    Forge { loader_version: String },
-    NeoForge { loader_version: String },
+    Fabric {
+        loader_version: String,
+    },
+    Quilt {
+        loader_version: String,
+    },
+    Forge {
+        loader_version: String,
+    },
+    NeoForge {
+        loader_version: String,
+    },
 }
 
 impl fmt::Display for ModLoader {

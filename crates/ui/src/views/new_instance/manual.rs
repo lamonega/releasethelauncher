@@ -1,7 +1,7 @@
+use super::{LoaderType, NewInstanceState, VersionListState};
 use crate::App;
 use crate::View;
 use release_the_launcher_core::ModLoader;
-use super::{LoaderType, NewInstanceState, VersionListState};
 
 pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Name:");

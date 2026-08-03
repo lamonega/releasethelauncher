@@ -1,13 +1,24 @@
-use super::DetailTabState;
+use super::{DetailTabState, ModFilter, ModUpdatesState};
 use crate::{widgets, App, View};
 
 pub fn show_mods(
     app: &mut App,
     ui: &mut egui::Ui,
-    _root_path: &std::path::Path,
+    root_path: &std::path::Path,
     id: &str,
     tab_state: &mut DetailTabState,
 ) {
+    handle_mod_messages(app, id, tab_state);
+    show_mods_toolbar(app, ui, id, tab_state);
+    show_mod_updates(app, ui, id, tab_state);
+    show_mod_search_filter(app, ui, tab_state);
+    ui.add_space(app.theme.spacing.xs);
+    ui.separator();
+    ui.add_space(app.theme.spacing.xs);
+    show_mod_list(app, ui, root_path, id, tab_state);
+}
+
+fn handle_mod_messages(app: &mut App, id: &str, tab_state: &mut DetailTabState) {
     for msg in app.drain_ui_queue() {
         if let crate::UiMessage::ModUpdatesResult {
             instance_id: target_id,
@@ -15,12 +26,13 @@ pub fn show_mods(
         } = msg
         {
             if target_id == id {
-                tab_state.checking_mod_updates = false;
-                tab_state.mod_updates = Some(updates);
+                tab_state.mod_updates = ModUpdatesState::Loaded(updates);
             }
         }
     }
+}
 
+fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Installed mods:").strong());
         widgets::right_aligned(ui, |ui| {
@@ -47,21 +59,28 @@ pub fn show_mods(
                     crate::log::LogLevel::Info,
                     &format!("UI: Checking mod updates for instance '{id}'"),
                 );
-                tab_state.checking_mod_updates = true;
+                tab_state.mod_updates = ModUpdatesState::Checking;
                 app.check_mod_updates(id.to_string());
             }
         });
     });
-
     ui.add_space(app.theme.spacing.xs);
+}
 
-    if tab_state.checking_mod_updates {
-        ui.colored_label(app.theme.text_secondary, "Buscando actualizaciones...");
-        ui.add_space(app.theme.spacing.xs);
-    } else if let Some(updates) = &tab_state.mod_updates {
-        if updates.is_empty() {
-            ui.colored_label(app.theme.text_secondary, "Todos los mods están actualizados.");
-        } else {
+fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &DetailTabState) {
+    match &tab_state.mod_updates {
+        ModUpdatesState::Checking => {
+            ui.colored_label(app.theme.text_secondary, "Buscando actualizaciones...");
+            ui.add_space(app.theme.spacing.xs);
+        }
+        ModUpdatesState::Loaded(updates) if updates.is_empty() => {
+            ui.colored_label(
+                app.theme.text_secondary,
+                "Todos los mods están actualizados.",
+            );
+            ui.add_space(app.theme.spacing.xs);
+        }
+        ModUpdatesState::Loaded(updates) => {
             ui.collapsing(
                 format!("Actualizaciones disponibles ({})", updates.len()),
                 |ui| {
@@ -90,10 +109,13 @@ pub fn show_mods(
                     }
                 },
             );
+            ui.add_space(app.theme.spacing.xs);
         }
-        ui.add_space(app.theme.spacing.xs);
+        ModUpdatesState::Idle => {}
     }
+}
 
+fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut DetailTabState) {
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.add(
@@ -104,105 +126,138 @@ pub fn show_mods(
 
         ui.add_space(app.theme.spacing.sm);
         ui.label("Filter:");
-        ui.checkbox(&mut tab_state.show_enabled_mods, "Active");
-        ui.checkbox(&mut tab_state.show_disabled_mods, "Inactive");
+        let filter = &mut tab_state.mod_filter;
+        if ui.radio_value(filter, ModFilter::All, "All").changed()
+            || ui
+                .radio_value(filter, ModFilter::EnabledOnly, "Active")
+                .changed()
+            || ui
+                .radio_value(filter, ModFilter::DisabledOnly, "Inactive")
+                .changed()
+        {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Mod filter changed to {filter:?}"),
+            );
+        }
     });
+}
 
-    ui.add_space(app.theme.spacing.xs);
-    ui.separator();
-    ui.add_space(app.theme.spacing.xs);
+struct ModEntry {
+    name: String,
+    path: std::path::PathBuf,
+    enabled: bool,
+    details: Option<release_the_launcher_mods::ModDetails>,
+}
 
-    let mc_mods_dir = _root_path.join(".minecraft").join("mods");
+fn filter_mods(
+    mods: &[release_the_launcher_mods::ModEntry],
+    metadata_list: &[release_the_launcher_mods::ModDetails],
+    tab_state: &DetailTabState,
+) -> Vec<ModEntry> {
+    let query = tab_state.mod_search_query.trim().to_lowercase();
+    mods.iter()
+        .filter(|m| match tab_state.mod_filter {
+            ModFilter::EnabledOnly if !m.enabled => false,
+            ModFilter::DisabledOnly if m.enabled => false,
+            ModFilter::None => false,
+            _ => query.is_empty() || m.name.to_lowercase().contains(&query),
+        })
+        .map(|m| {
+            let details = metadata_list
+                .iter()
+                .find(|d| {
+                    d.mod_id.eq_ignore_ascii_case(&m.name)
+                        || m.name.to_lowercase().contains(&d.mod_id.to_lowercase())
+                        || m.name.to_lowercase().contains(&d.name.to_lowercase())
+                })
+                .cloned()
+                .or_else(|| release_the_launcher_mods::parser::parse_mod_metadata(&m.path).ok());
+            ModEntry {
+                name: m.name.clone(),
+                path: m.path.clone(),
+                enabled: m.enabled,
+                details,
+            }
+        })
+        .collect()
+}
+
+fn show_mod_list(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    root_path: &std::path::Path,
+    id: &str,
+    tab_state: &DetailTabState,
+) {
+    let mc_mods_dir = root_path.join(".minecraft").join("mods");
     let mods_dir = if mc_mods_dir.exists() {
         mc_mods_dir
     } else {
-        _root_path.join("mods")
+        root_path.join("mods")
     };
     let mods = release_the_launcher_mods::list_mods(&mods_dir);
     let metadata_list = app.coordinator.mods_metadata(id);
 
-    let query = tab_state.mod_search_query.trim().to_lowercase();
-    let filtered_mods: Vec<_> = mods
-        .iter()
-        .filter(|m| {
-            if m.enabled && !tab_state.show_enabled_mods {
-                return false;
-            }
-            if !m.enabled && !tab_state.show_disabled_mods {
-                return false;
-            }
-            if !query.is_empty() && !m.name.to_lowercase().contains(&query) {
-                return false;
-            }
-            true
-        })
-        .collect();
-
     if mods.is_empty() {
         ui.colored_label(app.theme.text_secondary, "No mods installed.");
-    } else if filtered_mods.is_empty() {
+        return;
+    }
+
+    let entries = filter_mods(&mods, &metadata_list, tab_state);
+
+    if entries.is_empty() {
         ui.colored_label(app.theme.text_secondary, "No mods match search or filters.");
-    } else {
-        let mut toggle_path = None;
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for m in filtered_mods {
-                    ui.horizontal(|ui| {
-                        let mut enabled = m.enabled;
-                        if ui.checkbox(&mut enabled, &m.name).changed() {
-                            toggle_path = Some(m.path.clone());
+        return;
+    }
+
+    let mut toggle_path = None;
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for entry in &entries {
+                ui.horizontal(|ui| {
+                    let mut enabled = entry.enabled;
+                    if ui.checkbox(&mut enabled, &entry.name).changed() {
+                        toggle_path = Some(entry.path.clone());
+                    }
+
+                    if let Some(details) = &entry.details {
+                        ui.label(format!("- {} (v{})", details.name, details.version));
+                        if !details.description.is_empty() {
+                            ui.colored_label(
+                                app.theme.text_secondary,
+                                format!(": {}", details.description),
+                            );
                         }
+                    } else {
+                        ui.colored_label(app.theme.text_secondary, "(sin metadata)");
+                    }
 
-                        let meta = metadata_list
-                            .iter()
-                            .find(|d| {
-                                d.mod_id.eq_ignore_ascii_case(&m.name)
-                                    || m.name.to_lowercase().contains(&d.mod_id.to_lowercase())
-                                    || m.name.to_lowercase().contains(&d.name.to_lowercase())
-                            })
-                            .cloned()
-                            .or_else(|| {
-                                release_the_launcher_mods::parser::parse_mod_metadata(&m.path).ok()
-                            });
+                    if !entry.enabled {
+                        ui.colored_label(app.theme.text_secondary, "(Disabled)");
+                    }
+                });
+            }
+        });
 
-                        if let Some(details) = meta {
-                            ui.label(format!("- {} (v{})", details.name, details.version));
-                            if !details.description.is_empty() {
-                                ui.colored_label(
-                                    app.theme.text_secondary,
-                                    format!(": {}", details.description),
-                                );
-                            }
-                        } else {
-                            ui.colored_label(app.theme.text_secondary, "(sin metadata)");
-                        }
-
-                        if !m.enabled {
-                            ui.colored_label(app.theme.text_secondary, "(Disabled)");
-                        }
-                    });
-                }
-            });
-
-        if let Some(path) = toggle_path {
-            if let Some(entry) = mods.iter().find(|m| m.path == path) {
-                let action = if entry.enabled { "disabled" } else { "enabled" };
+    if let Some(path) = toggle_path {
+        if let Some(entry) = mods.iter().find(|m| m.path == path) {
+            let action = if entry.enabled { "disabled" } else { "enabled" };
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Mod '{}' {action}", entry.name),
+            );
+            let result = if entry.enabled {
+                release_the_launcher_mods::disable_mod(&path)
+            } else {
+                release_the_launcher_mods::enable_mod(&path)
+            };
+            if let Err(e) = result {
                 app.log(
-                    crate::log::LogLevel::Info,
-                    &format!("UI: Mod '{}' {action}", entry.name),
+                    crate::log::LogLevel::Error,
+                    &format!("Failed to toggle mod: {e}"),
                 );
-                let result = if entry.enabled {
-                    release_the_launcher_mods::disable_mod(&path)
-                } else {
-                    release_the_launcher_mods::enable_mod(&path)
-                };
-                if let Err(e) = result {
-                    app.log(
-                        crate::log::LogLevel::Error,
-                        &format!("Failed to toggle mod: {e}"),
-                    );
-                }
             }
         }
     }

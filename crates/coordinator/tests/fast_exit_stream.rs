@@ -10,14 +10,16 @@ const INSTANCE: &str =
 
 fn read_lines<R: std::io::Read>(r: R) -> usize {
     use std::io::BufRead;
-    // keep filter_map, NOT map_while (clippy's suggestion): on
+    // keep streaming reads, NOT map_while (clippy's suggestion): on
     // Windows a mid-stream broken-pipe Err is followed by buffered lines, and
     // map_while stops at the first Err, silently dropping them.
-    #[allow(clippy::lines_filter_map_ok)]
-    std::io::BufReader::new(r)
-        .lines()
-        .filter_map(Result::ok)
-        .count()
+    let mut count = 0;
+    for line in std::io::BufReader::new(r).lines() {
+        if line.is_ok() {
+            count += 1;
+        }
+    }
+    count
 }
 
 #[test]

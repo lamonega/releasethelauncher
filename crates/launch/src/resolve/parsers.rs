@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde::Deserialize;
 use crate::{AssetIndex, ClientDownload, Extract, Library, Rule, RuleOs, VersionFile};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -193,15 +193,22 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         size: ai.size.unwrap_or(0),
     });
 
-    let client_download = vj.downloads.and_then(|d| d.client).or_else(|| {
-        vj.main_jar.and_then(|mj| mj.downloads).and_then(|d| d.client)
-    }).map(|c| ClientDownload {
-        url: c.url.unwrap_or_default(),
-        sha1: c.sha1,
-        size: c.size.unwrap_or(0),
-    });
+    let client_download = vj
+        .downloads
+        .and_then(|d| d.client)
+        .or_else(|| {
+            vj.main_jar
+                .and_then(|mj| mj.downloads)
+                .and_then(|d| d.client)
+        })
+        .map(|c| ClientDownload {
+            url: c.url.unwrap_or_default(),
+            sha1: c.sha1,
+            size: c.size.unwrap_or(0),
+        });
 
-    let compatible_java_majors = vj.java_version
+    let compatible_java_majors = vj
+        .java_version
         .and_then(|jv| jv.major_version)
         .map(|v| vec![u32::try_from(v).unwrap_or(8)])
         .unwrap_or_default();
@@ -242,7 +249,12 @@ fn parse_argument_item_enum(item: &ArgumentItem, target: &mut Vec<String>) {
     match item {
         ArgumentItem::Plain(s) => target.push(s.clone()),
         ArgumentItem::WithRules { rules, value } => {
-            let rules_converted: Vec<Rule> = rules.as_deref().unwrap_or(&[]).iter().map(Into::into).collect();
+            let rules_converted: Vec<Rule> = rules
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .map(Into::into)
+                .collect();
             if crate::platform::should_include(&rules_converted) {
                 match value {
                     ArgumentValue::Single(s) => target.push(s.clone()),
@@ -303,7 +315,13 @@ pub fn parse_library(lib_val: &serde_json::Value) -> Vec<Library> {
     let sha1 = lib.sha1.or_else(|| artifact.and_then(|a| a.sha1.clone()));
     let size = lib.size.or_else(|| artifact.and_then(|a| a.size));
 
-    let rules: Vec<Rule> = lib.rules.as_deref().unwrap_or(&[]).iter().map(Into::into).collect();
+    let rules: Vec<Rule> = lib
+        .rules
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(Into::into)
+        .collect();
     let extract = lib.extract.map(|e| Extract {
         exclude: e.exclude.unwrap_or_default(),
     });
@@ -322,7 +340,13 @@ pub fn parse_library(lib_val: &serde_json::Value) -> Vec<Library> {
                 .and_then(|classifiers| classifiers.get(&classifier))
                 .map_or_else(
                     || (url.clone(), sha1.clone(), size),
-                    |class_info| (class_info.url.clone(), class_info.sha1.clone(), class_info.size),
+                    |class_info| {
+                        (
+                            class_info.url.clone(),
+                            class_info.sha1.clone(),
+                            class_info.size,
+                        )
+                    },
                 );
             return vec![
                 Library {

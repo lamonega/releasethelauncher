@@ -301,21 +301,12 @@ impl Coordinator {
     ) {
         let http = self.http_provider.clone();
         self.run_async(move |queue| {
-            flow::modrinth::install_mod(
-                queue,
-                project_id,
-                mods_dir,
-                mc_version,
-                loader_name,
-                http,
-            )
+            flow::modrinth::install_mod(queue, project_id, mods_dir, mc_version, loader_name, http)
         });
     }
 
     pub fn fetch_modpack_versions(&self, project_id: String) {
-        self.run_async(move |queue| {
-            flow::modrinth::fetch_modpack_versions(queue, project_id)
-        });
+        self.run_async(move |queue| flow::modrinth::fetch_modpack_versions(queue, project_id));
     }
 
     pub fn install_modpack_as_instance(
@@ -348,9 +339,7 @@ impl Coordinator {
                 if release_the_launcher_auth::refresh::needs_refresh(account) {
                     let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
                     match release_the_launcher_auth::refresh::try_refresh_if_needed(
-                        account,
-                        &http,
-                        client_id,
+                        account, &http, client_id,
                     )
                     .await
                     {
@@ -361,10 +350,7 @@ impl Coordinator {
                                     account: Box::new(refreshed),
                                 },
                             );
-                            push_event(
-                                &queue,
-                                Event::Status("Account refreshed".to_string()),
-                            );
+                            push_event(&queue, Event::Status("Account refreshed".to_string()));
                         }
                         Ok(None) => {}
                         Err(e) => {
@@ -376,6 +362,7 @@ impl Coordinator {
         });
     }
 
+    #[must_use]
     pub fn mods_metadata(&self, instance_id: &str) -> Vec<release_the_launcher_mods::ModDetails> {
         let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             return Vec::new();

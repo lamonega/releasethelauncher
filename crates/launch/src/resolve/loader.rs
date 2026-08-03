@@ -19,27 +19,29 @@ pub struct Versions {
     pub version: Vec<String>,
 }
 
+pub struct LoaderParams<'a> {
+    pub client: &'a Client,
+    pub base_url: &'a str,
+    pub uid: &'a str,
+    pub mc_version: &'a str,
+    pub loader_version: Option<&'a str>,
+    pub conflict_uids: Vec<&'a str>,
+    pub intermediary_uid: &'a str,
+    pub default_fallback_version: &'a str,
+}
+
 /// Fetches a loader component (e.g. Fabric or Quilt) from Prism metadata format.
 ///
 /// # Errors
 ///
 /// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
-#[allow(clippy::too_many_arguments)]
-pub async fn fetch_meta_component(
-    client: &Client,
-    base_url: &str,
-    uid: &str,
-    mc_version: &str,
-    loader_version: Option<&str>,
-    conflict_uids: &[&str],
-    intermediary_uid: &str,
-    default_fallback_version: &str,
-) -> Result<Component, LaunchError> {
-    let chosen_loader_version = if let Some(lv) = loader_version {
+pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component, LaunchError> {
+    let chosen_loader_version = if let Some(lv) = params.loader_version {
         lv.to_string()
     } else {
-        let index_resp: serde_json::Value = client
-            .get(format!("{base_url}/index.json"))
+        let index_resp: serde_json::Value = params
+            .client
+            .get(format!("{}/index.json", params.base_url))
             .send()
             .await?
             .json()
@@ -50,12 +52,12 @@ pub async fn fetch_meta_component(
             .and_then(|arr| arr.first())
             .and_then(|v| v.get("version"))
             .and_then(|v| v.as_str())
-            .unwrap_or(default_fallback_version)
+            .unwrap_or(params.default_fallback_version)
             .to_string()
     };
 
-    let loader_url = format!("{base_url}/{chosen_loader_version}.json");
-    let resp: serde_json::Value = client.get(&loader_url).send().await?.json().await?;
+    let loader_url = format!("{}/{chosen_loader_version}.json", params.base_url);
+    let resp: serde_json::Value = params.client.get(&loader_url).send().await?.json().await?;
     let mut libraries = Vec::new();
     let mut main_class = None;
 
@@ -68,25 +70,29 @@ pub async fn fetch_meta_component(
         main_class = Some(mc.to_string());
     }
 
-    let loader_ver = loader_version.unwrap_or("unknown");
+    let loader_ver = params.loader_version.unwrap_or("unknown");
 
     Ok(Component {
-        uid: uid.to_string(),
+        uid: params.uid.to_string(),
         version: loader_ver.to_string(),
         is_locked: true,
         dependencies: vec![
             Requirement {
                 uid: "net.minecraft".to_string(),
-                suggests: Some(mc_version.to_string()),
-                equals: Some(mc_version.to_string()),
+                suggests: Some(params.mc_version.to_string()),
+                equals: Some(params.mc_version.to_string()),
             },
             Requirement {
-                uid: intermediary_uid.to_string(),
-                suggests: Some(mc_version.to_string()),
+                uid: params.intermediary_uid.to_string(),
+                suggests: Some(params.mc_version.to_string()),
                 equals: None,
             },
         ],
-        conflicts: conflict_uids.iter().map(|s| (*s).to_string()).collect(),
+        conflicts: params
+            .conflict_uids
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
         version_file: VersionFile {
             main_class,
             libraries,

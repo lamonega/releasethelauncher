@@ -88,6 +88,7 @@ fn replace_placeholders(
 pub const DEFAULT_WINDOW_WIDTH: &str = "854";
 pub const DEFAULT_WINDOW_HEIGHT: &str = "480";
 
+#[must_use]
 pub fn jvm_args(
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -156,6 +157,7 @@ pub fn jvm_args(
     args
 }
 
+#[must_use]
 pub fn game_args(
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -220,7 +222,6 @@ pub fn game_args(
 }
 
 #[must_use]
-#[allow(clippy::too_many_lines)] // flat java arg builder, splitting adds nothing
 pub fn build_command(
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -243,7 +244,15 @@ pub fn build_command(
     classpath.push(mc_jar.display().to_string());
     let cp_str = classpath.join(crate::platform::classpath_separator());
 
-    let jvm = jvm_args(profile, instance_dir, java_path, player, &cp_str, memory_min, memory_max);
+    let jvm = jvm_args(
+        profile,
+        instance_dir,
+        java_path,
+        player,
+        &cp_str,
+        memory_min,
+        memory_max,
+    );
     cmd.args(jvm);
 
     cmd.arg(&profile.main_class);

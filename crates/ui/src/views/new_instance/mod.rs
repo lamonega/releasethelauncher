@@ -5,8 +5,8 @@ use release_the_launcher_mods::ProjectSummary;
 mod manual;
 mod modrinth;
 
-pub use manual::*;
-pub use modrinth::*;
+use manual::show_manual;
+use modrinth::show_modrinth;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     process_messages(app, state);
@@ -154,7 +154,10 @@ pub fn handle_install_result(
         mc_version.to_string(),
         loader,
     );
-    let _ = app.coordinator.instance_manager.create(instance_id, settings);
+    let _ = app
+        .coordinator
+        .instance_manager
+        .create(instance_id, settings);
     app.status_message = format!("Installed modpack instance: {name}");
     app.current_view = View::InstanceList;
     state.installing_modpack_id = None;
@@ -174,7 +177,8 @@ pub struct NewInstanceState {
     pub installing_modpack_id: Option<String>,
     pub available_versions: Vec<(String, String)>,
     pub version_list_state: VersionListState,
-    pub modpack_versions: std::collections::HashMap<String, Vec<release_the_launcher_mods::ModVersion>>,
+    pub modpack_versions:
+        std::collections::HashMap<String, Vec<release_the_launcher_mods::ModVersion>>,
     pub loading_versions_for_project: Option<String>,
     pub expanded_project_id: Option<String>,
     pub filter_types: [bool; 3],

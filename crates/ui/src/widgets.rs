@@ -31,7 +31,6 @@ pub fn right_aligned<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R)
 }
 
 /// Creates a standard icon button with consistent spacing between icon and label text.
-#[must_use]
 pub fn icon_button(icon: &str, label: &str) -> egui::Button<'static> {
     let text = format!("{icon} {label}");
     egui::Button::new(text)
@@ -74,7 +73,10 @@ pub fn search_bar(ui: &mut egui::Ui, query: &mut String) -> bool {
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.text_edit_singleline(query);
-        if ui.add(icon_button(crate::icons::SEARCH, "Search")).clicked() {
+        if ui
+            .add(icon_button(crate::icons::SEARCH, "Search"))
+            .clicked()
+        {
             searched = true;
         }
     });
