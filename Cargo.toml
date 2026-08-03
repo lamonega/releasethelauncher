@@ -9,11 +9,12 @@ members = [
     "crates/coordinator",
     "crates/ui",
 ]
-resolver = "2"
+[workspace.package]
+version = "0.6.0"
 
 [package]
 name = "release-the-launcher"
-version = "0.6.0"
+version = { workspace = true }
 edition = "2021"
 description = "A minimal Minecraft launcher"
 license = "MIT"

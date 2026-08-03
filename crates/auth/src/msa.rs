@@ -1,6 +1,9 @@
+use oauth2::basic::BasicClient;
+use oauth2::{
+    ClientId, DeviceAuthorizationUrl, Scope, StandardDeviceAuthorizationResponse, TokenResponse,
+    TokenUrl,
+};
 use reqwest::Client;
-use serde::Deserialize;
-use std::time::Duration;
 use thiserror::Error;
 
 use crate::Token;
@@ -15,37 +18,24 @@ pub enum AuthError {
     Json(#[from] serde_json::Error),
     #[error("Auth flow error: {0}")]
     Flow(String),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
 }
 
-#[derive(Debug, Deserialize)]
-pub struct DeviceCodeResponse {
-    pub device_code: String,
+#[derive(Debug, Clone)]
+pub struct MsDeviceCode {
     pub user_code: String,
     pub verification_uri: String,
+    pub device_code: String,
     pub expires_in: u64,
     pub interval: u64,
     pub message: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MsaTokenResponse {
-    pub token_type: Option<String>,
-    pub expires_in: Option<u64>,
-    pub scope: Option<String>,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
-    pub error: Option<String>,
-    pub error_codes: Option<Vec<u64>>,
-    pub error_description: Option<String>,
-    pub error_subcode: Option<u64>,
+    pub(crate) inner: StandardDeviceAuthorizationResponse,
 }
 
 #[derive(Debug, Clone)]
 pub struct MsaTokens {
     pub access_token: String,
     pub refresh_token: String,
+    pub expires_in: u64,
 }
 
 pub struct MsAuthFlow {
@@ -61,10 +51,7 @@ impl MsAuthFlow {
 
     #[must_use]
     pub fn new(client_id: String) -> Self {
-        Self::with_http(
-            client_id,
-            release_the_launcher_net::HttpClientProvider::default().clone_client(),
-        )
+        Self::with_http(client_id, release_the_launcher_net::default_client())
     }
 
     #[must_use]
@@ -74,81 +61,80 @@ impl MsAuthFlow {
 
     /// # Errors
     ///
-    /// Returns an error if the HTTP request or JSON deserialization fails.
-    pub async fn request_device_code(&self) -> Result<DeviceCodeResponse, AuthError> {
-        let params = [
-            ("client_id", self.client_id.as_str()),
-            ("scope", urls::MS_SCOPES),
-        ];
-        let resp = self
-            .http
-            .post(urls::MS_DEVICE_CODE_URL)
-            .form(&params)
-            .send()
-            .await?;
-        let body = resp.json::<DeviceCodeResponse>().await?;
-        Ok(body)
+    /// Returns an error if the OAuth device code request fails.
+    pub async fn request_device_code(&self) -> Result<MsDeviceCode, AuthError> {
+        let client = BasicClient::new(ClientId::new(self.client_id.clone()))
+            .set_device_authorization_url(
+                DeviceAuthorizationUrl::new(urls::MS_DEVICE_CODE_URL.to_string())
+                    .map_err(|e| AuthError::Flow(e.to_string()))?,
+            )
+            .set_token_uri(
+                TokenUrl::new(urls::MS_TOKEN_URL.to_string())
+                    .map_err(|e| AuthError::Flow(e.to_string()))?,
+            );
+
+        let mut req = client.exchange_device_code();
+
+        for scope in urls::MS_SCOPES.split_whitespace() {
+            req = req.add_scope(Scope::new(scope.to_string()));
+        }
+
+        let details: StandardDeviceAuthorizationResponse = req
+            .request_async(&self.http)
+            .await
+            .map_err(|e| AuthError::Flow(e.to_string()))?;
+
+        let interval_secs = details.interval().as_secs();
+        let interval = if interval_secs == 0 {
+            release_the_launcher_constants::net::POLL_INTERVAL_SECS
+        } else {
+            interval_secs
+        };
+
+        Ok(MsDeviceCode {
+            user_code: details.user_code().secret().clone(),
+            verification_uri: details.verification_uri().as_str().to_string(),
+            device_code: details.device_code().secret().clone(),
+            expires_in: details.expires_in().as_secs(),
+            interval,
+            message: None,
+            inner: details,
+        })
     }
 
     /// # Errors
     ///
-    /// Returns an error if authorization is declined, the device code expires,
-    /// or the HTTP request or JSON deserialization fails.
+    /// Returns an error if authorization is declined, device code expires, or network/polling fails.
     pub async fn poll_for_token(
         &self,
-        device_code: &str,
-        mut interval: Duration,
+        code_resp: &MsDeviceCode,
     ) -> Result<MsaTokens, AuthError> {
-        loop {
-            tokio::time::sleep(interval).await;
+        let client = BasicClient::new(ClientId::new(self.client_id.clone()))
+            .set_token_uri(
+                TokenUrl::new(urls::MS_TOKEN_URL.to_string())
+                    .map_err(|e| AuthError::Flow(e.to_string()))?,
+            );
 
-            let params = [
-                ("client_id", self.client_id.as_str()),
-                ("grant_type", auth::GRANT_DEVICE_CODE),
-                ("device_code", device_code),
-            ];
-            let resp = self
-                .http
-                .post(urls::MS_TOKEN_URL)
-                .form(&params)
-                .send()
-                .await?;
-            let body: MsaTokenResponse = resp.json().await?;
+        let token_resp = client
+            .exchange_device_access_token(&code_resp.inner)
+            .request_async(&self.http, tokio::time::sleep, None)
+            .await
+            .map_err(|e| AuthError::Flow(e.to_string()))?;
 
-            if let Some(err) = body.error.as_deref() {
-                match err {
-                    "authorization_pending" => continue,
-                    "slow_down" => {
-                        interval += std::time::Duration::from_secs(
-                            release_the_launcher_constants::defaults::SLOW_DOWN_DELAY_SECS,
-                        );
-                        continue;
-                    }
-                    "authorization_declined" => {
-                        return Err(AuthError::Flow("Authorization was declined".into()));
-                    }
-                    "expired_token" => {
-                        return Err(AuthError::Flow("Device code expired".into()));
-                    }
-                    _ => {
-                        return Err(AuthError::Flow(
-                            body.error_description.unwrap_or_else(|| err.to_string()),
-                        ));
-                    }
-                }
-            }
+        let access_token = token_resp.access_token().secret().clone();
+        let refresh_token = token_resp
+            .refresh_token()
+            .map(|t| t.secret().clone())
+            .ok_or_else(|| AuthError::Flow("No refresh token in MSA response".to_string()))?;
+        let expires_in = token_resp
+            .expires_in()
+            .map_or(3600, |d| d.as_secs());
 
-            if let (Some(access), Some(refresh)) = (body.access_token, body.refresh_token) {
-                return Ok(MsaTokens {
-                    access_token: access,
-                    refresh_token: refresh,
-                });
-            }
-
-            return Err(AuthError::Flow(
-                "Unexpected response from token endpoint".into(),
-            ));
-        }
+        Ok(MsaTokens {
+            access_token,
+            refresh_token,
+            expires_in,
+        })
     }
 
     #[must_use]
@@ -172,10 +158,9 @@ pub fn now_unix() -> u64 {
 
 #[must_use]
 pub fn token_from_msa_tokens(tokens: &MsaTokens, expires_in: u64) -> Token {
-    Token {
-        issue_instant: now_unix(),
-        not_after: Some(now_unix() + expires_in),
-        token: tokens.access_token.clone(),
-        refresh_token: Some(tokens.refresh_token.clone()),
-    }
+    Token::new(
+        tokens.access_token.clone(),
+        Some(tokens.refresh_token.clone()),
+        expires_in,
+    )
 }

@@ -13,8 +13,7 @@ pub fn show(
     mod_browser_state: &mut ModBrowserState,
     detail_tab_state: &mut DetailTabState,
     ctx: &egui::Context,
-) -> Option<String> {
-    let mut open_mod_browser = None;
+) {
     egui::CentralPanel::default().show(ctx, |ui| match &app.current_view {
         View::InstanceList => {
             ui.add_space(app.theme.spacing.lg);
@@ -30,7 +29,7 @@ pub fn show(
         View::InstanceDetail { id, tab } => {
             let id = id.clone();
             let tab = *tab;
-            show_instance_detail(app, ui, &id, tab, detail_tab_state, &mut open_mod_browser);
+            show_instance_detail(app, ui, &id, tab, detail_tab_state);
         }
         View::AccountList => {
             crate::views::account_list::show(app, ui);
@@ -49,5 +48,4 @@ pub fn show(
             settings_view::show(app, ui);
         }
     });
-    open_mod_browser
 }

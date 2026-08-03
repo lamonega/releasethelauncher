@@ -1,5 +1,4 @@
-use crate::App;
-use crate::View;
+use crate::{widgets, App, View};
 
 #[derive(Default)]
 pub struct ModBrowserState {
@@ -44,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
 }
 
 fn process_messages(app: &App, state: &mut ModBrowserState) {
-    let messages = app.drain_messages();
+    let messages = app.drain_ui_queue();
     for msg in messages {
         match msg {
             crate::UiMessage::ModrinthSearchResult(result) => match result {
@@ -56,16 +55,10 @@ fn process_messages(app: &App, state: &mut ModBrowserState) {
                     state.status = format!("Search failed: {e}");
                 }
             },
-            crate::UiMessage::ModrinthInstallResult(result) => match result {
-                Ok(name) => {
-                    state.status = format!("Installed mod: {name}");
-                    state.installing_mod_id = None;
-                }
-                Err(e) => {
-                    state.status = format!("Install failed: {e}");
-                    state.installing_mod_id = None;
-                }
-            },
+            crate::UiMessage::ModrinthInstallResult { name, .. } => {
+                state.status = format!("Installed: {name}");
+                state.installing_mod_id = None;
+            }
             _ => {}
         }
     }
@@ -80,8 +73,11 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str, mc_version: &str, loa
                 format!("Compatible with Minecraft {mc_version} ({loader_name})"),
             );
         });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
+        widgets::right_aligned(ui, |ui| {
+            if ui
+                .add(widgets::icon_button(crate::icons::BACK, "Back"))
+                .clicked()
+            {
                 app.log(
                     crate::log::LogLevel::Info,
                     "UI: Navigated back from Mod Browser",
@@ -111,23 +107,16 @@ fn show_search(
     loader_name: &str,
 ) {
     ui.add_space(app.theme.spacing.sm);
-    ui.horizontal(|ui| {
-        ui.label("Search:");
-        ui.text_edit_singleline(&mut state.query);
-        if ui
-            .button(format!(" {} Search", crate::icons::SEARCH))
-            .clicked()
-        {
-            app.log(
-                crate::log::LogLevel::Info,
-                &format!("UI: Searched mods for '{}'", state.query),
-            );
-            state.status = "Searching compatible mods...".to_string();
-            state.results = Vec::new();
-            let query = state.query.clone();
-            trigger_search(app, &query, mc_version, loader_name);
-        }
-    });
+    if widgets::search_bar(ui, &mut state.query) {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Searched mods for '{}'", state.query),
+        );
+        state.status = "Searching compatible mods...".to_string();
+        state.results = Vec::new();
+        let query = state.query.clone();
+        trigger_search(app, &query, mc_version, loader_name);
+    }
 }
 
 fn show_results(
@@ -158,7 +147,9 @@ fn show_results(
                         if let Some(icon_url) = &result.icon_url {
                             ui.add(
                                 egui::Image::new(icon_url.as_str())
-                                    .max_size(egui::vec2(32.0, 32.0)),
+                                    .max_size(egui::vec2(32.0, 32.0))
+                                    .show_loading_spinner(true)
+                                    .rounding(4.0),
                             );
                         }
                         ui.label(&result.name);

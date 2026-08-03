@@ -1,4 +1,5 @@
 use release_the_launcher_constants::defaults;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -14,8 +15,23 @@ pub enum SettingsError {
     Parse(#[from] toml::de::Error),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn load_toml<T: DeserializeOwned>(path: &Path) -> Option<T> {
+    let content = fs::read_to_string(path).ok()?;
+    toml::from_str(&content).ok()
+}
+
+fn save_toml<T: Serialize>(value: &T, path: &Path) -> std::io::Result<()> {
+    let content = toml::to_string_pretty(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, content)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ModLoader {
+    #[default]
     Vanilla,
     Fabric { loader_version: String },
     Quilt { loader_version: String },
@@ -47,12 +63,24 @@ pub struct InstanceSettings {
     pub pre_launch_command: String,
     #[serde(default)]
     pub post_launch_command: String,
-    #[serde(default = "default_close_after_launch")]
+    #[serde(default)]
     pub close_after_launch: bool,
 }
 
-const fn default_close_after_launch() -> bool {
-    false
+impl Default for InstanceSettings {
+    fn default() -> Self {
+        Self {
+            format_version: 1,
+            name: String::new(),
+            minecraft_version: String::new(),
+            last_launch_time: None,
+            loader: ModLoader::Vanilla,
+            java: JavaSettings::default(),
+            pre_launch_command: String::new(),
+            post_launch_command: String::new(),
+            close_after_launch: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -78,14 +106,10 @@ impl InstanceSettings {
         }
     }
 
-    /// Loads instance settings from a TOML file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or the content cannot be parsed as TOML.
-    pub fn load(path: &Path) -> Result<Self, SettingsError> {
-        let content = std::fs::read_to_string(path).map_err(SettingsError::Io)?;
-        toml::from_str(&content).map_err(SettingsError::Parse)
+    /// Loads instance settings from a TOML file. Infallible: returns default if missing or invalid.
+    #[must_use]
+    pub fn load(path: &Path) -> Self {
+        load_toml(path).unwrap_or_default()
     }
 
     /// Saves instance settings to a TOML file.
@@ -94,9 +118,7 @@ impl InstanceSettings {
     ///
     /// Returns an error if serialization to TOML fails or the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        fs::write(path, content)
+        save_toml(self, path)
     }
 
     #[must_use = "Returns the name of the mod loader as a string"]
@@ -139,31 +161,12 @@ impl Default for GlobalSettings {
 impl GlobalSettings {
     #[must_use]
     pub fn load(path: &Path) -> Self {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Self::default(),
-            Err(e) => {
-                log::warn!("Failed to read settings file {}: {e}", path.display());
-                return Self::default();
-            }
-        };
-        match toml::from_str(&content) {
-            Ok(settings) => settings,
-            Err(e) => {
-                log::warn!("Failed to parse settings file {}: {e}", path.display());
-                Self::default()
-            }
-        }
+        load_toml(path).unwrap_or_default()
     }
 
     /// # Errors
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, content)
+        save_toml(self, path)
     }
 
     /// Merge instance settings with global defaults.
@@ -172,27 +175,23 @@ impl GlobalSettings {
     pub fn java_path_for(&self, instance_java_path: Option<&str>) -> Option<String> {
         instance_java_path
             .filter(|s| !s.is_empty())
+            .or(self.java_path.as_deref())
             .map(String::from)
-            .or_else(|| self.java_path.clone())
     }
 
     #[must_use]
-    pub fn memory_min_for(&self, instance_memory_min: &Option<String>) -> String {
+    pub fn memory_min_for(&self, instance_memory_min: Option<&str>) -> String {
         instance_memory_min
-            .clone()
-            .or_else(|| self.memory_min.clone())
-            .unwrap_or_else(|| {
-                release_the_launcher_constants::defaults::DEFAULT_MEMORY_MIN.to_string()
-            })
+            .or(self.memory_min.as_deref())
+            .unwrap_or(release_the_launcher_constants::defaults::DEFAULT_MEMORY_MIN)
+            .to_string()
     }
 
     #[must_use]
-    pub fn memory_max_for(&self, instance_memory_max: &Option<String>) -> String {
+    pub fn memory_max_for(&self, instance_memory_max: Option<&str>) -> String {
         instance_memory_max
-            .clone()
-            .or_else(|| self.memory_max.clone())
-            .unwrap_or_else(|| {
-                release_the_launcher_constants::defaults::DEFAULT_MEMORY_MAX.to_string()
-            })
+            .or(self.memory_max.as_deref())
+            .unwrap_or(release_the_launcher_constants::defaults::DEFAULT_MEMORY_MAX)
+            .to_string()
     }
 }

@@ -1,24 +1,14 @@
-use crate::App;
-use crate::View;
+use crate::{widgets, App, View};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
-    if ui.button(format!(" {} Back", crate::icons::BACK)).clicked() {
-        app.log(
-            crate::log::LogLevel::Info,
-            "UI: Navigated back from Accounts",
-        );
-        app.current_view = View::InstanceList;
+    if widgets::page_header(ui, app, "Accounts", Some(View::InstanceList)) {
         return;
     }
 
-    ui.add_space(app.theme.spacing.sm);
-    ui.heading("Accounts");
-
-    ui.add_space(app.theme.spacing.sm);
     ui.horizontal(|ui| {
         if ui
             .add(
-                egui::Button::new(format!(" {} Add Offline Account", crate::icons::ADD))
+                widgets::icon_button(crate::icons::ADD, "Add Offline Account")
                     .fill(app.theme.accent),
             )
             .clicked()
@@ -61,41 +51,21 @@ fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
             };
             ui.colored_label(app.theme.text_secondary, type_label);
             if let Some(skin_url) = account.skin_texture_url() {
-                ui.hyperlink_to("Skin", &skin_url);
+                ui.add(
+                    egui::Image::new(skin_url)
+                        .max_size(egui::vec2(24.0, 24.0))
+                        .show_loading_spinner(true),
+                );
             }
             if ui
-                .small_button(format!(" {} Remove", crate::icons::DELETE))
+                .add(widgets::icon_button(crate::icons::DELETE, "Remove").small())
                 .clicked()
             {
                 remove_idx = Some(i);
             }
         });
 
-        if account.account_type == release_the_launcher_auth::AccountType::Microsoft {
-            let auth = account.auth_state();
-            let state_label = match auth {
-                release_the_launcher_auth::AuthState::Online => "Online",
-                release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
-                release_the_launcher_auth::AuthState::Expired => "Token Expired",
-                release_the_launcher_auth::AuthState::Disabled => "Disabled",
-                release_the_launcher_auth::AuthState::Gone => "No token",
-                release_the_launcher_auth::AuthState::Offline => "",
-            };
-            if !state_label.is_empty() {
-                let state_color = match auth {
-                    release_the_launcher_auth::AuthState::Online => app.theme.log_colors.info,
-                    release_the_launcher_auth::AuthState::Expired
-                    | release_the_launcher_auth::AuthState::Gone => app.theme.log_colors.warn,
-                    release_the_launcher_auth::AuthState::Disabled => app.theme.log_colors.error,
-                    release_the_launcher_auth::AuthState::Refreshing
-                    | release_the_launcher_auth::AuthState::Offline => app.theme.text_secondary,
-                };
-                ui.horizontal(|ui| {
-                    ui.add_space(32.0);
-                    ui.colored_label(state_color, state_label);
-                });
-            }
-        }
+        widgets::auth_state_ui(ui, &app.theme, account);
     }
     if let Some(i) = select_idx {
         let name = app.coordinator.account_list.accounts[i]

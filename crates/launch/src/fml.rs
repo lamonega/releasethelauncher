@@ -61,7 +61,7 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     }
 
-    let client = release_the_launcher_net::HttpClientProvider::default().clone_client();
+    let client = release_the_launcher_net::default_client();
     let bytes_opt = match client.get(&primary_url).send().await {
         Ok(resp) if resp.status().is_success() => resp.bytes().await.ok(),
         _ => None,

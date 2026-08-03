@@ -43,8 +43,7 @@ impl eframe::App for LauncherApp {
         if live {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
-        let mut navigate_to = None;
-        toolbar::show(&self.app, &mut self.maximized, ctx, &mut navigate_to);
+        toolbar::show(&mut self.app, &mut self.maximized, ctx);
         status_bar::show(ctx, &self.app);
         sidebar::show(
             &mut self.app,
@@ -52,9 +51,8 @@ impl eframe::App for LauncherApp {
             &mut self.new_instance_state,
             &mut self.detail_tab_state,
             ctx,
-            &mut navigate_to,
         );
-        if let Some(mod_browser_id) = central::show(
+        central::show(
             &mut self.app,
             &mut self.new_instance_state,
             &mut self.login_username,
@@ -62,14 +60,7 @@ impl eframe::App for LauncherApp {
             &mut self.mod_browser_state,
             &mut self.detail_tab_state,
             ctx,
-        ) {
-            self.app.current_view = View::ModBrowser {
-                instance_id: mod_browser_id,
-            };
-        }
-        if let Some(view) = navigate_to {
-            self.app.current_view = view;
-        }
+        );
     }
 }
 
@@ -113,12 +104,11 @@ pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
             }
             view_msg @ (UiMessage::ModrinthSearchResult(_)
             | UiMessage::ModrinthVersionsResult { .. }
-            | UiMessage::ModrinthInstallResult(_)
+            | UiMessage::ModrinthInstallResult { .. }
+            | UiMessage::ModUpdatesResult { .. }
             | UiMessage::VersionListResult(_)
             | UiMessage::LoaderVersionsResult { .. }) => {
-                if let Ok(mut q) = state.app.ui_queue.lock() {
-                    q.push(view_msg);
-                }
+                let _ = state.app.ui_queue.send(view_msg);
             }
             UiMessage::MsDeviceCode {
                 user_code,

@@ -8,16 +8,15 @@ use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
 
+const INSTANCE_CONFIG_FILE_NAME: &str = "instance.toml";
+const MINECRAFT_DIR_NAME: &str = ".minecraft";
+const MODS_DIR_NAME: &str = "mods";
+const INDEX_DIR_NAME: &str = ".index";
+
 #[derive(Error, Debug)]
 pub enum CoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("TOML parse error: {0}")]
-    Toml(#[from] toml::de::Error),
-    #[error("TOML serialize error: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
     #[error("Instance '{0}' not found")]
     InstanceNotFound(String),
     #[error("Instance '{0}' already exists")]
@@ -55,8 +54,7 @@ impl InstanceManager {
     ///
     /// # Errors
     ///
-    /// Returns [`CoreError::Io`] if reading the directory or instance config fails,
-    /// or [`CoreError::Toml`] if parsing an instance config fails.
+    /// Returns [`CoreError::Io`] if reading the directory fails.
     pub fn discover(instances_dir: PathBuf) -> Result<Self, CoreError> {
         let mut instances = HashMap::new();
         if instances_dir.exists() {
@@ -66,7 +64,7 @@ impl InstanceManager {
                 if path.is_dir() {
                     let config_path = path.join(paths::INSTANCE_CONFIG_FILE_NAME);
                     if config_path.exists() {
-                        let settings = InstanceSettings::load(&config_path)?;
+                        let settings = InstanceSettings::load(&config_path);
                         let id = path.file_name().map_or_else(
                             || "unknown".to_string(),
                             |n| n.to_string_lossy().to_string(),
@@ -129,10 +127,7 @@ impl InstanceManager {
             root: instance_dir,
             settings,
         };
-        self.instances.insert(id.clone(), instance);
-        self.instances
-            .get(&id)
-            .ok_or(CoreError::InstanceNotFound(id))
+        Ok(self.instances.entry(id).or_insert(instance))
     }
 
     /// Deletes the instance with the given ID, removing it from disk.

@@ -1,16 +1,17 @@
 [package]
 name = "release-the-launcher-auth"
-version = "0.6.0"
+version = { workspace = true }
 edition = "2021"
 description = "Account types, offline UUID, Microsoft OAuth"
 
 [dependencies]
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12.28", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "1", features = ["v3", "v4"] }
-tokio = { version = "1", features = ["full"] }
-thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["time"] }
+thiserror = "2"
+oauth2 = { version = "5", features = ["reqwest"] }
 md-5 = "0.10"
 release-the-launcher-constants = { path = "../constants" }
 release-the-launcher-net = { path = "../net" }

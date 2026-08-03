@@ -1,7 +1,7 @@
 use crate::theme;
 use crate::views::instance_detail::DetailTabState;
 use crate::views::new_instance::NewInstanceState;
-use crate::{empty_state, App, DetailTab, LogLevel, View};
+use crate::{empty_state, widgets, App, DetailTab, LogLevel, View};
 
 pub fn show(
     app: &mut App,
@@ -9,7 +9,6 @@ pub fn show(
     new_instance_state: &mut NewInstanceState,
     detail_tab_state: &mut DetailTabState,
     ctx: &egui::Context,
-    navigate_to: &mut Option<View>,
 ) {
     egui::SidePanel::left("sidebar")
         .default_width(200.0)
@@ -17,30 +16,21 @@ pub fn show(
             ui.add_space(app.theme.spacing.sm);
             ui.horizontal(|ui| {
                 ui.heading("Instances");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                widgets::right_aligned(ui, |ui| {
                     if ui
-                        .add(
-                            egui::Button::new(format!(" {} New", theme::icons::ADD))
-                                .fill(app.theme.accent),
-                        )
+                        .add(widgets::icon_button(theme::icons::ADD, "New").fill(app.theme.accent))
                         .clicked()
                     {
                         app.log(LogLevel::Info, "UI: Navigated to New Instance");
                         *new_instance_state = NewInstanceState::default();
-                        *navigate_to = Some(View::NewInstance);
+                        app.current_view = View::NewInstance;
                         *selected_instance_id = None;
                     }
                 });
             });
             ui.separator();
 
-            let instances: Vec<String> = app
-                .coordinator
-                .instance_manager
-                .list()
-                .iter()
-                .map(|i| i.id.clone())
-                .collect();
+            let instances = app.instance_ids();
 
             if instances.is_empty() {
                 empty_state(

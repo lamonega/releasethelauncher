@@ -1,62 +1,126 @@
-use futures::TryStreamExt;
-use reqwest::Client;
-use sha1::Digest as _;
-use std::fmt::Write;
+use std::collections::HashMap;
 use std::fs;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use super::modrinth_types::{ModrinthProject, ModrinthVersion, SearchResponse};
+use reqwest::Client;
+
+use super::modrinth_types::{
+    ModrinthProject, ModrinthVersion, MrpackIndex, SearchResponse,
+};
 use crate::{
     InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo, ProjectSummary,
     ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
 };
 
 use release_the_launcher_constants::urls;
+use release_the_launcher_net::cache::HttpMetaCache;
+use release_the_launcher_net::{download_to_file, HashKind};
 
 const BASE_URL: &str = urls::MODRINTH_API_URL;
 
-enum HasherChoice {
-    Sha1(sha1::Sha1),
-    Sha2(sha2::Sha256),
-    Sha512(sha2::Sha512),
-}
+impl From<&ModrinthVersion> for ModVersion {
+    fn from(v: &ModrinthVersion) -> Self {
+        let primary_file = v
+            .files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| v.files.first());
 
-impl HasherChoice {
-    fn update(&mut self, data: &[u8]) {
-        match self {
-            Self::Sha1(h) => h.update(data),
-            Self::Sha2(h) => h.update(data),
-            Self::Sha512(h) => h.update(data),
+        let (hash, hash_type) = primary_file
+            .and_then(|f| {
+                if let Some(h) = f.hashes.get("sha512") {
+                    Some((Some(h.clone()), Some("sha512".to_string())))
+                } else if let Some(h) = f.hashes.get("sha1") {
+                    Some((Some(h.clone()), Some("sha1".to_string())))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, None));
+
+        let filename = primary_file.map(|f| f.filename.clone()).unwrap_or_default();
+        let download_url = primary_file.and_then(|f| f.url.clone());
+        let file_size = primary_file.map_or(0, |f| f.size);
+
+        Self {
+            id: v.id.clone(),
+            project_id: v.project_id.clone(),
+            name: v.name.clone(),
+            version_number: v.version_number.clone(),
+            release_type: match v.version_type.as_str() {
+                "beta" => ReleaseType::Beta,
+                "alpha" => ReleaseType::Alpha,
+                _ => ReleaseType::Release,
+            },
+            mc_versions: v.game_versions.clone(),
+            loaders: v.loaders.clone(),
+            download_url,
+            filename,
+            hash,
+            hash_type,
+            file_size,
         }
     }
+}
 
-    fn finalize_hex(&mut self) -> String {
-        match self {
-            Self::Sha1(h) => hex::encode(h.clone().finalize()),
-            Self::Sha2(h) => hex::encode(h.clone().finalize()),
-            Self::Sha512(h) => hex::encode(h.clone().finalize()),
-        }
+impl From<ModrinthVersion> for ModVersion {
+    fn from(v: ModrinthVersion) -> Self {
+        Self::from(&v)
+    }
+}
+
+fn hits_to_summaries(resp: SearchResponse) -> SearchResults {
+    let hits = resp
+        .hits
+        .into_iter()
+        .map(|h| ProjectSummary {
+            id: h.project_id,
+            name: h.title,
+            slug: h.slug,
+            description: h.description,
+            author: h.author,
+            icon_url: h.icon_url,
+            downloads: h.downloads,
+            side: Side::Universal,
+        })
+        .collect();
+
+    SearchResults {
+        hits,
+        total_hits: resp.total_hits,
     }
 }
 
 pub struct ModrinthProvider {
     http: Client,
     api_token: Option<String>,
+    cache: Arc<Mutex<HttpMetaCache>>,
 }
 
 impl ModrinthProvider {
     #[must_use]
     pub fn new(api_token: Option<String>) -> Self {
-        Self::with_client(
-            release_the_launcher_net::HttpClientProvider::default().clone_client(),
-            api_token,
-        )
+        Self::with_client(release_the_launcher_net::default_client(), api_token)
     }
 
     #[must_use]
-    pub const fn with_client(http: Client, api_token: Option<String>) -> Self {
-        Self { http, api_token }
+    pub fn with_client(http: Client, api_token: Option<String>) -> Self {
+        let cache_path = std::env::temp_dir()
+            .join(release_the_launcher_constants::paths::APP_DIR_NAME)
+            .join("modrinth_meta_cache.json");
+        let cache = HttpMetaCache::load(&cache_path);
+        Self {
+            http,
+            api_token,
+            cache: Arc::new(Mutex::new(cache)),
+        }
+    }
+
+    #[must_use]
+    pub fn with_cache(mut self, cache: Arc<Mutex<HttpMetaCache>>) -> Self {
+        self.cache = cache;
+        self
     }
 
     fn build_headers(&self) -> Vec<(&str, &str)> {
@@ -70,26 +134,22 @@ impl ModrinthProvider {
         headers
     }
 
-    fn build_search_url(args: &SearchArgs) -> String {
-        let facets = Self::build_facets(args);
-        let mut url = format!(
-            "{BASE_URL}/search?limit={}&offset={}",
-            args.limit, args.offset
-        );
+    fn build_search_query(args: &SearchArgs, project_type: &str) -> Vec<(String, String)> {
+        let mut params = vec![
+            ("limit".to_string(), args.limit.to_string()),
+            ("offset".to_string(), args.offset.to_string()),
+        ];
         if !args.query.is_empty() {
-            let _ = write!(url, "&query={}", urlencoding::encode(&args.query));
+            params.push(("query".to_string(), args.query.clone()));
         }
-        if !facets.is_empty() {
-            let _ = write!(url, "&facets={}", urlencoding::encode(&facets));
+        let facets = Self::build_facets_with_type(args, project_type);
+        if !facets.is_empty() && facets != "[]" {
+            params.push(("facets".to_string(), facets));
         }
         if args.sort != SortOrder::Relevance {
-            let _ = write!(url, "&index={}", args.sort.as_str());
+            params.push(("index".to_string(), args.sort.as_str().to_string()));
         }
-        url
-    }
-
-    fn build_facets(args: &SearchArgs) -> String {
-        Self::build_facets_with_type(args, "mod")
+        params
     }
 
     fn build_facets_with_type(args: &SearchArgs, project_type: &str) -> String {
@@ -118,56 +178,20 @@ impl ModrinthProvider {
         serde_json::to_string(&facets).unwrap_or_else(|_| "[]".to_string())
     }
 
-    fn build_search_url_with_type(args: &SearchArgs, project_type: &str) -> String {
-        let facets = Self::build_facets_with_type(args, project_type);
-        let mut url = format!(
-            "{BASE_URL}/search?limit={}&offset={}",
-            args.limit, args.offset
-        );
-        if !args.query.is_empty() {
-            let _ = write!(url, "&query={}", urlencoding::encode(&args.query));
-        }
-        if !facets.is_empty() {
-            let _ = write!(url, "&facets={}", urlencoding::encode(&facets));
-        }
-        if args.sort != SortOrder::Relevance {
-            let _ = write!(url, "&index={}", args.sort.as_str());
-        }
-        url
-    }
-
     /// Search for modpacks on Modrinth.
     ///
     /// # Errors
     ///
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn search_modpacks(&self, args: &SearchArgs) -> Result<SearchResults, ModsError> {
-        let url = Self::build_search_url_with_type(args, "modpack");
-        let mut req = self.http.get(&url);
+        let query_params = Self::build_search_query(args, "modpack");
+        let url = format!("{BASE_URL}/search");
+        let mut req = self.http.get(&url).query(&query_params);
         for (k, v) in self.build_headers() {
             req = req.header(k, v);
         }
         let resp: SearchResponse = req.send().await?.json().await?;
-
-        let hits = resp
-            .hits
-            .into_iter()
-            .map(|h| ProjectSummary {
-                id: h.project_id,
-                name: h.title,
-                slug: h.slug,
-                description: h.description,
-                author: h.author,
-                icon_url: h.icon_url,
-                downloads: h.downloads,
-                side: Side::Universal,
-            })
-            .collect();
-
-        Ok(SearchResults {
-            hits,
-            total_hits: resp.total_hits,
-        })
+        Ok(hits_to_summaries(resp))
     }
 
     /// Download and extract a .mrpack modpack into the target instance directory.
@@ -185,34 +209,41 @@ impl ModrinthProvider {
             .as_ref()
             .ok_or_else(|| ModsError::Provider("No download URL".into()))?;
 
-        let mut req = self.http.get(url.as_str());
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
-
-        let response = req.send().await?;
-        let stream = response.bytes_stream();
-
         let zip_path = target_dir.join(&version.filename);
+        if let Some(parent) = target_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::create_dir_all(target_dir)?;
 
-        // Stream to a temp file, then rename
-        let tmp_path = zip_path.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
-        {
-            let mut file = fs::File::create(&tmp_path)?;
-            let mut stream = stream;
-            while let Some(chunk) = stream.try_next().await? {
-                file.write_all(&chunk)?;
+        let checksum = match (&version.hash_type, &version.hash) {
+            (Some(ht), Some(h)) => {
+                let kind = match ht.as_str() {
+                    "sha512" => HashKind::Sha512,
+                    _ => HashKind::Sha1,
+                };
+                Some((kind, h.as_str()))
             }
-        }
-        fs::rename(&tmp_path, &zip_path)?;
+            _ => None,
+        };
+
+        download_to_file(
+            &self.http,
+            url,
+            &zip_path,
+            checksum,
+            None::<fn(u64, u64)>,
+        )
+        .await
+        .map_err(|e| ModsError::Provider(e.to_string()))?;
 
         let file = fs::File::open(&zip_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
 
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i)?;
-            let entry_path = entry.mangled_name();
+            let Some(entry_path) = entry.enclosed_name() else {
+                continue;
+            };
             let name_str = entry_path.to_string_lossy();
 
             if name_str == release_the_launcher_constants::paths::MODRINTH_INDEX_FILE {
@@ -265,60 +296,39 @@ impl ModrinthProvider {
         }
 
         let content = fs::read_to_string(&index_path)?;
-        let index: serde_json::Value = serde_json::from_str(&content)?;
+        let index: MrpackIndex = serde_json::from_str(&content)?;
 
-        let Some(files) = index.get("files").and_then(|f| f.as_array()) else {
-            return Ok(());
-        };
-
-        if files.is_empty() {
+        if index.files.is_empty() {
             return Ok(());
         }
 
-        // Pre-scan: sum sizes of existing and missing files
+        // Pre-scan: sum sizes of existing and missing files using f.file_size
         let mut initial_downloaded: u64 = 0;
         let mut total_bytes: u64 = 0;
 
-        for file_obj in files {
-            let size = file_obj
-                .get("file_size")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
+        for file_obj in &index.files {
+            let size = file_obj.file_size;
             total_bytes += size;
 
-            if let Some(path_str) = file_obj.get("path").and_then(|p| p.as_str()) {
-                let dest = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(path_str);
-                if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
-                    initial_downloaded += size;
-                }
+            let dest = target_dir.join(".minecraft").join(&file_obj.path);
+            if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
+                initial_downloaded += size;
             }
         }
 
-        let total_b = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
-        let downloaded_b =
-            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
-        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(release_the_launcher_constants::net::DEFAULT_MAX_CONCURRENT_DOWNLOADS));
-        let progress_cb = std::sync::Arc::new(progress);
+        let total_b = Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
+        let downloaded_b = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
+        let sem = Arc::new(tokio::sync::Semaphore::new(
+            release_the_launcher_constants::net::DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+        ));
+        let progress_cb = Arc::new(progress);
         let mut tasks = Vec::new();
         let client = self.http.clone();
 
-        for file_obj in files {
-            let downloads = file_obj
-                .get("downloads")
-                .and_then(|d| d.get(0))
-                .and_then(|u| u.as_str())
-                .map(ToString::to_string);
-            let rel_path = file_obj
-                .get("path")
-                .and_then(|p| p.as_str())
-                .map(ToString::to_string);
-            let size = file_obj
-                .get("file_size")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0);
-
-            if let (Some(url), Some(path_str)) = (downloads, rel_path) {
-                let dest = target_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR).join(&path_str);
+        for file_obj in index.files {
+            if let Some(url) = file_obj.downloads.first().cloned() {
+                let path_str = file_obj.path.clone();
+                let dest = target_dir.join(".minecraft").join(&path_str);
                 let display_name = Path::new(&path_str)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -329,39 +339,30 @@ impl ModrinthProvider {
                 let downloaded_cnt = downloaded_b.clone();
                 let total_cnt = total_b.clone();
                 let progress_ref = progress_cb.clone();
+                let size = file_obj.file_size;
+
+                let checksum = if let Some(h) = file_obj.hashes.get("sha512") {
+                    Some((HashKind::Sha512, h.clone()))
+                } else if let Some(h) = file_obj.hashes.get("sha1") {
+                    Some((HashKind::Sha1, h.clone()))
+                } else {
+                    None
+                };
 
                 tasks.push(tokio::spawn(async move {
                     if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
-                        let Ok(_permit) = sem.acquire().await else {
-                            return;
-                        };
-                        let resp = match client.get(&url).send().await {
-                            Ok(r) if r.status().is_success() => r,
-                            Ok(r) => {
-                                log::warn!("Download failed for {display_name}: HTTP {}", r.status());
-                                return;
-                            }
-                            Err(e) => {
-                                log::warn!("Download error for {display_name}: {e}");
-                                return;
-                            }
-                        };
-                        match resp.bytes().await {
-                            Ok(bytes) => {
-                                if let Some(parent) = dest.parent() {
-                                    let _ = fs::create_dir_all(parent);
-                                }
-                                let tmp = dest.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
-                                if let Err(e) = fs::write(&tmp, &bytes).and_then(|_| fs::rename(&tmp, &dest)) {
-                                    log::warn!("Failed to write {display_name}: {e}");
-                                    return;
-                                }
-                            }
-                            Err(e) => {
-                                log::warn!("Failed to read bytes for {display_name}: {e}");
-                                return;
-                            }
-                        }
+                    let Ok(_permit) = sem.acquire().await else {
+                        return;
+                    };
+                    let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
+                    let _ = download_to_file(
+                        &client,
+                        &url,
+                        &dest,
+                        checksum_ref,
+                        None::<fn(u64, u64)>,
+                    )
+                    .await;
                     }
 
                     downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
@@ -420,121 +421,42 @@ impl ModrinthProvider {
         let index_path = instance_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
         let (mc_version, loader) = if index_path.exists() {
             let content = fs::read_to_string(&index_path)?;
-            let index: serde_json::Value = serde_json::from_str(&content)?;
+            let index: MrpackIndex = serde_json::from_str(&content)?;
 
-            // TODO: Extract this fallback version to domain-specific configuration if needed.
-            let fallback_mc = version
-                .mc_versions
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "1.21.1".to_string());
-
+            let fallback_mc = version.mc_versions.first().cloned().unwrap_or_default();
             let mc_ver = index
-                .get("dependencies")
-                .and_then(|d| d.get("minecraft"))
-                .and_then(|v| v.as_str())
-                .map_or(fallback_mc, ToString::to_string);
+                .dependencies
+                .get("minecraft")
+                .cloned()
+                .unwrap_or(fallback_mc);
 
-            let loader = if index
-                .get("dependencies")
-                .and_then(|d| d.get("fabric-loader"))
-                .is_some()
-            {
-                let loader_ver = index["dependencies"]["fabric-loader"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                format!("Fabric:{loader_ver}")
-            } else if index
-                .get("dependencies")
-                .and_then(|d| d.get("forge"))
-                .is_some()
-            {
-                let loader_ver = index["dependencies"]["forge"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                format!("Forge:{loader_ver}")
-            } else if index
-                .get("dependencies")
-                .and_then(|d| d.get("neoforge"))
-                .is_some()
-            {
-                let loader_ver = index["dependencies"]["neoforge"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                format!("NeoForge:{loader_ver}")
-            } else if index
-                .get("dependencies")
-                .and_then(|d| d.get("quilt-loader"))
-                .is_some()
-            {
-                let loader_ver = index["dependencies"]["quilt-loader"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                format!("Quilt:{loader_ver}")
-            } else {
-                "Vanilla".to_string()
-            };
+            const LOADER_MAP: &[(&str, &str)] = &[
+                ("fabric-loader", "Fabric"),
+                ("forge", "Forge"),
+                ("neoforge", "NeoForge"),
+                ("quilt-loader", "Quilt"),
+            ];
+
+            let loader = LOADER_MAP
+                .iter()
+                .find_map(|&(dep_key, name)| {
+                    index
+                        .dependencies
+                        .get(dep_key)
+                        .map(|ver| format!("{name}:{ver}"))
+                })
+                .unwrap_or_else(|| "Vanilla".to_string());
 
             let mc_dir = instance_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR);
             fs::create_dir_all(&mc_dir)?;
 
             (mc_ver, loader)
         } else {
-            // TODO: Extract this fallback version to domain-specific configuration if needed.
-            let fallback_mc = version
-                .mc_versions
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "1.21.1".to_string());
+            let fallback_mc = version.mc_versions.first().cloned().unwrap_or_default();
             (fallback_mc, "Vanilla".to_string())
         };
 
         Ok((instance_name, mc_version, loader))
-    }
-
-    /// Search with pagination support, filtering by project type.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the HTTP request or JSON parsing fails.
-    pub async fn search_page(
-        &self,
-        args: &SearchArgs,
-        project_type: &str,
-        offset: usize,
-        limit: usize,
-    ) -> Result<SearchResults, ModsError> {
-        let mut paged_args = args.clone();
-        paged_args.offset = offset;
-        paged_args.limit = limit;
-        let url = Self::build_search_url_with_type(&paged_args, project_type);
-        let mut req = self.http.get(&url);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
-        let resp: SearchResponse = req.send().await?.json().await?;
-        let hits = resp
-            .hits
-            .into_iter()
-            .map(|h| ProjectSummary {
-                id: h.project_id,
-                name: h.title,
-                slug: h.slug,
-                description: h.description,
-                author: h.author,
-                icon_url: h.icon_url,
-                downloads: h.downloads,
-                side: Side::Universal,
-            })
-            .collect();
-        Ok(SearchResults {
-            hits,
-            total_hits: resp.total_hits,
-        })
     }
 }
 
@@ -545,32 +467,46 @@ impl ModProvider for ModrinthProvider {
     }
 
     async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError> {
-        let url = Self::build_search_url(&args);
-        let mut req = self.http.get(&url);
+        let query_params = Self::build_search_query(&args, "mod");
+        let path = format!("{BASE_URL}/search");
+
+        let cache_key = format!(
+            "search?{}",
+            serde_json::to_string(&query_params).unwrap_or_default()
+        );
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            if let Some(entry) = cache_guard.resolve(BASE_URL, &cache_key) {
+                if let Some(ref json_str) = entry.md5 {
+                    if let Ok(resp) = serde_json::from_str::<SearchResponse>(json_str) {
+                        return Ok(hits_to_summaries(resp));
+                    }
+                }
+            }
+        }
+
+        let mut req = self.http.get(&path).query(&query_params);
         for (k, v) in self.build_headers() {
             req = req.header(k, v);
         }
-        let resp: SearchResponse = req.send().await?.json().await?;
+        let json_text = req.send().await?.text().await?;
+        let resp: SearchResponse = serde_json::from_str(&json_text)?;
 
-        let hits = resp
-            .hits
-            .into_iter()
-            .map(|h| ProjectSummary {
-                id: h.project_id,
-                name: h.title,
-                slug: h.slug,
-                description: h.description,
-                author: h.author,
-                icon_url: h.icon_url,
-                downloads: h.downloads,
-                side: Side::Universal,
-            })
-            .collect();
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            let entry = release_the_launcher_net::cache::CacheEntry {
+                base_path: BASE_URL.to_string(),
+                relative_path: cache_key,
+                etag: None,
+                last_modified: None,
+                md5: Some(json_text),
+                max_age: 900,
+                last_accessed: 0,
+                is_eternal: false,
+            };
+            cache_guard.update(entry);
+            let _ = cache_guard.save();
+        }
 
-        Ok(SearchResults {
-            hits,
-            total_hits: resp.total_hits,
-        })
+        Ok(hits_to_summaries(resp))
     }
 
     async fn get_versions(
@@ -579,73 +515,60 @@ impl ModProvider for ModrinthProvider {
         mc_versions: &[String],
         loaders: &[String],
     ) -> Result<Vec<ModVersion>, ModsError> {
-        let mut url = format!("{BASE_URL}/project/{project_id}/version?");
+        let mut query_params = Vec::new();
         if !mc_versions.is_empty() {
-            let versions_json = serde_json::to_string(mc_versions).unwrap_or_default();
-            let _ = write!(url, "game_versions={}", urlencoding::encode(&versions_json));
+            query_params.push((
+                "game_versions".to_string(),
+                serde_json::to_string(mc_versions).unwrap_or_default(),
+            ));
         }
         if !loaders.is_empty() {
-            let loaders_json = serde_json::to_string(loaders).unwrap_or_default();
-            if url.contains('?') {
-                url.push('&');
-            }
-            let _ = write!(url, "loaders={}", urlencoding::encode(&loaders_json));
+            query_params.push((
+                "loaders".to_string(),
+                serde_json::to_string(loaders).unwrap_or_default(),
+            ));
         }
 
-        let mut req = self.http.get(&url);
+        let path = format!("{BASE_URL}/project/{project_id}/version");
+        let cache_key = format!(
+            "version/{project_id}?{}",
+            serde_json::to_string(&query_params).unwrap_or_default()
+        );
+
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            if let Some(entry) = cache_guard.resolve(BASE_URL, &cache_key) {
+                if let Some(ref json_str) = entry.md5 {
+                    if let Ok(resp) = serde_json::from_str::<Vec<ModrinthVersion>>(json_str) {
+                        let versions = resp.into_iter().map(Into::into).collect();
+                        return Ok(versions);
+                    }
+                }
+            }
+        }
+
+        let mut req = self.http.get(&path).query(&query_params);
         for (k, v) in self.build_headers() {
             req = req.header(k, v);
         }
-        let resp: Vec<ModrinthVersion> = req.send().await?.json().await?;
+        let json_text = req.send().await?.text().await?;
+        let resp: Vec<ModrinthVersion> = serde_json::from_str(&json_text)?;
 
-        let versions = resp
-            .into_iter()
-            .map(|v| {
-                let (hash, hash_type): (Option<String>, Option<String>) = v
-                    .files
-                    .first()
-                    .and_then(|f| {
-                        if let Some((algo, h)) = f.hashes.iter().next() {
-                            Some((Some(h.clone()), Some(algo.clone())))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or((None, None));
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            let entry = release_the_launcher_net::cache::CacheEntry {
+                base_path: BASE_URL.to_string(),
+                relative_path: cache_key,
+                etag: None,
+                last_modified: None,
+                md5: Some(json_text),
+                max_age: 900,
+                last_accessed: 0,
+                is_eternal: false,
+            };
+            cache_guard.update(entry);
+            let _ = cache_guard.save();
+        }
 
-                let primary_file = v
-                    .files
-                    .iter()
-                    .find(|f| f.primary)
-                    .or_else(|| v.files.first());
-
-                let filename = primary_file.map(|f| f.filename.clone()).unwrap_or_default();
-
-                let download_url = primary_file.and_then(|f| f.url.clone());
-
-                let file_size = primary_file.map_or(0, |f| f.size);
-
-                ModVersion {
-                    id: v.id,
-                    project_id: v.project_id,
-                    name: v.name,
-                    version_number: v.version_number,
-                    release_type: match v.version_type.as_str() {
-                        "beta" => ReleaseType::Beta,
-                        "alpha" => ReleaseType::Alpha,
-                        _ => ReleaseType::Release,
-                    },
-                    mc_versions: v.game_versions,
-                    loaders: v.loaders,
-                    download_url,
-                    filename,
-                    hash,
-                    hash_type,
-                    file_size,
-                }
-            })
-            .collect();
-
+        let versions = resp.into_iter().map(Into::into).collect();
         Ok(versions)
     }
 
@@ -685,70 +608,45 @@ impl ModProvider for ModrinthProvider {
         mc_versions: &[String],
         loaders: &[String],
     ) -> Result<Vec<ModUpdate>, ModsError> {
+        if installed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let hashes: Vec<String> = installed
+            .iter()
+            .map(|mod_item| mod_item.hash.to_lowercase())
+            .collect();
+
+        let url = format!("{BASE_URL}/version_files/update");
+        let body = serde_json::json!({
+            "hashes": hashes,
+            "algorithm": "sha1",
+            "loaders": loaders,
+            "game_versions": mc_versions,
+        });
+
+        let mut req = self.http.post(&url).json(&body);
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Ok(Vec::new());
+        }
+
+        let update_map: HashMap<String, ModrinthVersion> = resp.json().await?;
         let mut updates = Vec::new();
 
         for installed_mod in installed {
-            let algorithm = if installed_mod.hash_type == "sha512" {
-                "sha512"
-            } else {
-                "sha1"
-            };
-            let url = format!(
-                "{}/version_file/{}/update?algorithm={}",
-                BASE_URL, installed_mod.hash, algorithm
-            );
-
-            let body = serde_json::json!({
-                "loaders": loaders,
-                "game_versions": mc_versions,
-            });
-
-            let mut req = self.http.post(&url).json(&body);
-            for (k, v) in self.build_headers() {
-                req = req.header(k, v);
-            }
-
-            if let Ok(resp) = req.send().await {
-                if resp.status().is_success() {
-                    if let Ok(version) = resp.json::<ModrinthVersion>().await {
-                        let (hash, hash_type): (Option<String>, Option<String>) = version
-                            .files
-                            .first()
-                            .and_then(|f| f.hashes.iter().next())
-                            .map_or((None, None), |(a, h)| (Some(h.clone()), Some(a.clone())));
-
-                        let primary = version
-                            .files
-                            .iter()
-                            .find(|f| f.primary)
-                            .or_else(|| version.files.first());
-
-                        let latest = ModVersion {
-                            id: version.id,
-                            project_id: version.project_id,
-                            name: version.name,
-                            version_number: version.version_number,
-                            release_type: match version.version_type.as_str() {
-                                "beta" => ReleaseType::Beta,
-                                "alpha" => ReleaseType::Alpha,
-                                _ => ReleaseType::Release,
-                            },
-                            mc_versions: version.game_versions,
-                            loaders: version.loaders,
-                            download_url: primary.and_then(|f| f.url.clone()),
-                            filename: primary.map(|f| f.filename.clone()).unwrap_or_default(),
-                            hash,
-                            hash_type,
-                            file_size: primary.map_or(0, |f| f.size),
-                        };
-
-                        if latest.hash.as_deref() != Some(installed_mod.hash.as_str()) {
-                            updates.push(ModUpdate {
-                                installed: installed_mod.clone(),
-                                latest,
-                            });
-                        }
-                    }
+            let lower_hash = installed_mod.hash.to_lowercase();
+            if let Some(version) = update_map.get(&lower_hash) {
+                let latest: ModVersion = version.into();
+                if latest.hash.as_deref() != Some(&lower_hash) {
+                    updates.push(ModUpdate {
+                        installed: installed_mod.clone(),
+                        latest,
+                    });
                 }
             }
         }
@@ -760,60 +658,36 @@ impl ModProvider for ModrinthProvider {
         &self,
         version: &ModVersion,
         target_dir: &Path,
-    ) -> Result<std::path::PathBuf, ModsError> {
+    ) -> Result<PathBuf, ModsError> {
         let url = version
             .download_url
             .as_ref()
             .ok_or_else(|| ModsError::Provider("No download URL".into()))?;
 
-        let mut req = self.http.get(url);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
-
-        let response = req.send().await?;
-        let stream = response.bytes_stream();
-
         fs::create_dir_all(target_dir)?;
         let path = target_dir.join(&version.filename);
-        let tmp_path = path.with_extension(release_the_launcher_constants::net::TEMP_FILE_EXT);
 
-        let mut file = fs::File::create(&tmp_path)?;
-
-        let mut hasher =
-            version
-                .hash_type
-                .as_ref()
-                .and_then(|hash_type| match hash_type.as_str() {
-                    "sha1" => Some(HasherChoice::Sha1(sha1::Sha1::new())),
-                    "sha256" => Some(HasherChoice::Sha2(sha2::Sha256::new())),
-                    "sha512" => Some(HasherChoice::Sha512(sha2::Sha512::new())),
-                    _ => None,
-                });
-
-        let mut stream = stream;
-        while let Some(chunk) = stream.try_next().await? {
-            if let Some(ref mut h) = hasher {
-                h.update(&chunk);
+        let checksum = match (&version.hash_type, &version.hash) {
+            (Some(ht), Some(h)) => {
+                let kind = match ht.as_str() {
+                    "sha512" => HashKind::Sha512,
+                    _ => HashKind::Sha1,
+                };
+                Some((kind, h.as_str()))
             }
-            file.write_all(&chunk)?;
-        }
-        drop(file);
+            _ => None,
+        };
 
-        if let Some(ref expected) = version.hash {
-            if let Some(ref mut h) = hasher {
-                let computed = h.finalize_hex();
-                if computed != *expected {
-                    let _ = fs::remove_file(&tmp_path);
-                    return Err(ModsError::Provider(format!(
-                        "Checksum mismatch for {}: expected {expected}, got {computed}",
-                        version.filename
-                    )));
-                }
-            }
-        }
+        download_to_file(
+            &self.http,
+            url,
+            &path,
+            checksum,
+            None::<fn(u64, u64)>,
+        )
+        .await
+        .map_err(|e| ModsError::Provider(e.to_string()))?;
 
-        fs::rename(&tmp_path, &path)?;
         let final_path = unpack_structured_mod_archive_if_needed(&path, target_dir);
         Ok(final_path)
     }
@@ -904,7 +778,7 @@ fn repack_jar_entries<R: std::io::Read + std::io::Seek>(
     };
     let mut zip_writer = zip::ZipWriter::new(jar_file);
     let options =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     for i in 0..archive.len() {
         if let Ok(mut zip_entry) = archive.by_index(i) {

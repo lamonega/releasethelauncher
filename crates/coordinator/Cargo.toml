@@ -1,6 +1,6 @@
 [package]
 name = "release-the-launcher-coordinator"
-version = "0.6.0"
+version = { workspace = true }
 edition = "2021"
 description = "Application coordinator: owns state, orchestrates launch, mod and auth flows"
 
@@ -9,11 +9,13 @@ release-the-launcher-core = { path = "../core" }
 release-the-launcher-auth = { path = "../auth" }
 release-the-launcher-mods = { path = "../mods" }
 release-the-launcher-launch = { path = "../launch" }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "process", "io-util"] }
 chrono = "0.4"
 dirs = "5"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12.28", features = ["json"] }
 tracing = "0.1"
 release-the-launcher-constants = { path = "../constants" }
 release-the-launcher-net = { path = "../net" }
+anyhow = "1"
+
 

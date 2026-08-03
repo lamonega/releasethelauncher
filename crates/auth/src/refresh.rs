@@ -1,4 +1,6 @@
-use release_the_launcher_constants::{auth, defaults, urls};
+use oauth2::basic::BasicClient;
+use oauth2::{ClientId, RefreshToken, Scope, TokenResponse, TokenUrl};
+use release_the_launcher_constants::{defaults, urls};
 use reqwest::Client;
 
 use crate::minecraft::complete_microsoft_auth;
@@ -29,8 +31,7 @@ pub fn needs_refresh(account: &AccountData) -> bool {
 
 /// # Errors
 ///
-/// Returns an error if the HTTP request fails, JSON deserialization fails,
-/// or any step of the token refresh / Xbox authentication flow fails.
+/// Returns an error if the token refresh, Xbox authentication, or Minecraft authentication fails.
 pub async fn refresh_account(
     client_id: &str,
     http: &Client,
@@ -48,47 +49,32 @@ pub async fn refresh_account(
         None => return Ok(false),
     };
 
-    let params = [
-        ("client_id", client_id),
-        ("grant_type", auth::GRANT_REFRESH_TOKEN),
-        ("refresh_token", &refresh_token),
-        ("scope", urls::MS_SCOPES),
-    ];
+    let oauth_client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_token_uri(
+            TokenUrl::new(urls::MS_TOKEN_URL.to_string())
+                .map_err(|e| AuthError::Flow(e.to_string()))?,
+        );
 
-    let resp = http.post(urls::MS_TOKEN_URL).form(&params).send().await?;
+    let token_resp = oauth_client
+        .exchange_refresh_token(&RefreshToken::new(refresh_token.clone()))
+        .add_scope(Scope::new(urls::MS_SCOPES.to_string()))
+        .request_async(http)
+        .await
+        .map_err(|e| AuthError::Flow(e.to_string()))?;
 
-    let body: serde_json::Value = resp.json().await?;
-
-    if let Some(err) = body.get("error").and_then(|e| e.as_str()) {
-        let desc = body
-            .get("error_description")
-            .and_then(|d| d.as_str())
-            .unwrap_or("Unknown error");
-        return Err(AuthError::Flow(format!(
-            "Token refresh failed: {err}: {desc}"
-        )));
-    }
-
-    let access_token = body
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AuthError::Flow("No access_token in refresh response".into()))?
-        .to_string();
-
-    let new_refresh = body
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string)
+    let access_token = token_resp.access_token().secret().clone();
+    let new_refresh = token_resp
+        .refresh_token()
+        .map(|t| t.secret().clone())
         .unwrap_or(refresh_token);
-
-    let expires_in = body
-        .get("expires_in")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(defaults::TOKEN_TTL_1H);
+    let expires_in = token_resp
+        .expires_in()
+        .map_or(defaults::TOKEN_TTL_1H, |d| d.as_secs());
 
     let msa_tokens = MsaTokens {
         access_token,
         refresh_token: new_refresh,
+        expires_in,
     };
 
     account.msa_token = Some(token_from_msa_tokens(&msa_tokens, expires_in));
@@ -107,18 +93,23 @@ pub async fn refresh_account(
 }
 
 /// Try to refresh the account if tokens are about to expire.
-/// Returns true if refresh was performed.
+/// Returns `Ok(Some(updated_account))` if a refresh was performed, or `Ok(None)` if no refresh was needed.
 ///
 /// # Errors
 ///
-/// Returns an error if the HTTP request or token exchange fails.
+/// Returns an error if the token exchange or authentication fails.
 pub async fn try_refresh_if_needed(
-    client_id: &str,
+    account: &AccountData,
     http: &Client,
-    account: &mut AccountData,
-) -> Result<bool, AuthError> {
+    client_id: &str,
+) -> Result<Option<AccountData>, AuthError> {
     if !needs_refresh(account) {
-        return Ok(false);
+        return Ok(None);
     }
-    refresh_account(client_id, http, account).await
+    let mut refreshed_account = account.clone();
+    if refresh_account(client_id, http, &mut refreshed_account).await? {
+        Ok(Some(refreshed_account))
+    } else {
+        Ok(None)
+    }
 }

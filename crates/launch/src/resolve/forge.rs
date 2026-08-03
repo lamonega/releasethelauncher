@@ -4,11 +4,7 @@ use reqwest::Client;
 
 use release_the_launcher_constants::urls;
 
-fn parse_version_key(v: &str) -> Vec<u64> {
-    v.split(|c: char| !c.is_numeric())
-        .filter_map(|s| s.parse::<u64>().ok())
-        .collect()
-}
+use super::loader::MavenMetadata;
 
 /// Fetches the `Forge` component for a given Minecraft and `Forge` version.
 ///
@@ -335,27 +331,34 @@ pub async fn fetch_forge_loader_versions(
     mc_version: &str,
 ) -> Result<Vec<String>, LaunchError> {
     let url = format!("{}/net/minecraftforge/forge/maven-metadata.xml", urls::FORGE_MAVEN_ALT);
-    let resp = client.get(&url).send().await?.text().await?;
-    let prefix = format!("<version>{mc_version}-");
-    let mc_suffix = format!("-{mc_version}");
     let mut versions = Vec::new();
-    for line in resp.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(&prefix) && trimmed.ends_with("</version>") {
-            let mut ver = trimmed
-                .strip_prefix(&prefix)
-                .and_then(|s| s.strip_suffix("</version>"))
-                .unwrap_or("");
-            if let Some(clean) = ver.strip_suffix(&mc_suffix) {
-                ver = clean;
-            }
-            if !ver.is_empty() && !versions.contains(&ver.to_string()) {
-                versions.push(ver.to_string());
+
+    if let Ok(resp) = client.get(url).send().await {
+        if let Ok(resp_text) = resp.text().await {
+            if let Ok(meta) = quick_xml::de::from_str::<MavenMetadata>(&resp_text) {
+                let prefix = format!("{mc_version}-");
+                let mc_suffix = format!("-{mc_version}");
+                for v in meta.versioning.versions.version {
+                    if let Some(rest) = v.strip_prefix(&prefix) {
+                        let mut ver = rest;
+                        if let Some(clean) = ver.strip_suffix(&mc_suffix) {
+                            ver = clean;
+                        }
+                        if !ver.is_empty() && !versions.contains(&ver.to_string()) {
+                            versions.push(ver.to_string());
+                        }
+                    }
+                }
             }
         }
     }
 
-    versions.sort_by_key(|b| std::cmp::Reverse(parse_version_key(b)));
+    versions.sort_by(|a, b| {
+        match (version_compare::Version::from(b), version_compare::Version::from(a)) {
+            (Some(vb), Some(va)) => vb.compare(&va).ord().map_or_else(|| b.cmp(a), |ord| ord),
+            _ => b.cmp(a),
+        }
+    });
 
     if versions.is_empty() {
         if let Ok(promo_resp) = client
@@ -397,12 +400,12 @@ mod tests {
                 "mainClass": "net.minecraft.launchwrapper.Launch",
                 "minecraftArguments": "${auth_player_name} ${auth_session} --gameDir ${game_directory} --assetsDir ${game_assets} --tweakClass net.minecraftforge.legacy._1_5_2.LibraryFixerTweaker",
                 "libraries": [
-                    { "name": "net.minecraftforge:minecraftforge:7.8.1.738", "url": "https://maven.minecraftforge.net/" },
-                    { "name": "org.scala-lang:scala-library:2.10.0-custom", "url": "https://maven.minecraftforge.net/" },
-                    { "name": "net.sourceforge.argo:argo:3.2-small", "url": "https://maven.minecraftforge.net/" },
-                    { "name": "org.bouncycastle:bcprov-jdk15on:148", "url": "https://maven.minecraftforge.net/" },
-                    { "name": "com.google.guava:guava:14.0-rc3", "url": "https://maven.minecraftforge.net/" },
-                    { "name": "net.minecraftforge:legacyfixer:1.0", "url": "https://maven.minecraftforge.net/" },
+                    { "name": "net.minecraftforge:minecraftforge:7.8.1.738", "url": urls::FORGE_MAVEN_ALT },
+                    { "name": "org.scala-lang:scala-library:2.10.0-custom", "url": urls::FORGE_MAVEN_ALT },
+                    { "name": "net.sourceforge.argo:argo:3.2-small", "url": urls::FORGE_MAVEN_ALT },
+                    { "name": "org.bouncycastle:bcprov-jdk15on:148", "url": urls::FORGE_MAVEN_ALT },
+                    { "name": "com.google.guava:guava:14.0-rc3", "url": urls::FORGE_MAVEN_ALT },
+                    { "name": "net.minecraftforge:legacyfixer:1.0", "url": urls::FORGE_MAVEN_ALT },
                     { "name": "org.ow2.asm:asm-all:4.1" },
                     { "name": "net.minecraft:launchwrapper:1.5" }
                 ]

@@ -1,19 +1,16 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::msa::now_unix;
 use crate::xbox::XboxTokens;
 use crate::AuthError;
 use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 use release_the_launcher_constants::{defaults, urls};
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct LauncherLoginResponse {
-    #[serde(rename = "username")]
-    _username: Option<String>,
-    #[serde(rename = "access_token")]
+    username: Option<String>,
     access_token: Option<String>,
-    #[serde(rename = "error")]
     error: Option<String>,
     #[serde(rename = "errorMessage")]
     error_message: Option<String>,
@@ -41,7 +38,8 @@ struct CapeEntry {
 
 #[derive(Debug, Deserialize)]
 struct EntitlementResponse {
-    items: Option<Vec<EntitlementItem>>,
+    #[serde(default)]
+    items: Vec<EntitlementItem>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,12 +82,7 @@ pub async fn launcher_login(
         .access_token
         .ok_or_else(|| AuthError::Flow("No access token in launcher login response".into()))?;
 
-    let mc_token = Token {
-        issue_instant: now_unix(),
-        not_after: Some(now_unix() + defaults::TOKEN_TTL_24H),
-        token: access_token.clone(),
-        refresh_token: None,
-    };
+    let mc_token = Token::new(access_token.clone(), None, defaults::TOKEN_TTL_24H);
 
     Ok((access_token, mc_token))
 }
@@ -151,14 +144,20 @@ pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlem
         .send()
         .await?;
 
-    let entitlement_resp: EntitlementResponse = resp.json().await?;
+    let entitlement_resp: EntitlementResponse = resp.error_for_status()?.json().await?;
 
-    let items = entitlement_resp.items.unwrap_or_default();
-    let owns = items.iter().any(|i| i.name == urls::MC_ENTITLEMENT_NAME);
+    let owns = entitlement_resp
+        .items
+        .iter()
+        .any(|i| i.name == "product_minecraft" || i.name == "game_minecraft");
+    let can_play = entitlement_resp
+        .items
+        .iter()
+        .any(|i| i.name == "game_minecraft" || i.name == "product_minecraft");
 
     Ok(Entitlement {
         owns_minecraft: owns,
-        can_play_minecraft: owns,
+        can_play_minecraft: can_play,
     })
 }
 
@@ -176,7 +175,7 @@ pub async fn complete_microsoft_auth(
     let entitlement = fetch_entitlement(http, &access_token).await?;
 
     let internal_id = profile.as_ref().map_or_else(
-        || uuid::Uuid::new_v4().to_string().replace('-', ""),
+        || uuid::Uuid::new_v4().simple().to_string(),
         |p| p.id.clone(),
     );
 

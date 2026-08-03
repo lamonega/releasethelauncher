@@ -298,7 +298,7 @@ fn get_unique_resource_name(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut counter = 1;
     loop {
-        let candidate = parent.join(format!("{stem}.duplicate{ext}{counter}"));
+        let candidate = parent.join(format!("{stem}.duplicate{counter}{ext}"));
         if !candidate.exists() {
             return candidate;
         }

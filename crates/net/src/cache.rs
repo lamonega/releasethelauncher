@@ -12,7 +12,8 @@ pub struct CacheEntry {
     pub last_modified: Option<String>,
     pub md5: Option<String>,
     pub max_age: u64,
-    pub current_age: u64,
+    #[serde(default, alias = "current_age")]
+    pub last_accessed: u64,
     pub is_eternal: bool,
 }
 
@@ -58,29 +59,34 @@ impl HttpMetaCache {
         Ok(())
     }
 
+    /// Resolves a cache entry for `(base, path)`. Returns `Some(CacheEntry)` if eternal or not expired.
+    ///
     /// # Panics
     /// Panics if the system time is before the Unix epoch.
     #[must_use]
-    pub fn resolve(&self, base: &str, path: &str) -> Option<CacheEntry> {
-        let entry = self.entries.get(base)?.get(path)?;
+    pub fn resolve(&mut self, base: &str, path: &str) -> Option<CacheEntry> {
+        let entry = self.entries.get_mut(base)?.get_mut(path)?;
 
-        if entry.is_eternal {
-            return Some(entry.clone());
-        }
-
-        let _now = SystemTime::now()
+        let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        if entry.current_age >= entry.max_age {
-            return None;
+        if entry.is_eternal || (now.saturating_sub(entry.last_accessed) <= entry.max_age) {
+            entry.last_accessed = now;
+            Some(entry.clone())
+        } else {
+            None
         }
-
-        Some(entry.clone())
     }
 
-    pub fn update(&mut self, entry: CacheEntry) {
+    pub fn update(&mut self, mut entry: CacheEntry) {
+        if entry.last_accessed == 0 {
+            entry.last_accessed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+        }
         self.entries
             .entry(entry.base_path.clone())
             .or_default()

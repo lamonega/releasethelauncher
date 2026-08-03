@@ -15,7 +15,7 @@ pub mod net {
     pub const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 10;
     pub const DEFAULT_MAX_RETRIES: u32 = 3;
     pub const POLL_INTERVAL_SECS: u64 = 5;
-    pub const USER_AGENT: &str = "release-the-launcher/0.6.0";
+    pub const USER_AGENT: &str = concat!("release-the-launcher/", env!("CARGO_PKG_VERSION"));
     pub const NET_TIMEOUT_SECS: u64 = 30;
     pub const TEMP_FILE_EXT: &str = "tmp";
 }
