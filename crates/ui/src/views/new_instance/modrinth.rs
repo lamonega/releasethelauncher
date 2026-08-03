@@ -15,60 +15,130 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
 
     ui.add_space(app.theme.spacing.sm);
 
-    ui.horizontal(|ui| {
-        ui.label("MC Version:");
+    ui.label("MC Version:");
+    if state.available_versions.is_empty() {
         ui.text_edit_singleline(&mut state.mc_version_filter);
-        ui.label("Loader:");
-        egui::ComboBox::from_id_source("modrinth_loader_filter")
-            .selected_text(state.loader_filter.as_str())
+    } else {
+        let filtered_versions: Vec<&(String, String)> = state
+            .available_versions
+            .iter()
+            .filter(|(_, ver_type)| match ver_type.as_str() {
+                "release" => state.manual_show_types[0],
+                "snapshot" => state.manual_show_types[1],
+                "old_beta" => state.manual_show_types[2],
+                "old_alpha" => state.manual_show_types[3],
+                _ => false,
+            })
+            .collect();
+        egui::ComboBox::from_id_source("modrinth_mc_version_filter")
+            .selected_text(if state.mc_version_filter.is_empty() {
+                "Any".to_string()
+            } else {
+                state.mc_version_filter.clone()
+            })
+            .width(220.0)
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_value(&mut state.loader_filter, LoaderFilter::Any, "Any")
-                    .changed()
+                    .selectable_label(state.mc_version_filter.is_empty(), "Any")
+                    .clicked()
                 {
+                    state.mc_version_filter.clear();
                     app.log(
                         crate::log::LogLevel::Info,
-                        "UI: Modrinth loader filter changed to Any",
+                        "UI: Modrinth MC version filter changed to Any",
                     );
                 }
-                if ui
-                    .selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric")
-                    .changed()
-                {
-                    app.log(
-                        crate::log::LogLevel::Info,
-                        "UI: Modrinth loader filter changed to Fabric",
-                    );
-                }
-                if ui
-                    .selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge")
-                    .changed()
-                {
-                    app.log(
-                        crate::log::LogLevel::Info,
-                        "UI: Modrinth loader filter changed to Forge",
-                    );
-                }
-                if ui
-                    .selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge")
-                    .changed()
-                {
-                    app.log(
-                        crate::log::LogLevel::Info,
-                        "UI: Modrinth loader filter changed to NeoForge",
-                    );
-                }
-                if ui
-                    .selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt")
-                    .changed()
-                {
-                    app.log(
-                        crate::log::LogLevel::Info,
-                        "UI: Modrinth loader filter changed to Quilt",
-                    );
+                for (version, _) in &filtered_versions {
+                    if ui
+                        .selectable_label(state.mc_version_filter == *version, version)
+                        .clicked()
+                    {
+                        state.mc_version_filter.clone_from(version);
+                        app.log(
+                            crate::log::LogLevel::Info,
+                            &format!("UI: Modrinth MC version filter changed to {version}"),
+                        );
+                    }
                 }
             });
-    });
+    }
+
+    if !state.available_versions.is_empty() {
+        ui.add_space(app.theme.spacing.xs);
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut state.manual_show_types[0], "Releases")
+                .changed()
+                || ui
+                    .checkbox(&mut state.manual_show_types[1], "Snapshots")
+                    .changed()
+                || ui
+                    .checkbox(&mut state.manual_show_types[2], "Old Betas")
+                    .changed()
+                || ui
+                    .checkbox(&mut state.manual_show_types[3], "Old Alphas")
+                    .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth MC version type filter changed",
+                );
+            }
+        });
+    }
+
+    ui.add_space(app.theme.spacing.sm);
+
+    ui.label("Loader:");
+    egui::ComboBox::from_id_source("modrinth_loader_filter")
+        .selected_text(state.loader_filter.as_str())
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_value(&mut state.loader_filter, LoaderFilter::Any, "Any")
+                .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth loader filter changed to Any",
+                );
+            }
+            if ui
+                .selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric")
+                .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth loader filter changed to Fabric",
+                );
+            }
+            if ui
+                .selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge")
+                .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth loader filter changed to Forge",
+                );
+            }
+            if ui
+                .selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge")
+                .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth loader filter changed to NeoForge",
+                );
+            }
+            if ui
+                .selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt")
+                .changed()
+            {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    "UI: Modrinth loader filter changed to Quilt",
+                );
+            }
+        });
 
     ui.add_space(app.theme.spacing.sm);
 
