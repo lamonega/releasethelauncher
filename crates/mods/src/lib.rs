@@ -305,3 +305,83 @@ fn get_unique_resource_name(path: &Path) -> PathBuf {
         counter += 1;
     }
 }
+
+/// Joins `rel` onto `base`, guaranteeing the result stays inside `base`.
+///
+/// Absolute paths and any `..` component are rejected outright. When the parent
+/// directory of the destination already exists, it is canonicalized and must
+/// still resolve under a canonicalized `base`; if the directory does not exist
+/// yet that check is skipped, but the component checks always apply.
+///
+/// # Errors
+///
+/// Returns an error if `rel` is absolute, contains a `..` component, or the
+/// canonicalized destination escapes `base`.
+pub(crate) fn safe_join_under(base: &Path, rel: &Path) -> Result<PathBuf, ModsError> {
+    if rel.as_os_str().is_empty() {
+        return Ok(base.to_path_buf());
+    }
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(ModsError::Provider("Unsafe path".into()));
+    }
+
+    let joined = base.join(rel);
+
+    if let Some(parent) = joined.parent() {
+        if parent.exists() {
+            if let (Ok(canon_base), Ok(canon_parent)) =
+                (base.canonicalize(), parent.canonicalize())
+            {
+                if !canon_parent.starts_with(&canon_base) {
+                    return Err(ModsError::Provider("Unsafe path".into()));
+                }
+            }
+        }
+    }
+
+    Ok(joined)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_join_under_rejects_unsafe_components() {
+        let base = Path::new("/tmp/rtl_mods_base");
+        assert!(safe_join_under(base, Path::new("mods/legit.jar")).is_ok());
+        assert!(safe_join_under(base, Path::new("legit")).is_ok());
+        assert!(safe_join_under(base, Path::new("")).is_ok());
+
+        assert!(safe_join_under(base, Path::new("/etc/passwd")).is_err());
+        assert!(safe_join_under(base, Path::new("../../evil")).is_err());
+        assert!(safe_join_under(base, Path::new("mods/../../evil")).is_err());
+        assert!(safe_join_under(base, Path::new("resources/../..")).is_err());
+        assert!(safe_join_under(base, Path::new("overrides/../../evil.sh")).is_err());
+    }
+
+    #[test]
+    fn safe_join_under_keeps_result_under_base() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "rtl_mods_path_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let base = temp_dir.join("instance").join(".minecraft");
+        let joined = safe_join_under(&base, Path::new("mods/legit.jar")).unwrap();
+        assert_eq!(joined, base.join("mods/legit.jar"));
+        assert!(joined.starts_with(&base));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}

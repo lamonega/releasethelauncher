@@ -7,8 +7,8 @@ use reqwest::Client;
 
 use super::modrinth_types::{ModrinthProject, ModrinthVersion, MrpackIndex, SearchResponse};
 use crate::{
-    InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo, ProjectSummary,
-    ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
+    safe_join_under, InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo,
+    ProjectSummary, ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
 };
 
 use release_the_launcher_constants::urls;
@@ -305,9 +305,14 @@ impl ModrinthProvider {
 
         for file_obj in &index.files {
             let size = file_obj.file_size;
+            let Ok(dest) =
+                safe_join_under(&target_dir.join(".minecraft"), Path::new(&file_obj.path))
+            else {
+                log::warn!("Skipping modpack file outside target dir: {}", file_obj.path);
+                continue;
+            };
             total_bytes += size;
 
-            let dest = target_dir.join(".minecraft").join(&file_obj.path);
             if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
                 initial_downloaded += size;
             }
@@ -325,7 +330,12 @@ impl ModrinthProvider {
         for file_obj in index.files {
             if let Some(url) = file_obj.downloads.first().cloned() {
                 let path_str = file_obj.path.clone();
-                let dest = target_dir.join(".minecraft").join(&path_str);
+                let Ok(dest) =
+                    safe_join_under(&target_dir.join(".minecraft"), Path::new(&path_str))
+                else {
+                    log::warn!("Skipping modpack file outside target dir: {path_str}");
+                    continue;
+                };
                 let display_name = Path::new(&path_str)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -828,7 +838,11 @@ fn extract_resource_entries<R: std::io::Read + std::io::Seek>(
             if let Some(pfx) = prefix {
                 let inner_name = &name[pfx.len()..];
                 if !inner_name.is_empty() {
-                    let out_path = resources_dest.join(inner_name);
+                    let Ok(out_path) = safe_join_under(resources_dest, Path::new(inner_name))
+                    else {
+                        log::warn!("Skipping resource entry outside target dir: {name}");
+                        continue;
+                    };
                     if zip_entry.is_dir() {
                         let _ = fs::create_dir_all(&out_path);
                     } else {
@@ -855,7 +869,10 @@ fn extract_mod_entries<R: std::io::Read + std::io::Seek>(
             if name.starts_with("mods/") && !zip_entry.is_dir() {
                 let inner_name = &name[5..];
                 if !inner_name.is_empty() {
-                    let out_path = target_dir.join(inner_name);
+                    let Ok(out_path) = safe_join_under(target_dir, Path::new(inner_name)) else {
+                        log::warn!("Skipping mod entry outside target dir: {name}");
+                        continue;
+                    };
                     if let Some(parent) = out_path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
@@ -863,6 +880,82 @@ fn extract_mod_entries<R: std::io::Read + std::io::Seek>(
                         let _ = std::io::copy(&mut zip_entry, &mut out_file);
                     }
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    fn temp_root() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rtl_mods_extract_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn build_malicious_zip() -> Vec<u8> {
+        let cursor = std::io::Cursor::new(Vec::new());
+        let mut writer = zip::ZipWriter::new(cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        writer.start_file("mods/legit.jar", options).unwrap();
+        writer.write_all(b"jar").unwrap();
+        writer.start_file("mods/../../evil", options).unwrap();
+        writer.write_all(b"evil").unwrap();
+        writer.start_file("resources/legit.txt", options).unwrap();
+        writer.write_all(b"text").unwrap();
+        writer.start_file("resources/../../evil.sh", options).unwrap();
+        writer.write_all(b"evil").unwrap();
+        writer.start_file("overrides/../../evil.sh", options).unwrap();
+        writer.write_all(b"evil").unwrap();
+
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn extract_entries_reject_traversal() {
+        let root = temp_root();
+        let target_dir = root.join("instance");
+        let resources_dest = root.join("resources");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::create_dir_all(&resources_dest).unwrap();
+
+        let bytes = build_malicious_zip();
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+
+        extract_mod_entries(&mut archive, &target_dir);
+        extract_resource_entries(&mut archive, &resources_dest);
+
+        assert!(target_dir.join("legit.jar").exists());
+        assert!(resources_dest.join("legit.txt").exists());
+        assert!(!root.join("evil").exists());
+        assert!(!root.join("evil.sh").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn overrides_traversal_is_rejected_by_enclosed_name() {
+        let bytes = build_malicious_zip();
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        for i in 0..archive.len() {
+            let entry = archive.by_index(i).unwrap();
+            if entry.name() == "overrides/../../evil.sh" {
+                // download_modpack only writes overrides/ entries accepted by enclosed_name.
+                assert!(entry.enclosed_name().is_none());
             }
         }
     }
