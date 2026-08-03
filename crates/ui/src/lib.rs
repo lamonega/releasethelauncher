@@ -159,14 +159,9 @@ impl App {
         self.coordinator.fetch_modpack_versions(project_id);
     }
 
-    pub fn install_modpack_as_instance(
-        &self,
-        project_id: String,
-        version_id: Option<String>,
-        instances_dir: std::path::PathBuf,
-    ) {
+    pub fn install_modpack_as_instance(&self, project_id: String, version_id: Option<String>) {
         self.coordinator
-            .install_modpack_as_instance(project_id, version_id, instances_dir);
+            .install_modpack_as_instance(project_id, version_id);
     }
 
     pub fn check_mod_updates(&self, instance_id: String) {

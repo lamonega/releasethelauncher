@@ -237,12 +237,7 @@ fn show_modrinth_result_actions(
             );
             state.installing_modpack_id = Some(result.id.clone());
             state.modrinth_status = format!("Installing {}...", result.name);
-            let base_dir = app
-                .coordinator
-                .instance_manager
-                .instances_dir()
-                .to_path_buf();
-            app.install_modpack_as_instance(result.id.clone(), None, base_dir);
+            app.install_modpack_as_instance(result.id.clone(), None);
         }
 
         let is_expanded = state.expanded_project_id.as_deref() == Some(&result.id);
@@ -321,12 +316,7 @@ fn show_modrinth_version_list(
         );
         state.installing_modpack_id = Some(result.id.clone());
         state.modrinth_status = format!("Installing {} ({})...", result.name, ver_number);
-        let base_dir = app
-            .coordinator
-            .instance_manager
-            .instances_dir()
-            .to_path_buf();
-        app.install_modpack_as_instance(result.id.clone(), Some(ver_id), base_dir);
+        app.install_modpack_as_instance(result.id.clone(), Some(ver_id));
     }
 }
 

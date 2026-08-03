@@ -37,6 +37,8 @@ pub enum Event {
         name: String,
         mc_version: String,
         loader: String,
+        modpack_project_id: Option<String>,
+        modpack_version_id: Option<String>,
     },
     ModUpdatesResult {
         instance_id: String,
@@ -217,6 +219,8 @@ impl Coordinator {
                 inst.root.clone(),
                 inst.settings.minecraft_version.clone(),
                 inst.settings.loader.clone(),
+                inst.settings.modpack_project_id.clone(),
+                inst.settings.modpack_version_id.clone(),
                 gs.java_path_for(inst.settings.java.path.as_deref()),
                 gs.memory_min_for(inst.settings.java.memory_min.as_deref()),
                 gs.memory_max_for(inst.settings.java.memory_max.as_deref()),
@@ -235,6 +239,8 @@ impl Coordinator {
             instance_root,
             mc_version,
             loader,
+            modpack_project_id,
+            modpack_version_id,
             java_path_override,
             memory_min,
             memory_max,
@@ -254,6 +260,8 @@ impl Coordinator {
                 instance_root,
                 mc_version,
                 loader,
+                modpack_project_id,
+                modpack_version_id,
                 java_path_override,
                 memory_min,
                 memory_max,
@@ -307,21 +315,10 @@ impl Coordinator {
         self.run_async(move |queue| flow::modrinth::fetch_modpack_versions(queue, project_id));
     }
 
-    pub fn install_modpack_as_instance(
-        &self,
-        project_id: String,
-        version_id: Option<String>,
-        instances_dir: PathBuf,
-    ) {
+    pub fn install_modpack_as_instance(&self, project_id: String, version_id: Option<String>) {
         let http = self.http_provider.clone();
         self.run_async(move |queue| {
-            flow::modrinth::install_modpack_as_instance(
-                queue,
-                project_id,
-                version_id,
-                instances_dir,
-                http,
-            )
+            flow::modrinth::resolve_modpack_as_instance(queue, project_id, version_id, http)
         });
     }
 

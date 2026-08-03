@@ -28,6 +28,8 @@ pub struct LaunchParams {
     pub instance_root: std::path::PathBuf,
     pub mc_version: String,
     pub loader: ModLoader,
+    pub modpack_project_id: Option<String>,
+    pub modpack_version_id: Option<String>,
     pub java_path_override: Option<String>,
     pub memory_min: String,
     pub memory_max: String,
@@ -194,7 +196,8 @@ async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Err
     // 4. Pre-launch command
     run_pre_launch(params).await?;
 
-    // 5. Download modpack mods
+    // 5. Download modpack manifest (deferred) + mods
+    download_modpack_manifest(params).await;
     download_modpack_mods(params).await;
 
     // 6. Resolve version components & profile
@@ -498,6 +501,43 @@ fn stderr_level(line: &str) -> LogLevel {
         LogLevel::Warn
     } else {
         LogLevel::Info
+    }
+}
+
+async fn download_modpack_manifest(params: &LaunchParams) {
+    let Some(project_id) = params.modpack_project_id.as_deref() else {
+        return;
+    };
+    let index_path = params
+        .instance_root
+        .join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
+    if index_path.exists() {
+        return;
+    }
+    send_log(
+        &params.queue,
+        LogLevel::Info,
+        "Downloading modpack manifest...",
+    );
+    push_event(
+        &params.queue,
+        Event::Status("Downloading modpack manifest...".to_string()),
+    );
+    let mod_manager =
+        release_the_launcher_mods::ModrinthProvider::with_client(params.http_client.clone(), None);
+    if let Err(e) = mod_manager
+        .download_modpack_manifest(
+            project_id,
+            params.modpack_version_id.as_deref(),
+            &params.instance_root,
+        )
+        .await
+    {
+        send_log(
+            &params.queue,
+            LogLevel::Warn,
+            format!("Modpack manifest download failed: {e}"),
+        );
     }
 }
 

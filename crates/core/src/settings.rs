@@ -73,6 +73,10 @@ pub struct InstanceSettings {
     pub post_launch_command: String,
     #[serde(default)]
     pub close_after_launch: bool,
+    #[serde(default)]
+    pub modpack_project_id: Option<String>,
+    #[serde(default)]
+    pub modpack_version_id: Option<String>,
 }
 
 impl Default for InstanceSettings {
@@ -87,6 +91,8 @@ impl Default for InstanceSettings {
             pre_launch_command: String::new(),
             post_launch_command: String::new(),
             close_after_launch: false,
+            modpack_project_id: None,
+            modpack_version_id: None,
         }
     }
 }
@@ -111,6 +117,8 @@ impl InstanceSettings {
             pre_launch_command: String::new(),
             post_launch_command: String::new(),
             close_after_launch: false,
+            modpack_project_id: None,
+            modpack_version_id: None,
         }
     }
 

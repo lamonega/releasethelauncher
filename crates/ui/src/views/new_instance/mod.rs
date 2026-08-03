@@ -72,8 +72,19 @@ pub fn process_messages(app: &mut App, state: &mut NewInstanceState) {
                 name,
                 mc_version,
                 loader,
+                modpack_project_id,
+                modpack_version_id,
             } => {
-                handle_install_result(app, state, &instance_id, &name, &mc_version, &loader);
+                handle_install_result(
+                    app,
+                    state,
+                    &instance_id,
+                    &name,
+                    &mc_version,
+                    &loader,
+                    modpack_project_id,
+                    modpack_version_id,
+                );
             }
             crate::UiMessage::VersionListResult(result) => match result {
                 Ok(versions) => {
@@ -126,6 +137,8 @@ pub fn handle_install_result(
     name: &str,
     mc_version: &str,
     loader_raw: &str,
+    modpack_project_id: Option<String>,
+    modpack_version_id: Option<String>,
 ) {
     if instance_id.is_empty() {
         return;
@@ -152,11 +165,13 @@ pub fn handle_install_result(
     } else {
         ModLoader::Vanilla
     };
-    let settings = release_the_launcher_core::InstanceSettings::new(
+    let mut settings = release_the_launcher_core::InstanceSettings::new(
         name.to_string(),
         mc_version.to_string(),
         loader,
     );
+    settings.modpack_project_id = modpack_project_id;
+    settings.modpack_version_id = modpack_version_id;
     let _ = app
         .coordinator
         .instance_manager

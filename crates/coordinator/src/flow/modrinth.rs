@@ -108,6 +108,8 @@ pub async fn install_mod(
                             name,
                             mc_version: String::new(),
                             loader: String::new(),
+                            modpack_project_id: None,
+                            modpack_version_id: None,
                         }
                     }
                     Err(e) => Event::DownloadError(format!("Mod install failed: {e}")),
@@ -136,23 +138,24 @@ pub async fn fetch_modpack_versions(queue: Queue, project_id: String) {
     push_event(&queue, result);
 }
 
-pub async fn install_modpack_as_instance(
+pub async fn resolve_modpack_as_instance(
     queue: Queue,
     project_id: String,
     version_id: Option<String>,
-    instances_dir: PathBuf,
     http: reqwest::Client,
 ) {
     let provider = ModrinthProvider::with_client(http, None);
     let result = match provider
-        .install_modpack_as_instance(&project_id, version_id.as_deref(), &instances_dir)
+        .resolve_modpack_as_instance(&project_id, version_id.as_deref())
         .await
     {
-        Ok((name, mc_ver, loader_str)) => Event::ModrinthInstallResult {
+        Ok((name, mc_ver, loader)) => Event::ModrinthInstallResult {
             instance_id: name.clone(),
             name,
             mc_version: mc_ver,
-            loader: loader_str,
+            loader,
+            modpack_project_id: Some(project_id.clone()),
+            modpack_version_id: version_id.clone(),
         },
         Err(e) => Event::DownloadError(format!("Modpack install failed: {e}")),
     };

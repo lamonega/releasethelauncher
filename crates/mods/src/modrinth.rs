@@ -388,17 +388,16 @@ impl ModrinthProvider {
         Ok(())
     }
 
-    /// Download a modpack and extract it to create a new instance.
-    /// Returns (`instance_name`, `mc_version`, `loader_from_manifest`).
+    /// Resolves a modpack without downloading anything. Returns
+    /// (`instance_name`, `mc_version`, `loader_name`).
     ///
     /// # Errors
     ///
-    /// Returns an error if the version lookup, download, or manifest parsing fails.
-    pub async fn install_modpack_as_instance(
+    /// Returns an error if the project or version lookup fails.
+    pub async fn resolve_modpack_as_instance(
         &self,
         project_id: &str,
         version_id: Option<&str>,
-        target_base_dir: &Path,
     ) -> Result<(String, String, String), ModsError> {
         let versions = self.get_versions(project_id, &[], &[]).await?;
         let version = if let Some(vid) = version_id {
@@ -419,51 +418,50 @@ impl ModrinthProvider {
         } else {
             project.name.clone()
         };
-        let instance_dir = target_base_dir.join(&instance_name);
-        fs::create_dir_all(&instance_dir)?;
-
-        self.download_modpack(version, &instance_dir).await?;
-
-        let index_path =
-            instance_dir.join(release_the_launcher_constants::paths::MODRINTH_INDEX_FILE);
-        let (mc_version, loader) = if index_path.exists() {
-            const LOADER_MAP: &[(&str, &str)] = &[
-                ("fabric-loader", "Fabric"),
-                ("forge", "Forge"),
-                ("neoforge", "NeoForge"),
-                ("quilt-loader", "Quilt"),
-            ];
-
-            let content = fs::read_to_string(&index_path)?;
-            let index: MrpackIndex = serde_json::from_str(&content)?;
-
-            let fallback_mc = version.mc_versions.first().cloned().unwrap_or_default();
-            let mc_ver = index
-                .dependencies
-                .get("minecraft")
-                .cloned()
-                .unwrap_or(fallback_mc);
-
-            let loader = LOADER_MAP
-                .iter()
-                .find_map(|&(dep_key, name)| {
-                    index
-                        .dependencies
-                        .get(dep_key)
-                        .map(|ver| format!("{name}:{ver}"))
-                })
-                .unwrap_or_else(|| "Vanilla".to_string());
-
-            let mc_dir = instance_dir.join(release_the_launcher_constants::paths::MINECRAFT_DIR);
-            fs::create_dir_all(&mc_dir)?;
-
-            (mc_ver, loader)
-        } else {
-            let fallback_mc = version.mc_versions.first().cloned().unwrap_or_default();
-            (fallback_mc, "Vanilla".to_string())
-        };
+        let mc_version = version.mc_versions.first().cloned().unwrap_or_default();
+        let loader = version
+            .loaders
+            .first()
+            .map(|l| match l.to_lowercase().as_str() {
+                "fabric" => "Fabric",
+                "forge" => "Forge",
+                "neoforge" => "NeoForge",
+                "quilt" => "Quilt",
+                _ => "Vanilla",
+            })
+            .unwrap_or("Vanilla")
+            .to_string();
 
         Ok((instance_name, mc_version, loader))
+    }
+
+    /// Downloads and extracts a modpack's `.mrpack` (index + overrides) into the
+    /// target instance directory without downloading any mod files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the version lookup, download, or extraction fails.
+    pub async fn download_modpack_manifest(
+        &self,
+        project_id: &str,
+        version_id: Option<&str>,
+        target_dir: &Path,
+    ) -> Result<(), ModsError> {
+        let versions = self.get_versions(project_id, &[], &[]).await?;
+        let version = if let Some(vid) = version_id {
+            versions
+                .iter()
+                .find(|v| v.id == vid)
+                .or_else(|| versions.first())
+                .ok_or_else(|| ModsError::Provider("Version not found".into()))?
+        } else {
+            versions
+                .first()
+                .ok_or_else(|| ModsError::Provider("No versions found".into()))?
+        };
+
+        self.download_modpack(version, target_dir).await?;
+        Ok(())
     }
 }
 
