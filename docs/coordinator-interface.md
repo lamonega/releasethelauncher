@@ -25,6 +25,7 @@ pub struct InstanceSummary {
     pub mc_version: String,
     pub loader_name: String,
     pub root: PathBuf,
+    pub java: JavaSettings,
 }
 
 /// A single installed mod entry, including parsed metadata when available.
@@ -53,6 +54,7 @@ Type mappings (all fully qualified as they appear in the coordinator crate):
 - `PathBuf` = `std::path::PathBuf`, `Path` = `std::path::Path`
 - `GlobalSettings` = `release_the_launcher_core::settings::GlobalSettings`
 - `ModLoader` = `release_the_launcher_core::settings::ModLoader`
+- `JavaSettings` = `release_the_launcher_core::JavaSettings`
 - `AccountData` = `release_the_launcher_auth::AccountData`
 - `AccountType` = `release_the_launcher_auth::AccountType`
 - `AuthState` = `release_the_launcher_auth::AuthState`

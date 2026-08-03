@@ -69,7 +69,6 @@ pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut D
 
         if let Err(e) = app
             .coordinator
-            .instance_manager_mut()
             .update_instance_java_settings(id, java_path, memory_min, memory_max)
         {
             app.log(

@@ -165,20 +165,31 @@ pub fn handle_install_result(
     } else {
         ModLoader::Vanilla
     };
-    let mut settings = release_the_launcher_core::InstanceSettings::new(
+    match app.coordinator.create_instance(
         name.to_string(),
         mc_version.to_string(),
         loader,
-    );
-    settings.modpack_project_id = modpack_project_id;
-    settings.modpack_version_id = modpack_version_id;
-    let _ = app
-        .coordinator
-        .instance_manager_mut()
-        .create(instance_id, settings);
-    app.status_message = format!("Installed modpack instance: {name}");
-    app.current_view = View::InstanceList;
-    state.installing_modpack_id = None;
+        modpack_project_id,
+        modpack_version_id,
+    ) {
+        Ok(instance_id) => {
+            app.log(
+                crate::log::LogLevel::Info,
+                &format!("UI: Installed modpack instance '{instance_id}'"),
+            );
+            app.status_message = format!("Installed modpack instance: {name}");
+            app.current_view = View::InstanceList;
+            state.installing_modpack_id = None;
+        }
+        Err(e) => {
+            app.log(
+                crate::log::LogLevel::Error,
+                &format!("Failed to install modpack instance: {e}"),
+            );
+            app.status_message = format!("Error: {e}");
+            state.installing_modpack_id = None;
+        }
+    }
 }
 
 pub struct NewInstanceState {

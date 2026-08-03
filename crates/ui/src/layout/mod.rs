@@ -135,9 +135,18 @@ pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
                 );
                 state.login_state = LoginState::Idle;
                 let display_name = name;
-                state.app.coordinator.account_list_mut().add(*account);
-                let _ = state.app.coordinator.account_list_mut().save();
-                state.app.status_message = format!("Logged in as {display_name}");
+                match state.app.coordinator.add_account(*account) {
+                    Ok(()) => {
+                        state.app.status_message = format!("Logged in as {display_name}");
+                    }
+                    Err(err) => {
+                        state.app.log(
+                            LogLevel::Error,
+                            &format!("Failed to add Microsoft account '{display_name}': {err}"),
+                        );
+                        state.app.status_message = format!("Failed to add account: {err}");
+                    }
+                }
                 state.app.current_view = View::AccountList;
                 live = true;
             }

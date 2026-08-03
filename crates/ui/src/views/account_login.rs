@@ -29,10 +29,15 @@ pub fn show(
                     crate::log::LogLevel::Info,
                     &format!("UI: Added offline account '{username_input}'"),
                 );
-                let account = release_the_launcher_auth::AccountData::offline(username_input);
-                app.coordinator.account_list_mut().add(account);
-                let _ = app.coordinator.account_list_mut().save();
-                app.status_message = format!("Added offline account: {username_input}");
+                if let Err(err) = app.coordinator.add_offline_account(username_input) {
+                    app.log(
+                        crate::log::LogLevel::Error,
+                        &format!("Failed to add offline account: {err}"),
+                    );
+                    app.status_message = format!("Failed to add offline account: {err}");
+                } else {
+                    app.status_message = format!("Added offline account: {username_input}");
+                }
                 app.current_view = View::AccountList;
                 *login_state = LoginState::Idle;
             }

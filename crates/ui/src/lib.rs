@@ -127,15 +127,6 @@ impl App {
         self.coordinator.log(level, message);
     }
 
-    /// Saves global settings to the settings file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if serialization or file writing fails.
-    pub fn save_global_settings(&self) -> Result<(), std::io::Error> {
-        self.coordinator.save_global_settings()
-    }
-
     pub fn launch_instance(&self, instance_id: &str) {
         self.coordinator.launch_instance(instance_id);
     }

@@ -251,6 +251,7 @@ impl Coordinator {
                 mc_version: inst.settings.minecraft_version.clone(),
                 loader_name: inst.settings.loader_name().to_string(),
                 root: inst.root.clone(),
+                java: inst.settings.java.clone(),
             })
     }
 

@@ -5,20 +5,14 @@ pub fn show_logs(
     app: &mut App,
     ui: &mut egui::Ui,
     instance_id: &str,
-    root_path: &std::path::Path,
+    _root_path: &std::path::Path,
     tab_state: &mut DetailTabState,
 ) {
     let cache = &mut tab_state.log_cache;
 
     // Determine target log file path if not already resolved or changed
     if cache.file_path.is_none() {
-        let mc_log_path = root_path.join(".minecraft").join("logs").join("latest.log");
-        let alt_log_path = root_path.join("logs").join("latest.log");
-        if mc_log_path.exists() {
-            cache.file_path = Some(mc_log_path);
-        } else if alt_log_path.exists() {
-            cache.file_path = Some(alt_log_path);
-        }
+        cache.file_path = app.coordinator.instance_log_path(instance_id);
     }
 
     // Check disk file mtime / len to reload only when file on disk changes

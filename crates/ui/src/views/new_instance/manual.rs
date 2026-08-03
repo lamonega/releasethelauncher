@@ -230,17 +230,13 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
             },
         };
 
-        let settings = release_the_launcher_core::InstanceSettings::new(
+        match app.coordinator.create_instance(
             state.name.clone(),
             state.mc_version.clone(),
             loader,
-        );
-
-        match app
-            .coordinator
-            .instance_manager_mut()
-            .create(&state.name, settings)
-        {
+            None,
+            None,
+        ) {
             Ok(_) => {
                 app.log(
                     crate::log::LogLevel::Info,

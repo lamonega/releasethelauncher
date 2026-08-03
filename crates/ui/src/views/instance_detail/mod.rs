@@ -99,7 +99,7 @@ pub fn show(
 ) {
     let id = instance_id.to_string();
 
-    let Some(instance) = app.coordinator.instance_manager().get(&id) else {
+    let Some(instance) = app.coordinator.instance_summary(&id) else {
         ui.label("Instance not found.");
         app.current_view = View::InstanceList;
         return;
@@ -108,12 +108,12 @@ pub fn show(
     let root_display = instance.root.display().to_string();
     let view = InstanceView {
         id: &id,
-        name: &instance.settings.name,
-        mc_version: &instance.settings.minecraft_version,
-        loader_name: instance.settings.loader_name(),
+        name: &instance.name,
+        mc_version: &instance.mc_version,
+        loader_name: &instance.loader_name,
         root_display: &root_display,
         root_path: &instance.root,
-        java_settings: &instance.settings.java,
+        java_settings: &instance.java,
     };
 
     if tab_state.config_instance_id != id {
@@ -130,27 +130,6 @@ pub fn show(
     );
 
     ui.add_space(app.theme.spacing.sm);
-
-    // view borrows from instance, but handle_actions needs &mut app.
-    // We need to drop instance before calling handle_actions.
-    let view_id = view.id.to_string();
-    let view_name = view.name.to_string();
-    let view_root_path = view.root_path.to_path_buf();
-    let view_root_display = view.root_display.to_string();
-    let view_mc_version = view.mc_version.to_string();
-    let view_loader_name = view.loader_name.to_string();
-    let view_java_settings = view.java_settings.clone();
-    let _ = instance;
-
-    let view = InstanceView {
-        id: &view_id,
-        name: &view_name,
-        mc_version: &view_mc_version,
-        loader_name: &view_loader_name,
-        root_display: &view_root_display,
-        root_path: &view_root_path,
-        java_settings: &view_java_settings,
-    };
 
     if handle_actions(app, ui, &view) {
         return;
@@ -212,18 +191,24 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
             let _ = open::that(view.root_path);
             false
         }
-        Some("delete") => {
-            app.log(
-                crate::log::LogLevel::Info,
-                &format!("UI: Deleted instance '{}'", view.name),
-            );
-            let _ = app
-                .coordinator
-                .instance_manager_mut()
-                .delete(&view.id.to_string());
-            app.current_view = View::InstanceList;
-            true
-        }
+        Some("delete") => match app.coordinator.delete_instance(view.id) {
+            Ok(()) => {
+                app.log(
+                    crate::log::LogLevel::Info,
+                    &format!("UI: Deleted instance '{}'", view.name),
+                );
+                app.current_view = View::InstanceList;
+                true
+            }
+            Err(e) => {
+                app.log(
+                    crate::log::LogLevel::Error,
+                    &format!("Failed to delete instance '{}': {e}", view.name),
+                );
+                app.status_message = format!("Failed to delete instance: {e}");
+                false
+            }
+        },
         _ => false,
     }
 }
@@ -263,7 +248,7 @@ fn show_tab_content(
                     view.java_settings,
                 );
             } else {
-                show_mods(app, ui, view.root_path, view.id, tab_state);
+                show_mods(app, ui, view.id, tab_state);
             }
         }
     }

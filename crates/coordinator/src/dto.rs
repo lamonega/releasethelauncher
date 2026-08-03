@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use release_the_launcher_auth::{AccountType, AuthState};
+use release_the_launcher_core::JavaSettings;
 use release_the_launcher_mods::ModDetails;
 
 /// Lightweight snapshot of an instance, safe to render without holding a
@@ -12,6 +13,7 @@ pub struct InstanceSummary {
     pub mc_version: String,
     pub loader_name: String,
     pub root: PathBuf,
+    pub java: JavaSettings,
 }
 
 /// A single installed mod entry, including parsed metadata when available.

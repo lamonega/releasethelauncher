@@ -15,7 +15,7 @@ pub fn show_info(
     ui.colored_label(app.theme.text_secondary, format!("Loader: {loader_name}"));
     ui.colored_label(app.theme.text_secondary, format!("Minecraft: {mc_version}"));
 
-    let gs = app.coordinator.global_settings();
+    let gs = app.coordinator.settings();
 
     let java_display = match &java_settings.path {
         Some(p) if !p.trim().is_empty() => format!("{p} (Custom)"),

@@ -40,7 +40,7 @@ pub fn show(
                 );
             } else {
                 for id in &instances {
-                    if let Some(instance) = app.coordinator.instance_manager().get(id) {
+                    if let Some(instance) = app.coordinator.instance_summary(id) {
                         let is_selected = selected_instance_id.as_deref() == Some(id.as_str());
 
                         let bg_color = if is_selected {
@@ -49,9 +49,9 @@ pub fn show(
                             egui::Color32::TRANSPARENT
                         };
 
-                        let name = &instance.settings.name;
-                        let mc_ver = &instance.settings.minecraft_version;
-                        let loader = instance.settings.loader_name();
+                        let name = &instance.name;
+                        let mc_ver = &instance.mc_version;
+                        let loader = &instance.loader_name;
                         let text = format!("{name}\n{mc_ver} ({loader})");
 
                         let btn = egui::Button::new(text)

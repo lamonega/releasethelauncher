@@ -4,7 +4,6 @@ use crate::{widgets, App, View};
 pub fn show_mods(
     app: &mut App,
     ui: &mut egui::Ui,
-    root_path: &std::path::Path,
     id: &str,
     tab_state: &mut DetailTabState,
 ) {
@@ -15,7 +14,7 @@ pub fn show_mods(
     ui.add_space(app.theme.spacing.xs);
     ui.separator();
     ui.add_space(app.theme.spacing.xs);
-    show_mod_list(app, ui, root_path, id, tab_state);
+    show_mod_list(app, ui, id, tab_state);
 }
 
 fn handle_mod_messages(app: &mut App, id: &str, tab_state: &mut DetailTabState) {
@@ -86,17 +85,15 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
                             update.latest.name, update.latest.version_number
                         ));
                         if ui.button("Update").clicked() {
-                            if let Some(inst) =
-                                app.coordinator.instance_manager().get(&id.to_string())
-                            {
-                                let mods_dir = inst.mods_dir();
-                                let mc_ver = Some(inst.settings.minecraft_version.clone());
-                                let loader = Some(inst.settings.loader_name().to_string());
+                            if let (Some(mods_dir), Some(summary)) = (
+                                app.coordinator.instance_mods_dir(id),
+                                app.coordinator.instance_summary(id),
+                            ) {
                                 app.install_mod_from_modrinth(
                                     update.latest.project_id.clone(),
                                     mods_dir,
-                                    mc_ver,
-                                    loader,
+                                    Some(summary.mc_version),
+                                    Some(summary.loader_name),
                                 );
                             }
                         }
@@ -142,7 +139,6 @@ use super::CachedModEntry;
 fn show_mod_list(
     app: &mut App,
     ui: &mut egui::Ui,
-    root_path: &std::path::Path,
     id: &str,
     tab_state: &mut DetailTabState,
 ) {
@@ -150,30 +146,15 @@ fn show_mod_list(
 
     // Refresh cache if instance changed or cache marked dirty
     if cache.instance_id != id || cache.dirty || cache.mods.is_empty() {
-        let mods_dir = root_path.join(".minecraft").join("mods");
-        let mods = release_the_launcher_mods::list_mods(&mods_dir);
-        let metadata_list = app.coordinator.mods_metadata(id);
+        let mods = app.coordinator.list_instance_mods(id);
 
         cache.mods = mods
             .into_iter()
-            .map(|m| {
-                let details = metadata_list
-                    .iter()
-                    .find(|d| {
-                        d.mod_id.eq_ignore_ascii_case(&m.name)
-                            || m.name.to_lowercase().contains(&d.mod_id.to_lowercase())
-                            || m.name.to_lowercase().contains(&d.name.to_lowercase())
-                    })
-                    .cloned()
-                    .or_else(|| {
-                        release_the_launcher_mods::parser::parse_mod_metadata(&m.path).ok()
-                    });
-                CachedModEntry {
-                    name: m.name,
-                    path: m.path,
-                    enabled: m.enabled,
-                    details,
-                }
+            .map(|m| CachedModEntry {
+                name: m.name,
+                path: m.path,
+                enabled: m.enabled,
+                details: m.details,
             })
             .collect();
         cache.instance_id = id.to_string();
@@ -244,11 +225,7 @@ fn show_mod_list(
             crate::log::LogLevel::Info,
             &format!("UI: Mod '{}' {action}", entry.name),
         );
-        let result = if entry.enabled {
-            release_the_launcher_mods::disable_mod(&entry.path)
-        } else {
-            release_the_launcher_mods::enable_mod(&entry.path)
-        };
+        let result = app.coordinator.toggle_mod(id, &entry.path);
         if let Err(e) = result {
             app.log(
                 crate::log::LogLevel::Error,
