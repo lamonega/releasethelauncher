@@ -71,7 +71,7 @@ pub fn show(
 ) {
     let id = instance_id.to_string();
 
-    let Some(instance) = app.coordinator.instance_manager.get(&id) else {
+    let Some(instance) = app.coordinator.instance_manager().get(&id) else {
         ui.label("Instance not found.");
         app.current_view = View::InstanceList;
         return;
@@ -191,7 +191,7 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
             );
             let _ = app
                 .coordinator
-                .instance_manager
+                .instance_manager_mut()
                 .delete(&view.id.to_string());
             app.current_view = View::InstanceList;
             true

@@ -177,6 +177,37 @@ fn scan_common_java_paths(
             }
         }
     }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = dirs::home_dir().unwrap_or_default();
+        let unix_search_roots = [
+            PathBuf::from("/usr/lib/jvm"),
+            PathBuf::from("/usr/local/opt"),
+            PathBuf::from("/Library/Java/JavaVirtualMachines"),
+            home.join(".jdks"),
+            home.join(".sdkman/candidates/java"),
+        ];
+
+        for root in &unix_search_roots {
+            if root.exists() {
+                if let Ok(entries) = std::fs::read_dir(root) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let candidate = path.join("bin/java");
+                        if let Some(valid) = _check_candidate(&candidate) {
+                            return Some(valid);
+                        }
+                        let macos_candidate = path.join("Contents/Home/bin/java");
+                        if let Some(valid) = _check_candidate(&macos_candidate) {
+                            return Some(valid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 

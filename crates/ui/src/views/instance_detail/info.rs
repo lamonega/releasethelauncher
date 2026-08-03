@@ -15,12 +15,12 @@ pub fn show_info(
     ui.colored_label(app.theme.text_secondary, format!("Loader: {loader_name}"));
     ui.colored_label(app.theme.text_secondary, format!("Minecraft: {mc_version}"));
 
-    let gs = &app.coordinator.global_settings;
+    let gs = app.coordinator.global_settings();
 
     let java_display = match &java_settings.path {
         Some(p) if !p.trim().is_empty() => format!("{p} (Custom)"),
         _ => {
-            let global_p = gs.java_path.as_deref().unwrap_or("System Default");
+            let global_p = gs.java.path.as_deref().unwrap_or("System Default");
             format!("{global_p} (Global Default)")
         }
     };
@@ -32,7 +32,7 @@ pub fn show_info(
     let min_display = match &java_settings.memory_min {
         Some(m) if !m.trim().is_empty() => format!("{m} (Custom)"),
         _ => {
-            let global_m = gs.memory_min.as_deref().unwrap_or("1G");
+            let global_m = gs.java.memory_min.as_deref().unwrap_or("1G");
             format!("{global_m} (Global Default)")
         }
     };
@@ -44,7 +44,7 @@ pub fn show_info(
     let max_display = match &java_settings.memory_max {
         Some(m) if !m.trim().is_empty() => format!("{m} (Custom)"),
         _ => {
-            let global_m = gs.memory_max.as_deref().unwrap_or("2G");
+            let global_m = gs.java.memory_max.as_deref().unwrap_or("2G");
             format!("{global_m} (Global Default)")
         }
     };

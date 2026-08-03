@@ -80,8 +80,9 @@ pub async fn refresh_account(
 
     let xbox_tokens = get_xbox_tokens(http, &msa_tokens.access_token).await?;
 
-    let refreshed = complete_microsoft_auth(http, client_id, &xbox_tokens).await?;
+    let refreshed = complete_microsoft_auth(http, client_id, &xbox_tokens, &msa_tokens).await?;
 
+    account.msa_token = refreshed.msa_token;
     account.user_token = refreshed.user_token;
     account.xsts_token = refreshed.xsts_token;
     account.mc_token = refreshed.mc_token;

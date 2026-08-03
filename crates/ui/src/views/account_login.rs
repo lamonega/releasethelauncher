@@ -30,8 +30,8 @@ pub fn show(
                     &format!("UI: Added offline account '{username_input}'"),
                 );
                 let account = release_the_launcher_auth::AccountData::offline(username_input);
-                app.coordinator.account_list.add(account);
-                let _ = app.coordinator.account_list.save();
+                app.coordinator.account_list_mut().add(account);
+                let _ = app.coordinator.account_list_mut().save();
                 app.status_message = format!("Added offline account: {username_input}");
                 app.current_view = View::AccountList;
                 *login_state = LoginState::Idle;

@@ -45,7 +45,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
 }
 
 pub fn process_messages(app: &mut App, state: &mut NewInstanceState) {
-    let messages = app.drain_ui_queue();
+    let messages = app.drain_view_events();
     for msg in messages {
         match msg {
             crate::UiMessage::ModrinthSearchResult(result) => match result {
@@ -174,7 +174,7 @@ pub fn handle_install_result(
     settings.modpack_version_id = modpack_version_id;
     let _ = app
         .coordinator
-        .instance_manager
+        .instance_manager_mut()
         .create(instance_id, settings);
     app.status_message = format!("Installed modpack instance: {name}");
     app.current_view = View::InstanceList;

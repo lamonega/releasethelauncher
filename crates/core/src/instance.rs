@@ -26,6 +26,28 @@ pub struct Instance {
     pub settings: InstanceSettings,
 }
 
+impl Instance {
+    #[must_use]
+    pub fn minecraft_dir(&self) -> std::path::PathBuf {
+        self.root.join(release_the_launcher_constants::paths::MINECRAFT_DIR)
+    }
+
+    #[must_use]
+    pub fn mods_dir(&self) -> std::path::PathBuf {
+        self.minecraft_dir().join(release_the_launcher_constants::paths::MODS_DIR)
+    }
+
+    #[must_use]
+    pub fn index_dir(&self) -> std::path::PathBuf {
+        self.root.join(release_the_launcher_constants::paths::INDEX_DIR)
+    }
+
+    #[must_use]
+    pub fn config_path(&self) -> std::path::PathBuf {
+        self.root.join(release_the_launcher_constants::paths::INSTANCE_CONFIG_FILE_NAME)
+    }
+}
+
 pub struct InstanceManager {
     instances_dir: PathBuf,
     instances: HashMap<InstanceId, Instance>,
@@ -59,7 +81,7 @@ impl InstanceManager {
                 if path.is_dir() {
                     let config_path = path.join(paths::INSTANCE_CONFIG_FILE_NAME);
                     if config_path.exists() {
-                        let settings = InstanceSettings::load(&config_path);
+                        let settings = InstanceSettings::load(&config_path).unwrap_or_default();
                         let id = path.file_name().map_or_else(
                             || "unknown".to_string(),
                             |n| n.to_string_lossy().to_string(),
@@ -114,14 +136,14 @@ impl InstanceManager {
         fs::create_dir_all(&index_dir)?;
         fs::create_dir_all(&server_resource_packs_dir)?;
 
-        let config_path = instance_dir.join(paths::INSTANCE_CONFIG_FILE_NAME);
-        settings.save(&config_path)?;
-
         let instance = Instance {
             id: id.clone(),
             root: instance_dir,
             settings,
         };
+        let config_path = instance.config_path();
+        instance.settings.save(&config_path)?;
+
         Ok(self.instances.entry(id).or_insert(instance))
     }
 
@@ -153,16 +175,12 @@ impl InstanceManager {
 
     #[must_use = "Returns the mods directory path for the given instance, or None if not found"]
     pub fn get_mods_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances
-            .get(id)
-            .map(|i| i.root.join(paths::MINECRAFT_DIR).join(paths::MODS_DIR))
+        self.instances.get(id).map(|i| i.mods_dir())
     }
 
     #[must_use = "Returns the index directory path for the given instance, or None if not found"]
     pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances
-            .get(id)
-            .map(|i| i.root.join(paths::INDEX_DIR))
+        self.instances.get(id).map(|i| i.index_dir())
     }
 
     /// Updates and saves Java settings for a specific instance.
@@ -185,7 +203,7 @@ impl InstanceManager {
         instance.settings.java.path = path;
         instance.settings.java.memory_min = memory_min;
         instance.settings.java.memory_max = memory_max;
-        let config_path = instance.root.join(paths::INSTANCE_CONFIG_FILE_NAME);
+        let config_path = instance.config_path();
         instance.settings.save(&config_path)?;
         Ok(())
     }

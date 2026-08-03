@@ -8,8 +8,10 @@ pub use release_the_launcher_coordinator::Event as UiMessage;
 pub use release_the_launcher_core::log;
 pub use theme::icons;
 
+use std::sync::{Arc, Mutex};
+
 use release_the_launcher_coordinator::log::LogLevel;
-use release_the_launcher_coordinator::{Coordinator, Queue};
+use release_the_launcher_coordinator::{Coordinator, Event};
 
 /// Renders a centered empty-state label in muted text using the given theme.
 pub fn empty_state(ui: &mut egui::Ui, theme: &Theme, messages: &[&str]) {
@@ -29,8 +31,10 @@ pub struct App {
     pub download_state: DownloadState,
     pub theme: Theme,
     pub ctx: Option<egui::Context>,
-    /// Re-push target for view-result events (see [`layout::drain_ui_messages`]).
-    pub ui_queue: Queue,
+    /// Dedicated UI-only event queue for view-specific results.
+    /// Separate from Coordinator's channel to avoid re-enqueue loops.
+    ui_tx: std::sync::mpsc::Sender<UiMessage>,
+    ui_rx: Arc<Mutex<std::sync::mpsc::Receiver<UiMessage>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,16 +73,10 @@ pub struct DownloadState {
     pub total: u64,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new(Coordinator::new(), Theme::default(), None)
-    }
-}
-
 impl App {
     #[must_use]
     pub fn new(coordinator: Coordinator, theme: Theme, ctx: Option<egui::Context>) -> Self {
-        let ui_queue = coordinator.queue();
+        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
         Self {
             coordinator,
             current_view: View::InstanceList,
@@ -86,24 +84,39 @@ impl App {
             download_state: DownloadState::default(),
             theme,
             ctx,
-            ui_queue,
+            ui_tx,
+            ui_rx: Arc::new(Mutex::new(ui_rx)),
         }
     }
 
+    /// Drains coordinator-level events (log, status, progress, auth, etc.).
     #[must_use]
-    pub fn drain_messages(&self) -> Vec<UiMessage> {
+    pub fn drain_coordinator_events(&self) -> Vec<UiMessage> {
         self.coordinator.drain_events()
     }
 
+    /// Drains view-specific events (Modrinth results, version lists, etc.)
+    /// that were forwarded to the dedicated UI channel.
     #[must_use]
-    pub fn drain_ui_queue(&self) -> Vec<UiMessage> {
-        self.coordinator.drain_events()
+    pub fn drain_view_events(&self) -> Vec<UiMessage> {
+        let mut events = Vec::new();
+        if let Ok(rx) = self.ui_rx.lock() {
+            while let Ok(ev) = rx.try_recv() {
+                events.push(ev);
+            }
+        }
+        events
+    }
+
+    /// Forwards a view-specific event into the UI-only queue.
+    pub fn forward_view_event(&self, event: Event) {
+        let _ = self.ui_tx.send(event);
     }
 
     #[must_use]
     pub fn instance_ids(&self) -> Vec<String> {
         self.coordinator
-            .instance_manager
+            .instance_manager()
             .list()
             .iter()
             .map(|i| i.id.clone())

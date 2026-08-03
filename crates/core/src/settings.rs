@@ -1,5 +1,4 @@
 use release_the_launcher_constants::defaults;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -13,11 +12,6 @@ pub enum SettingsError {
     Io(#[from] io::Error),
     #[error("TOML parse error: {0}")]
     Parse(#[from] toml::de::Error),
-}
-
-fn load_toml<T: DeserializeOwned>(path: &Path) -> Option<T> {
-    let content = fs::read_to_string(path).ok()?;
-    toml::from_str(&content).ok()
 }
 
 fn save_toml<T: Serialize>(value: &T, path: &Path) -> std::io::Result<()> {
@@ -122,10 +116,18 @@ impl InstanceSettings {
         }
     }
 
-    /// Loads instance settings from a TOML file. Infallible: returns default if missing or invalid.
-    #[must_use]
-    pub fn load(path: &Path) -> Self {
-        load_toml(path).unwrap_or_default()
+    /// Loads instance settings from a TOML file.
+    /// Returns `Ok(Default)` if the file does not exist.
+    /// Returns `Err(SettingsError)` if the file exists but cannot be read or parsed.
+    ///
+    /// # Errors
+    /// Returns an error if the file exists but is invalid.
+    pub fn load(path: &Path) -> Result<Self, SettingsError> {
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let content = std::fs::read_to_string(path)?;
+        Ok(toml::from_str(&content)?)
     }
 
     /// Saves instance settings to a TOML file.
@@ -152,11 +154,12 @@ impl InstanceSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalSettings {
     pub format_version: u32,
-    pub java_path: Option<String>,
-    pub memory_min: Option<String>,
-    pub memory_max: Option<String>,
+    #[serde(default)]
+    pub java: JavaSettings,
     pub close_after_launch: bool,
+    #[serde(default)]
     pub pre_launch_command: String,
+    #[serde(default)]
     pub post_launch_command: String,
 }
 
@@ -164,9 +167,11 @@ impl Default for GlobalSettings {
     fn default() -> Self {
         Self {
             format_version: defaults::SETTINGS_FORMAT_VERSION,
-            java_path: None,
-            memory_min: Some(defaults::DEFAULT_MEMORY_MIN.to_string()),
-            memory_max: Some(defaults::DEFAULT_MEMORY_MAX.to_string()),
+            java: JavaSettings {
+                path: None,
+                memory_min: Some(defaults::DEFAULT_MEMORY_MIN.to_string()),
+                memory_max: Some(defaults::DEFAULT_MEMORY_MAX.to_string()),
+            },
             close_after_launch: false,
             pre_launch_command: String::new(),
             post_launch_command: String::new(),
@@ -175,9 +180,18 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
-    #[must_use]
-    pub fn load(path: &Path) -> Self {
-        load_toml(path).unwrap_or_default()
+    /// Loads settings from a TOML file.
+    /// Returns `Ok(Default)` if the file does not exist.
+    /// Returns `Err(SettingsError)` if the file exists but cannot be read or parsed.
+    ///
+    /// # Errors
+    /// Returns an error if the file exists but is invalid.
+    pub fn load(path: &Path) -> Result<Self, SettingsError> {
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let content = std::fs::read_to_string(path)?;
+        Ok(toml::from_str(&content)?)
     }
 
     /// # Errors
@@ -191,14 +205,14 @@ impl GlobalSettings {
     pub fn java_path_for(&self, instance_java_path: Option<&str>) -> Option<String> {
         instance_java_path
             .filter(|s| !s.is_empty())
-            .or(self.java_path.as_deref())
+            .or(self.java.path.as_deref())
             .map(String::from)
     }
 
     #[must_use]
     pub fn memory_min_for(&self, instance_memory_min: Option<&str>) -> String {
         instance_memory_min
-            .or(self.memory_min.as_deref())
+            .or(self.java.memory_min.as_deref())
             .unwrap_or(release_the_launcher_constants::defaults::DEFAULT_MEMORY_MIN)
             .to_string()
     }
@@ -206,7 +220,7 @@ impl GlobalSettings {
     #[must_use]
     pub fn memory_max_for(&self, instance_memory_max: Option<&str>) -> String {
         instance_memory_max
-            .or(self.memory_max.as_deref())
+            .or(self.java.memory_max.as_deref())
             .unwrap_or(release_the_launcher_constants::defaults::DEFAULT_MEMORY_MAX)
             .to_string()
     }

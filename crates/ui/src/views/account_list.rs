@@ -22,7 +22,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
-    if app.coordinator.account_list.accounts.is_empty() {
+    if app.coordinator.account_list().accounts.is_empty() {
         crate::empty_state(ui, &app.theme, &["No accounts.", "Add one to play."]);
     } else {
         show_account_list(app, ui);
@@ -32,8 +32,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
     let mut remove_idx = None;
     let mut select_idx = None;
-    for (i, account) in app.coordinator.account_list.accounts.iter().enumerate() {
-        let is_active = Some(i) == app.coordinator.account_list.active_index;
+    for (i, account) in app.coordinator.account_list().accounts.iter().enumerate() {
+        let is_active = Some(i) == app.coordinator.account_list().active_index;
         ui.horizontal(|ui| {
             if ui
                 .button(format!(
@@ -68,25 +68,25 @@ fn show_account_list(app: &mut App, ui: &mut egui::Ui) {
         widgets::auth_state_ui(ui, &app.theme, account);
     }
     if let Some(i) = select_idx {
-        let name = app.coordinator.account_list.accounts[i]
+        let name = app.coordinator.account_list().accounts[i]
             .display_name()
             .to_string();
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Selected account '{name}'"),
         );
-        app.coordinator.account_list.set_active(i);
-        let _ = app.coordinator.account_list.save();
+        app.coordinator.account_list_mut().set_active(i);
+        let _ = app.coordinator.account_list_mut().save();
     }
     if let Some(i) = remove_idx {
-        let name = app.coordinator.account_list.accounts[i]
+        let name = app.coordinator.account_list().accounts[i]
             .display_name()
             .to_string();
         app.log(
             crate::log::LogLevel::Info,
             &format!("UI: Removed account '{name}'"),
         );
-        app.coordinator.account_list.remove(i);
-        let _ = app.coordinator.account_list.save();
+        app.coordinator.account_list_mut().remove(i);
+        let _ = app.coordinator.account_list_mut().save();
     }
 }

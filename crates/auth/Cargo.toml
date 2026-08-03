@@ -5,14 +5,13 @@ edition = "2021"
 description = "Account types, offline UUID, Microsoft OAuth"
 
 [dependencies]
-reqwest = { version = "0.12.28", features = ["json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-uuid = { version = "1", features = ["v4"] }
-tokio = { version = "1", features = ["time"] }
-thiserror = "2"
-oauth2 = { version = "5", features = ["reqwest"] }
-md-5 = "0.10"
+reqwest    = { workspace = true, features = ["json"] }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+uuid       = { version = "1", features = ["v4"] }
+tokio      = { workspace = true, features = ["time"] }
+thiserror  = { workspace = true }
+oauth2     = { version = "5", features = ["reqwest"] }
+md-5       = "0.10"
 release-the-launcher-constants = { path = "../constants" }
-release-the-launcher-net = { path = "../net" }
-
+release-the-launcher-net       = { path = "../net" }

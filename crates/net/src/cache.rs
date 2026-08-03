@@ -60,16 +60,13 @@ impl HttpMetaCache {
     }
 
     /// Resolves a cache entry for `(base, path)`. Returns `Some(CacheEntry)` if eternal or not expired.
-    ///
-    /// # Panics
-    /// Panics if the system time is before the Unix epoch.
     #[must_use]
     pub fn resolve(&mut self, base: &str, path: &str) -> Option<CacheEntry> {
         let entry = self.entries.get_mut(base)?.get_mut(path)?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         if entry.is_eternal || (now.saturating_sub(entry.last_accessed) <= entry.max_age) {

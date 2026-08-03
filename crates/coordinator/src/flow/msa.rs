@@ -31,18 +31,14 @@ async fn run_msa_login(queue: &Queue) -> Result<release_the_launcher_auth::Accou
             .await
             .map_err(|e| e.to_string())?;
 
-    let mut account = release_the_launcher_auth::minecraft::complete_microsoft_auth(
+    let account = release_the_launcher_auth::minecraft::complete_microsoft_auth(
         &http,
         &client_id,
         &xbox_tokens,
+        &msa_tokens,
     )
     .await
     .map_err(|e| e.to_string())?;
-
-    account.msa_token = Some(release_the_launcher_auth::msa::token_from_msa_tokens(
-        &msa_tokens,
-        msa_tokens.expires_in,
-    ));
 
     Ok(account)
 }

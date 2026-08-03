@@ -17,6 +17,10 @@ fn main() -> Result<(), eframe::Error> {
         .expect("failed to create tokio runtime");
     let _guard = rt.enter();
 
+    // Initialize coordinator (does I/O) before entering the egui render loop.
+    let mut coordinator = Coordinator::new();
+    coordinator.attach_runtime(tokio::runtime::Handle::current());
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_decorations(false)
@@ -29,11 +33,9 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Release The Launcher",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let theme = Theme::apply(&cc.egui_ctx);
-            let mut coordinator = Coordinator::new();
-            coordinator.attach_runtime(tokio::runtime::Handle::current());
             let app = App::new(coordinator, theme, Some(cc.egui_ctx.clone()));
             Box::new(LauncherApp::new(app))
         }),

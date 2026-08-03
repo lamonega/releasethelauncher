@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 use crate::xbox::XboxTokens;
 use crate::AuthError;
+use crate::msa::{token_from_msa_tokens, MsaTokens};
 use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 use release_the_launcher_constants::{defaults, urls};
 
@@ -148,7 +149,7 @@ pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlem
     let owns = entitlement_resp
         .items
         .iter()
-        .any(|i| i.name == "product_minecraft" || i.name == "game_minecraft");
+        .any(|i| i.name == "product_minecraft");
     let can_play = entitlement_resp
         .items
         .iter()
@@ -167,6 +168,7 @@ pub async fn complete_microsoft_auth(
     http: &Client,
     client_id: &str,
     xbox_tokens: &XboxTokens,
+    msa_tokens: &MsaTokens,
 ) -> Result<AccountData, AuthError> {
     let (access_token, mc_token) = launcher_login(http, xbox_tokens).await?;
 
@@ -183,7 +185,7 @@ pub async fn complete_microsoft_auth(
         internal_id,
         active: None,
         msa_client_id: Some(client_id.to_string()),
-        msa_token: None,
+        msa_token: Some(token_from_msa_tokens(msa_tokens, msa_tokens.expires_in)),
         user_token: Some(xbox_tokens.user_token.clone()),
         xsts_token: Some(xbox_tokens.xsts_token.clone()),
         mc_token: Some(mc_token),

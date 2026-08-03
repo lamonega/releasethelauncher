@@ -40,7 +40,7 @@ pub fn show(
                 );
             } else {
                 for id in &instances {
-                    if let Some(instance) = app.coordinator.instance_manager.get(id) {
+                    if let Some(instance) = app.coordinator.instance_manager().get(id) {
                         let is_selected = selected_instance_id.as_deref() == Some(id.as_str());
 
                         let bg_color = if is_selected {

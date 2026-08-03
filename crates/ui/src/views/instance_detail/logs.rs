@@ -15,7 +15,7 @@ pub fn show_logs(app: &mut App, ui: &mut egui::Ui, instance_id: &str, root_path:
     let target_key = format!("instance:{instance_id}");
     let buffer_entries: Vec<_> = app
         .coordinator
-        .log_buffer
+        .log_buffer()
         .entries()
         .into_iter()
         .filter(|e| e.target == target_key || e.target == instance_id)

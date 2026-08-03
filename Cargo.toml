@@ -9,8 +9,24 @@ members = [
     "crates/coordinator",
     "crates/ui",
 ]
+
 [workspace.package]
 version = "0.7.0"
+
+[workspace.dependencies]
+tokio        = { version = "1",       features = ["full"] }
+serde        = { version = "1",       features = ["derive"] }
+serde_json   = "1"
+reqwest      = { version = "0.12",    features = ["json", "stream"] }
+thiserror    = "2"
+anyhow       = "1"
+zip          = "2"
+tracing      = "0.1"
+toml         = "0.8"
+chrono       = "0.4"
+dirs         = "5"
+hex          = "0.4"
+async-trait  = "0.1"
 
 [package]
 name = "release-the-launcher"
@@ -29,17 +45,17 @@ codegen-units = 1
 strip = true
 
 [dependencies]
-release-the-launcher-core = { path = "crates/core" }
-release-the-launcher-auth = { path = "crates/auth" }
-release-the-launcher-net = { path = "crates/net" }
-release-the-launcher-mods = { path = "crates/mods" }
-release-the-launcher-launch = { path = "crates/launch" }
+release-the-launcher-core        = { path = "crates/core" }
+release-the-launcher-auth        = { path = "crates/auth" }
+release-the-launcher-net         = { path = "crates/net" }
+release-the-launcher-mods        = { path = "crates/mods" }
+release-the-launcher-launch      = { path = "crates/launch" }
 release-the-launcher-coordinator = { path = "crates/coordinator" }
-release-the-launcher-ui = { path = "crates/ui" }
-egui = "0.27"
-eframe = "0.27"
+release-the-launcher-ui          = { path = "crates/ui" }
+egui        = "0.27"
+eframe      = "0.27"
 egui_extras = { version = "0.27", features = ["all_loaders"] }
-image = { version = "0.24", features = ["webp"] }
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
+image       = { version = "0.24", features = ["webp"] }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
 tracing-subscriber = "0.3"

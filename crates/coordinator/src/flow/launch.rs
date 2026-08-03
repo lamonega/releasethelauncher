@@ -337,7 +337,7 @@ async fn resolve_and_prepare_downloads(
         LogLevel::Info,
         "Checking & downloading game assets...",
     );
-    download_assets(&params.queue, &params.instance_root, &profile.asset_index).await?;
+    download_assets(&params.queue, &params.http_client, &params.instance_root, &profile.asset_index).await?;
 
     download_client_jar(params, &profile).await?;
 
@@ -749,6 +749,7 @@ fn extract_natives_files(
 
 async fn download_assets(
     queue: &Queue,
+    http: &reqwest::Client,
     instance_root: &Path,
     asset_index: &AssetIndex,
 ) -> Result<(), anyhow::Error> {
@@ -762,7 +763,6 @@ async fn download_assets(
     }
 
     let asset_mgr = AssetManager::new(instance_root);
-    let http = release_the_launcher_net::default_client();
 
     push_event(
         queue,

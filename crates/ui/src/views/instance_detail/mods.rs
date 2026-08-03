@@ -19,7 +19,7 @@ pub fn show_mods(
 }
 
 fn handle_mod_messages(app: &mut App, id: &str, tab_state: &mut DetailTabState) {
-    for msg in app.drain_ui_queue() {
+    for msg in app.drain_view_events() {
         if let crate::UiMessage::ModUpdatesResult {
             instance_id: target_id,
             updates,
@@ -87,9 +87,9 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
                         ));
                         if ui.button("Update").clicked() {
                             if let Some(inst) =
-                                app.coordinator.instance_manager.get(&id.to_string())
+                                app.coordinator.instance_manager().get(&id.to_string())
                             {
-                                let mods_dir = inst.root.join(".minecraft").join("mods");
+                                let mods_dir = inst.mods_dir();
                                 let mc_ver = Some(inst.settings.minecraft_version.clone());
                                 let loader = Some(inst.settings.loader_name().to_string());
                                 app.install_mod_from_modrinth(

@@ -59,6 +59,10 @@ pub enum Event {
         account: Box<release_the_launcher_auth::AccountData>,
     },
     MsLoginError(String),
+    ModsMetadataResult {
+        instance_id: String,
+        mods: Vec<release_the_launcher_mods::ModDetails>,
+    },
     /// Ask the UI to close its window (post-launch, when configured).
     RequestClose,
 }
@@ -70,12 +74,12 @@ pub fn push_event(queue: &Queue, event: Event) {
 
 /// Owns application state and drives every async flow. UI-agnostic.
 pub struct Coordinator {
-    pub instance_manager: InstanceManager,
-    pub account_list: AccountList,
-    pub global_settings: GlobalSettings,
-    pub log_buffer: LogBuffer,
-    pub settings_path: PathBuf,
-    pub http_provider: reqwest::Client,
+    instance_manager: InstanceManager,
+    account_list: AccountList,
+    global_settings: GlobalSettings,
+    log_buffer: LogBuffer,
+    settings_path: PathBuf,
+    http_provider: reqwest::Client,
     queue: Queue,
     rx: Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<Event>>>,
     tokio_handle: Option<tokio::runtime::Handle>,
@@ -111,7 +115,10 @@ impl Coordinator {
             });
 
         let account_list = AccountList::load(&accounts_path);
-        let global_settings = GlobalSettings::load(&settings_path);
+        let global_settings = GlobalSettings::load(&settings_path).unwrap_or_else(|e| {
+            tracing::warn!("Global settings corrupted or unreadable ({e}), using defaults");
+            GlobalSettings::default()
+        });
 
         let log_file = config_dir.join(release_the_launcher_constants::paths::LOG_FILE_NAME);
         let log_buffer = LogBuffer::new();
@@ -130,6 +137,8 @@ impl Coordinator {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let tokio_handle = tokio::runtime::Handle::try_current().ok();
+
         Self {
             instance_manager,
             account_list,
@@ -139,12 +148,49 @@ impl Coordinator {
             http_provider: release_the_launcher_net::default_client(),
             queue: tx,
             rx: Arc::new(Mutex::new(rx)),
-            tokio_handle: None,
+            tokio_handle,
         }
     }
 
     pub fn attach_runtime(&mut self, handle: tokio::runtime::Handle) {
         self.tokio_handle = Some(handle);
+    }
+
+    #[must_use]
+    pub const fn instance_manager(&self) -> &InstanceManager {
+        &self.instance_manager
+    }
+
+    pub fn instance_manager_mut(&mut self) -> &mut InstanceManager {
+        &mut self.instance_manager
+    }
+
+    #[must_use]
+    pub const fn account_list(&self) -> &AccountList {
+        &self.account_list
+    }
+
+    pub fn account_list_mut(&mut self) -> &mut AccountList {
+        &mut self.account_list
+    }
+
+    #[must_use]
+    pub const fn global_settings(&self) -> &GlobalSettings {
+        &self.global_settings
+    }
+
+    pub fn global_settings_mut(&mut self) -> &mut GlobalSettings {
+        &mut self.global_settings
+    }
+
+    #[must_use]
+    pub const fn log_buffer(&self) -> &LogBuffer {
+        &self.log_buffer
+    }
+
+    #[must_use]
+    pub const fn http_provider(&self) -> &reqwest::Client {
+        &self.http_provider
     }
 
     #[must_use]
@@ -362,10 +408,7 @@ impl Coordinator {
         let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             return Vec::new();
         };
-        let mods_dir = inst
-            .root
-            .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
-            .join(release_the_launcher_constants::paths::MODS_DIR);
+        let mods_dir = inst.mods_dir();
         let entries = release_the_launcher_mods::list_mods(&mods_dir);
         let mut results = Vec::new();
         for entry in entries {
@@ -380,15 +423,47 @@ impl Coordinator {
         results
     }
 
+    pub fn request_mods_metadata(&self, instance_id: String) {
+        let Some(inst) = self.instance_manager.get(&instance_id) else {
+            return;
+        };
+        let mods_dir = inst.mods_dir();
+        let id = instance_id;
+
+        self.run_async(move |queue| async move {
+            let mods = tokio::task::spawn_blocking(move || {
+                let entries = release_the_launcher_mods::list_mods(&mods_dir);
+                let mut results = Vec::new();
+                for entry in entries {
+                    if entry.enabled {
+                        if let Ok(details) =
+                            release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
+                        {
+                            results.push(details);
+                        }
+                    }
+                }
+                results
+            })
+            .await
+            .unwrap_or_default();
+
+            push_event(
+                &queue,
+                Event::ModsMetadataResult {
+                    instance_id: id,
+                    mods,
+                },
+            );
+        });
+    }
+
     pub fn check_mod_updates(&self, instance_id: String) {
         let inst = self.instance_manager.get(&instance_id);
         let Some(inst) = inst else {
             return;
         };
-        let mods_dir = inst
-            .root
-            .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
-            .join(release_the_launcher_constants::paths::MODS_DIR);
+        let mods_dir = inst.mods_dir();
         let mc_version = inst.settings.minecraft_version.clone();
         let loader_str = inst.settings.loader_name().to_string();
 
@@ -432,8 +507,3 @@ impl Coordinator {
     }
 }
 
-impl Default for Coordinator {
-    fn default() -> Self {
-        Self::new()
-    }
-}

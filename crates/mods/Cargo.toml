@@ -5,15 +5,15 @@ edition = "2021"
 description = "Mod provider trait, Modrinth implementation"
 
 [dependencies]
-reqwest = { version = "0.12.28", features = ["stream", "json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-zip = "8.6.0"
-async-trait = "0.1"
-thiserror = "2"
-toml = "1"
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+reqwest     = { workspace = true, features = ["stream", "json"] }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+zip         = { workspace = true }
+async-trait = { workspace = true }
+thiserror   = { workspace = true }
+toml        = { workspace = true }
+tokio       = { workspace = true, features = ["sync", "rt", "macros"] }
+log         = "0.4"
 release-the-launcher-constants = { path = "../constants" }
-release-the-launcher-core = { path = "../core" }
-release-the-launcher-net = { path = "../net" }
-log = "0.4"
+release-the-launcher-core      = { path = "../core" }
+release-the-launcher-net       = { path = "../net" }

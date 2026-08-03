@@ -69,11 +69,11 @@ impl eframe::App for LauncherApp {
 /// repainting while flows run.
 pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
     let mut live = false;
-    let messages = state.app.drain_messages();
+    let messages = state.app.drain_coordinator_events();
     for msg in messages {
         match msg {
             UiMessage::Log(entry) => {
-                state.app.coordinator.log_buffer.push(entry);
+                state.app.coordinator.log_buffer().push(entry);
                 live = true;
             }
             UiMessage::Status(s) => {
@@ -100,16 +100,20 @@ pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
             UiMessage::DownloadError(err) => {
                 state.app.download_state = DownloadState::default();
                 state.app.status_message = format!("Download error: {err}");
-                let _ = state.app.ui_queue.send(UiMessage::DownloadError(err));
+                // Forward to view-specific UI channel so views can react
+                state.app.forward_view_event(UiMessage::DownloadError(err));
                 live = true;
             }
+            // View-specific async results: forward to the dedicated UI channel
+            // so views can drain them independently without creating a re-enqueue loop.
             view_msg @ (UiMessage::ModrinthSearchResult(_)
             | UiMessage::ModrinthVersionsResult { .. }
             | UiMessage::ModrinthInstallResult { .. }
             | UiMessage::ModUpdatesResult { .. }
+            | UiMessage::ModsMetadataResult { .. }
             | UiMessage::VersionListResult(_)
             | UiMessage::LoaderVersionsResult { .. }) => {
-                let _ = state.app.ui_queue.send(view_msg);
+                state.app.forward_view_event(view_msg);
             }
             UiMessage::MsDeviceCode {
                 user_code,
@@ -131,8 +135,8 @@ pub fn drain_ui_messages(state: &mut LauncherApp) -> bool {
                 );
                 state.login_state = LoginState::Idle;
                 let display_name = name;
-                state.app.coordinator.account_list.add(*account);
-                let _ = state.app.coordinator.account_list.save();
+                state.app.coordinator.account_list_mut().add(*account);
+                let _ = state.app.coordinator.account_list_mut().save();
                 state.app.status_message = format!("Logged in as {display_name}");
                 state.app.current_view = View::AccountList;
                 live = true;

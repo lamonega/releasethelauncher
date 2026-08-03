@@ -16,7 +16,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
 
     let (mc_version, loader_name) = app
         .coordinator
-        .instance_manager
+        .instance_manager()
         .get(&id)
         .map(|inst| {
             (
@@ -43,7 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut Mod
 }
 
 fn process_messages(app: &App, state: &mut ModBrowserState) {
-    let messages = app.drain_ui_queue();
+    let messages = app.drain_view_events();
     for msg in messages {
         match msg {
             crate::UiMessage::ModrinthSearchResult(result) => match result {
@@ -177,7 +177,7 @@ fn show_results(
                         state.install_status = format!("Installing {}...", result.name);
                         let mods_dir = app
                             .coordinator
-                            .instance_manager
+                            .instance_manager()
                             .get_mods_dir(&id.to_string())
                             .unwrap_or_default();
 

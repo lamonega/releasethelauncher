@@ -90,7 +90,10 @@ pub async fn download_to_file(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let tmp_dest = dest.with_extension("tmp");
+    let tmp_dest = dest.with_file_name(format!(
+        "{}.tmp",
+        dest.file_name().unwrap_or_default().to_string_lossy()
+    ));
     let mut file = tokio::fs::File::create(&tmp_dest).await?;
 
     let mut hasher = checksum.map(|(kind, _)| Hasher::new(kind));
