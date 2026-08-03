@@ -311,7 +311,15 @@ pub fn parse_library(lib_val: &serde_json::Value) -> Vec<Library> {
     let name = lib.name.unwrap_or_default();
     let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref());
 
-    let url = lib.url.or_else(|| artifact.and_then(|a| a.url.clone()));
+    let url = lib
+        .url
+        .or_else(|| artifact.and_then(|a| a.url.clone()))
+        .or_else(|| {
+            // "downloads" declared without a main artifact URL (e.g. the twitch-*
+            // libs on Prism Meta): the artifact is gone upstream, skip the
+            // download instead of guessing a Mojang URL from the coordinates.
+            (lib.downloads.is_some() && artifact.is_none()).then(String::new)
+        });
     let sha1 = lib.sha1.or_else(|| artifact.and_then(|a| a.sha1.clone()));
     let size = lib.size.or_else(|| artifact.and_then(|a| a.size));
 

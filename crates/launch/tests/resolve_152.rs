@@ -1,3 +1,4 @@
+use release_the_launcher_launch::resolve::resolve_dependencies;
 use release_the_launcher_launch::{assemble_launch_profile, DependencyResolver};
 
 #[tokio::test]
@@ -23,7 +24,10 @@ async fn resolve_152_forge_738_profile() {
     eprintln!("forge main_class={:?}", forge.version_file.main_class);
     eprintln!("forge tweakers={:?}", forge.version_file.tweakers);
 
-    let profile = assemble_launch_profile(&[vanilla, forge]).unwrap();
+    let merged = resolve_dependencies(&mut resolver, vec![vanilla, forge])
+        .await
+        .expect("resolve dependencies");
+    let profile = assemble_launch_profile(&merged).unwrap();
     let mut names: Vec<String> = profile
         .libraries
         .iter()
@@ -39,10 +43,12 @@ async fn resolve_152_forge_738_profile() {
     eprintln!("tweakers={:?}", profile.tweakers);
 
     assert!(
-        names
-            .iter()
-            .any(|n| n.starts_with("org.lwjgl.lwjgl:lwjgl:2.9.0")),
-        "lwjgl 2.9.0 missing from profile"
+        names.iter().any(|n| n.contains("2.9.4-nightly")),
+        "lwjgl 2.9.4-nightly missing from profile"
+    );
+    assert!(
+        !names.iter().any(|n| n.contains("lwjgl:2.9.0")),
+        "dead lwjgl 2.9.0 present in profile"
     );
     assert!(
         names.iter().any(|n| n.contains("legacyfixer")),

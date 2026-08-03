@@ -158,10 +158,8 @@ pub async fn resolve_dependencies(
 
     for component in components {
         visited.insert(component.uid.clone());
-        if !component.is_locked {
-            for req in &component.dependencies {
-                queue.push_back(req.clone());
-            }
+        for req in &component.dependencies {
+            queue.push_back(req.clone());
         }
         resolved_deps.insert(component.uid.clone(), component);
     }
@@ -179,9 +177,9 @@ pub async fn resolve_dependencies(
             .unwrap_or_default();
 
         let url = if version.is_empty() {
-            format!("{}/v1/{}/index.json", urls::PRISM_META_BASE, req.uid)
+            format!("{}/{}/index.json", urls::PRISM_META_BASE, req.uid)
         } else {
-            format!("{}/v1/{}/{version}.json", urls::PRISM_META_BASE, req.uid)
+            format!("{}/{}/{version}.json", urls::PRISM_META_BASE, req.uid)
         };
 
         let resp: serde_json::Value = resolver.http.get(&url).send().await?.json().await?;
@@ -426,6 +424,35 @@ mod tests {
         assert_eq!(default_java_major_for_version("26.1"), 21);
     }
 
+    #[test]
+    fn parse_library_missing_artifact_is_skipped() {
+        let json = serde_json::json!({
+            "name": "tv.twitch:twitch-external-platform:4.5",
+            "natives": {
+                "linux": "natives-linux",
+                "osx": "natives-osx",
+                "windows": "natives-windows"
+            },
+            "downloads": {
+                "classifiers": {
+                    "natives-windows": {
+                        "url": "https://libraries.minecraft.net/tv/twitch/twitch-external-platform/4.5/twitch-external-platform-4.5-natives-windows.jar"
+                    }
+                }
+            }
+        });
+
+        let result = parse_library(&json);
+        assert_eq!(result.len(), 2);
+        assert!(!result[0].is_native);
+        assert_eq!(result[0].url.as_deref(), Some(""));
+        assert!(result[1].is_native);
+        assert!(result[1]
+            .url
+            .as_deref()
+            .is_some_and(|u| u.starts_with("https://")));
+    }
+
     #[tokio::test]
     async fn test_resolve_1_5_2_forge() {
         let mut resolver = DependencyResolver::new();
@@ -435,7 +462,25 @@ mod tests {
             .fetch_forge_component("1.5.2", "7.8.1.738")
             .await
             .unwrap();
-        let profile = assemble_launch_profile(&[vanilla, forge]).unwrap();
+        let merged = resolve_dependencies(&mut resolver, vec![vanilla, forge])
+            .await
+            .unwrap();
+        let profile = assemble_launch_profile(&merged).unwrap();
         assert_eq!(profile.main_class, "net.minecraft.launchwrapper.Launch");
+        // Prism Meta serves 1.5.2 as a requires-only component; the org.lwjgl
+        // component must be resolved and beat the dead 2.9.0 from the legacy
+        // Forge installer.
+        assert!(
+            profile
+                .libraries
+                .iter()
+                .any(|l| l.name.contains("2.9.4-nightly"))
+        );
+        assert!(
+            !profile
+                .libraries
+                .iter()
+                .any(|l| l.name.contains("2.9.0"))
+        );
     }
 }

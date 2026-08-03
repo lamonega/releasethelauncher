@@ -65,6 +65,9 @@ impl DownloadManager {
 
     fn maven_url_for_library(lib: &Library) -> Option<String> {
         if let Some(ref url) = lib.url {
+            if url.is_empty() {
+                return None;
+            }
             if url.starts_with("http://") || url.starts_with("https://") {
                 if Path::new(url)
                     .extension()
@@ -578,6 +581,20 @@ mod tests {
             native_url,
             "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar"
         );
+    }
+
+    #[test]
+    fn test_maven_url_for_library_skips_empty_url() {
+        let lib = Library {
+            name: "tv.twitch:twitch-platform:6.5".to_string(),
+            url: Some(String::new()),
+            sha1: None,
+            size: None,
+            is_native: false,
+            rules: vec![],
+            extract: None,
+        };
+        assert_eq!(DownloadManager::maven_url_for_library(&lib), None);
     }
 
     #[tokio::test]

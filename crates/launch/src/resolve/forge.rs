@@ -237,6 +237,15 @@ fn parse_installer_version_info(
                 if parsed.name.starts_with("net.minecraftforge:minecraftforge") {
                     continue;
                 }
+                // Legacy installers pin lwjgl 2.9.0 (dead on today's CDN) and
+                // per-OS variants; the net.minecraft component owns
+                // lwjgl/jinput/jutils, so keep the vanilla's copies only.
+                if parsed.name.starts_with("org.lwjgl.lwjgl:")
+                    || parsed.name.starts_with("net.java.jinput:")
+                    || parsed.name.starts_with("net.java.jutils:")
+                {
+                    continue;
+                }
                 if !libraries.iter().any(|l| l.name == parsed.name) {
                     libraries.push(parsed);
                 }
