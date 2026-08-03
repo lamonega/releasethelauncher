@@ -429,7 +429,10 @@ fn spawn_and_stream_output(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
-    push_event(queue, Event::Status("Game is running".to_string()));
+    push_event(
+        queue,
+        Event::DownloadComplete("Game is running".to_string()),
+    );
     send_log(
         queue,
         LogLevel::Info,
