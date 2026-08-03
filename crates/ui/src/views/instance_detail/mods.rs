@@ -51,7 +51,7 @@ fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut
             if ui
                 .add(widgets::icon_button(
                     crate::icons::SEARCH,
-                    "Buscar actualizaciones",
+                    "Check for Updates",
                 ))
                 .clicked()
             {
@@ -70,19 +70,19 @@ fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut
 fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &DetailTabState) {
     match &tab_state.mod_updates {
         ModUpdatesState::Checking => {
-            ui.colored_label(app.theme.text_secondary, "Buscando actualizaciones...");
+            ui.colored_label(app.theme.text_secondary, "Checking for updates...");
             ui.add_space(app.theme.spacing.xs);
         }
         ModUpdatesState::Loaded(updates) if updates.is_empty() => {
             ui.colored_label(
                 app.theme.text_secondary,
-                "Todos los mods están actualizados.",
+                "All mods are up to date.",
             );
             ui.add_space(app.theme.spacing.xs);
         }
         ModUpdatesState::Loaded(updates) => {
             ui.collapsing(
-                format!("Actualizaciones disponibles ({})", updates.len()),
+                format!("Available updates ({})", updates.len()),
                 |ui| {
                     for update in updates {
                         ui.horizontal(|ui| {
@@ -90,7 +90,7 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
                                 "{} → {}",
                                 update.latest.name, update.latest.version_number
                             ));
-                            if ui.button("Actualizar").clicked() {
+                            if ui.button("Update").clicked() {
                                 if let Some(inst) =
                                     app.coordinator.instance_manager.get(&id.to_string())
                                 {
@@ -231,7 +231,7 @@ fn show_mod_list(
                             );
                         }
                     } else {
-                        ui.colored_label(app.theme.text_secondary, "(sin metadata)");
+                        ui.colored_label(app.theme.text_secondary, "(no metadata)");
                     }
 
                     if !entry.enabled {
