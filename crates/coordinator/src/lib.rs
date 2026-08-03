@@ -244,7 +244,6 @@ impl Coordinator {
         ) = inst;
 
         let id_str = instance_id.to_string();
-        let http = self.http_provider.clone();
         self.run_async(move |queue| {
             do_launch(LaunchParams {
                 queue,
@@ -261,7 +260,6 @@ impl Coordinator {
                 pre_launch_command,
                 post_launch_command,
                 close_after_launch,
-                http,
             })
         });
     }

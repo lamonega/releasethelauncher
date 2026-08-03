@@ -34,7 +34,6 @@ pub struct LaunchParams {
     pub pre_launch_command: String,
     pub post_launch_command: String,
     pub close_after_launch: bool,
-    pub http: reqwest::Client,
 }
 
 pub fn extract_account_data(account_list: &AccountList) -> Option<AccountData> {
@@ -508,7 +507,7 @@ async fn download_modpack_mods(params: &LaunchParams) {
     }
     send_log(&params.queue, LogLevel::Info, "Downloading modpack mods...");
     let mod_manager =
-        release_the_launcher_mods::ModrinthProvider::with_client(params.http.clone(), None);
+        release_the_launcher_mods::ModrinthProvider::with_client(params.http_client.clone(), None);
     let progress_queue = params.queue.clone();
     if let Err(e) = mod_manager
         .download_modpack_files(&params.instance_root, move |done, total, mod_name| {
