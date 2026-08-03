@@ -127,6 +127,9 @@ pub fn handle_install_result(
     mc_version: &str,
     loader_raw: &str,
 ) {
+    if instance_id.is_empty() {
+        return;
+    }
     let loader = if loader_raw.starts_with("Fabric") {
         ModLoader::Fabric {
             loader_version: loader_raw.strip_prefix("Fabric:").unwrap_or("").to_string(),

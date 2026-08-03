@@ -209,6 +209,11 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
         && !state.name.is_empty()
         && !state.mc_version.is_empty()
     {
+        if state.loader_type != LoaderType::Vanilla && state.loader_version.trim().is_empty() {
+            app.status_message =
+                "Wait for loader versions to load or enter one manually.".to_string();
+            return;
+        }
         let loader = match state.loader_type {
             LoaderType::Vanilla => ModLoader::Vanilla,
             LoaderType::Fabric => ModLoader::Fabric {

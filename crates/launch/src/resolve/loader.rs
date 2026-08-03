@@ -36,7 +36,8 @@ pub struct LoaderParams<'a> {
 ///
 /// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component, LaunchError> {
-    let chosen_loader_version = if let Some(lv) = params.loader_version {
+    let chosen_loader_version = if let Some(lv) = params.loader_version.filter(|lv| !lv.is_empty())
+    {
         lv.to_string()
     } else {
         let index_resp: serde_json::Value = params
@@ -70,7 +71,7 @@ pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component,
         main_class = Some(mc.to_string());
     }
 
-    let loader_ver = params.loader_version.unwrap_or("unknown");
+    let loader_ver = &chosen_loader_version;
 
     Ok(Component {
         uid: params.uid.to_string(),

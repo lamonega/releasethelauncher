@@ -365,7 +365,10 @@ impl Coordinator {
         let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             return Vec::new();
         };
-        let mods_dir = inst.root.join("mods");
+        let mods_dir = inst
+            .root
+            .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
+            .join(release_the_launcher_constants::paths::MODS_DIR);
         let entries = release_the_launcher_mods::list_mods(&mods_dir);
         let mut results = Vec::new();
         for entry in entries {

@@ -64,6 +64,7 @@ pub struct AssetIndexJson {
 #[derive(Deserialize, Debug, Default)]
 pub struct DownloadsJson {
     pub client: Option<ArtifactJson>,
+    pub artifact: Option<ArtifactJson>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -195,11 +196,11 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
 
     let client_download = vj
         .downloads
-        .and_then(|d| d.client)
+        .and_then(|d| d.client.or(d.artifact))
         .or_else(|| {
             vj.main_jar
                 .and_then(|mj| mj.downloads)
-                .and_then(|d| d.client)
+                .and_then(|d| d.client.or(d.artifact))
         })
         .map(|c| ClientDownload {
             url: c.url.unwrap_or_default(),

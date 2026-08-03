@@ -274,6 +274,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_version_json_prism_meta_artifact() {
+        let json = serde_json::json!({
+            "mainJar": {
+                "downloads": {
+                    "artifact": {
+                        "sha1": "30c73b1c5da787909b2f73340419fdf13b9def88",
+                        "size": 26_836_906,
+                        "url": "https://piston-data.mojang.com/v1/objects/30c73b1c5da787909b2f73340419fdf13b9def88/client.jar"
+                    }
+                },
+                "name": "com.mojang:minecraft:1.21.1:client"
+            }
+        });
+
+        let vf = parse_version_json(&json);
+        let dl = vf
+            .client_download
+            .expect("client jar from mainJar.downloads.artifact");
+        assert_eq!(
+            dl.url,
+            "https://piston-data.mojang.com/v1/objects/30c73b1c5da787909b2f73340419fdf13b9def88/client.jar"
+        );
+    }
+
+    #[test]
     fn parse_version_json_1206() {
         let json = serde_json::json!({
             "libraries": [
@@ -470,17 +495,10 @@ mod tests {
         // Prism Meta serves 1.5.2 as a requires-only component; the org.lwjgl
         // component must be resolved and beat the dead 2.9.0 from the legacy
         // Forge installer.
-        assert!(
-            profile
-                .libraries
-                .iter()
-                .any(|l| l.name.contains("2.9.4-nightly"))
-        );
-        assert!(
-            !profile
-                .libraries
-                .iter()
-                .any(|l| l.name.contains("2.9.0"))
-        );
+        assert!(profile
+            .libraries
+            .iter()
+            .any(|l| l.name.contains("2.9.4-nightly")));
+        assert!(!profile.libraries.iter().any(|l| l.name.contains("2.9.0")));
     }
 }

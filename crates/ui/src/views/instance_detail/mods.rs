@@ -74,41 +74,35 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
             ui.add_space(app.theme.spacing.xs);
         }
         ModUpdatesState::Loaded(updates) if updates.is_empty() => {
-            ui.colored_label(
-                app.theme.text_secondary,
-                "All mods are up to date.",
-            );
+            ui.colored_label(app.theme.text_secondary, "All mods are up to date.");
             ui.add_space(app.theme.spacing.xs);
         }
         ModUpdatesState::Loaded(updates) => {
-            ui.collapsing(
-                format!("Available updates ({})", updates.len()),
-                |ui| {
-                    for update in updates {
-                        ui.horizontal(|ui| {
-                            ui.label(format!(
-                                "{} → {}",
-                                update.latest.name, update.latest.version_number
-                            ));
-                            if ui.button("Update").clicked() {
-                                if let Some(inst) =
-                                    app.coordinator.instance_manager.get(&id.to_string())
-                                {
-                                    let mods_dir = inst.root.join("mods");
-                                    let mc_ver = Some(inst.settings.minecraft_version.clone());
-                                    let loader = Some(inst.settings.loader_name().to_string());
-                                    app.install_mod_from_modrinth(
-                                        update.latest.project_id.clone(),
-                                        mods_dir,
-                                        mc_ver,
-                                        loader,
-                                    );
-                                }
+            ui.collapsing(format!("Available updates ({})", updates.len()), |ui| {
+                for update in updates {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} → {}",
+                            update.latest.name, update.latest.version_number
+                        ));
+                        if ui.button("Update").clicked() {
+                            if let Some(inst) =
+                                app.coordinator.instance_manager.get(&id.to_string())
+                            {
+                                let mods_dir = inst.root.join(".minecraft").join("mods");
+                                let mc_ver = Some(inst.settings.minecraft_version.clone());
+                                let loader = Some(inst.settings.loader_name().to_string());
+                                app.install_mod_from_modrinth(
+                                    update.latest.project_id.clone(),
+                                    mods_dir,
+                                    mc_ver,
+                                    loader,
+                                );
                             }
-                        });
-                    }
-                },
-            );
+                        }
+                    });
+                }
+            });
             ui.add_space(app.theme.spacing.xs);
         }
         ModUpdatesState::Idle => {}
@@ -190,12 +184,7 @@ fn show_mod_list(
     id: &str,
     tab_state: &DetailTabState,
 ) {
-    let mc_mods_dir = root_path.join(".minecraft").join("mods");
-    let mods_dir = if mc_mods_dir.exists() {
-        mc_mods_dir
-    } else {
-        root_path.join("mods")
-    };
+    let mods_dir = root_path.join(".minecraft").join("mods");
     let mods = release_the_launcher_mods::list_mods(&mods_dir);
     let metadata_list = app.coordinator.mods_metadata(id);
 

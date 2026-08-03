@@ -103,7 +103,12 @@ pub async fn install_mod(
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_default();
-                        Event::Status(format!("Installed mod: {name}"))
+                        Event::ModrinthInstallResult {
+                            instance_id: String::new(),
+                            name,
+                            mc_version: String::new(),
+                            loader: String::new(),
+                        }
                     }
                     Err(e) => Event::DownloadError(format!("Mod install failed: {e}")),
                 }
