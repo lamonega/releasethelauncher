@@ -1,15 +1,14 @@
-pub mod fabric;
-pub mod forge;
-pub mod loader;
-pub mod neoforge;
-pub mod parsers;
-pub mod prism;
-pub mod quilt;
+pub(crate) mod fabric;
+pub(crate) mod forge;
+pub(crate) mod loader;
+pub(crate) mod neoforge;
+pub(crate) mod parsers;
+pub(crate) mod prism;
+pub(crate) mod quilt;
 
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
-pub use parsers::{default_java_major_for_version, parse_library, parse_version_json};
 use release_the_launcher_constants::urls;
 
 pub struct DependencyResolver {
@@ -30,7 +29,7 @@ impl DependencyResolver {
     }
 
     #[must_use]
-    pub const fn with_client(http: Client) -> Self {
+    pub(crate) const fn with_client(http: Client) -> Self {
         Self {
             http,
             manifest: None,
@@ -46,7 +45,7 @@ impl DependencyResolver {
     }
 
     #[must_use]
-    pub fn get_version_url(&self, version_id: &str) -> Option<String> {
+    pub(crate) fn get_version_url(&self, version_id: &str) -> Option<String> {
         self.manifest.as_ref().and_then(|m| {
             m.versions
                 .iter()
@@ -56,7 +55,7 @@ impl DependencyResolver {
     }
 
     #[must_use]
-    pub fn available_versions(&self) -> Vec<String> {
+    pub(crate) fn available_versions(&self) -> Vec<String> {
         self.manifest.as_ref().map_or_else(Vec::new, |m| {
             m.versions.iter().map(|v| v.id.clone()).collect()
         })
@@ -183,7 +182,7 @@ pub async fn resolve_dependencies(
         };
 
         let resp: serde_json::Value = resolver.http.get(&url).send().await?.json().await?;
-        let version_file = parse_version_json(&resp);
+        let version_file = parsers::parse_version_json(&resp);
         let dependencies = parsers::parse_requires(&resp);
         let actual_version = resp
             .get("version")
@@ -228,6 +227,7 @@ pub async fn resolve_dependencies(
 
 #[cfg(test)]
 mod tests {
+    use super::parsers::{default_java_major_for_version, parse_library, parse_version_json};
     use super::*;
     use crate::profile::assemble_launch_profile;
     use crate::{Component, Library, Rule, RuleOs, VersionFile};

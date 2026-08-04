@@ -5,24 +5,22 @@ pub mod fml;
 pub mod java;
 pub mod memory;
 pub mod natives;
-pub mod platform;
+pub(crate) mod platform;
 pub mod profile;
 pub mod resolve;
 
 use std::path::PathBuf;
 use thiserror::Error;
 
-pub use command::{
-    build_command, launch_game, run_post_launch_command, run_pre_launch_command, PlayerAuth,
-};
-pub use download::{library_filename, DownloadManager};
+pub use command::{build_command, run_post_launch_command, run_pre_launch_command, PlayerAuth};
+pub use download::DownloadManager;
 pub use fml::ensure_fml_deobfuscation_data;
-pub use natives::{extract_natives, is_native_binary, verify_natives_dir};
+pub use natives::{extract_natives, verify_natives_dir};
 pub use profile::{assemble_launch_profile, AssetIndex, LaunchProfile};
 pub use resolve::DependencyResolver;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MavenCoord {
+pub(crate) struct MavenCoord {
     pub group: String,
     pub artifact: String,
     pub version: String,
@@ -32,7 +30,7 @@ pub struct MavenCoord {
 
 impl MavenCoord {
     #[must_use]
-    pub fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         let (base, ext) = if let Some((b, e)) = name.split_once('@') {
             (b, e.to_string())
         } else {
@@ -63,7 +61,7 @@ impl MavenCoord {
     }
 
     #[must_use]
-    pub fn filename(&self) -> String {
+    pub(crate) fn filename(&self) -> String {
         match &self.classifier {
             Some(cls) => format!("{}-{}-{}.{}", self.artifact, self.version, cls, self.ext),
             None => format!("{}-{}.{}", self.artifact, self.version, self.ext),
@@ -71,7 +69,7 @@ impl MavenCoord {
     }
 
     #[must_use]
-    pub fn path(&self) -> PathBuf {
+    pub(crate) fn path(&self) -> PathBuf {
         let group_path = self.group.replace('.', "/");
         PathBuf::from(group_path)
             .join(&self.artifact)
@@ -80,7 +78,7 @@ impl MavenCoord {
     }
 
     #[must_use]
-    pub fn is_zip_artifact(&self) -> bool {
+    pub(crate) fn is_zip_artifact(&self) -> bool {
         self.ext.eq_ignore_ascii_case("zip")
     }
 }

@@ -19,7 +19,7 @@ pub struct DownloadManager {
 }
 
 #[must_use]
-pub fn library_filename(lib: &Library) -> String {
+pub(crate) fn library_filename(lib: &Library) -> String {
     if let Some(mut coord) = crate::MavenCoord::parse(&lib.name) {
         if coord.ext == "jar" {
             if let Some(ref url) = lib.url {
@@ -49,7 +49,7 @@ impl DownloadManager {
     }
 
     #[must_use]
-    pub fn with_client(cache_dir: PathBuf, http: Client) -> Self {
+    pub(crate) fn with_client(cache_dir: PathBuf, http: Client) -> Self {
         let libraries_dir = cache_dir.join("libraries");
         Self {
             http,
@@ -59,7 +59,7 @@ impl DownloadManager {
     }
 
     #[must_use]
-    pub fn libraries_dir(&self) -> &Path {
+    pub(crate) fn libraries_dir(&self) -> &Path {
         &self.libraries_dir
     }
 
@@ -112,7 +112,7 @@ impl DownloadManager {
     }
 
     #[must_use]
-    pub fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
+    pub(crate) fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
         let parts: Vec<&str> = lib.name.split(':').collect();
         if parts.len() < 3 {
             return None;
@@ -428,14 +428,15 @@ impl DownloadManager {
                 let progress_ref = progress_cb.clone();
 
                 join_set.spawn(async move {
-                    if target_path.exists() {
+                    let result = if target_path.exists() {
                         downloaded_cnt.fetch_add(size, Ordering::SeqCst);
                         debug!(asset = %name_clone, hash = %hash, "Asset object already cached");
+                        Ok(())
                     } else if let Ok(_permit) = sem.acquire().await {
                         let url = format!("{}/{prefix}/{hash}", urls::MOJANG_RESOURCES);
                         let checksum =
                             Some((release_the_launcher_net::HashKind::Sha1, hash.as_str()));
-                        if let Err(e) = release_the_launcher_net::download_to_file(
+                        match release_the_launcher_net::download_to_file(
                             &client,
                             &url,
                             &target_path,
@@ -444,22 +445,45 @@ impl DownloadManager {
                         )
                         .await
                         {
-                            warn!(asset = %name_clone, hash = %hash, error = %e, "Asset download failure");
-                        } else {
-                            downloaded_cnt.fetch_add(size, Ordering::SeqCst);
-                            debug!(asset = %name_clone, hash = %hash, "Downloaded asset object");
+                            Ok(()) => {
+                                downloaded_cnt.fetch_add(size, Ordering::SeqCst);
+                                debug!(asset = %name_clone, hash = %hash, "Downloaded asset object");
+                                Ok(())
+                            }
+                            Err(e) => Err(LaunchError::Launch(format!(
+                                "Asset download failure for '{name_clone}': {e}"
+                            ))),
                         }
-                    }
+                    } else {
+                        Ok(())
+                    };
 
                     let cur = downloaded_cnt.load(Ordering::SeqCst);
                     let tot = total_cnt.load(Ordering::SeqCst);
                     progress_ref(cur, tot.max(cur), &name_clone);
-                    Ok::<(), LaunchError>(())
+                    result
                 });
             }
 
+            let mut failures: u64 = 0;
             while let Some(res) = join_set.join_next().await {
-                let _ = res;
+                match res {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        warn!(error = %e, "Asset object download failed");
+                        failures += 1;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Asset download task panicked");
+                        failures += 1;
+                    }
+                }
+            }
+            if failures > 0 {
+                warn!(
+                    failed = failures,
+                    "Asset object downloads completed with failures"
+                );
             }
         }
 
@@ -523,7 +547,7 @@ mod tests {
                     .unwrap()
                     .as_nanos()
             ));
-            let _ = std::fs::create_dir_all(&path);
+            std::fs::create_dir_all(&path).ok();
             Self(path)
         }
         fn path(&self) -> &Path {
@@ -532,7 +556,7 @@ mod tests {
     }
     impl Drop for TestDir {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            std::fs::remove_dir_all(&self.0).ok();
         }
     }
 
@@ -644,19 +668,25 @@ mod tests {
             for stream in listener.incoming() {
                 let mut stream = stream.unwrap();
                 let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf);
+                let n = stream.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
                 let req = String::from_utf8_lossy(&buf);
                 if req.contains("bad-1.0.jar") {
-                    let _ =
-                        stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n");
+                    stream
+                        .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n")
+                        .ok();
                 } else {
                     std::thread::sleep(Duration::from_millis(400));
                     let body = b"okjar-content";
-                    let _ = stream.write_all(
-                        format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len())
-                            .as_bytes(),
-                    );
-                    let _ = stream.write_all(body);
+                    stream
+                        .write_all(
+                            format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len())
+                                .as_bytes(),
+                        )
+                        .ok();
+                    stream.write_all(body).ok();
                 }
             }
         });

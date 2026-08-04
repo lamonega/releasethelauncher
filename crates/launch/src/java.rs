@@ -335,7 +335,7 @@ fn add_java_bin_candidates(java_home: &str, candidates: &mut Vec<PathBuf>) {
 /// # Errors
 ///
 /// Returns [`LaunchError::JavaNotFound`] if the version cannot be determined or is incompatible.
-pub fn validate_java(
+pub(crate) fn validate_java(
     java_path: &Path,
     compatible_java_majors: &[u32],
 ) -> Result<PathBuf, LaunchError> {
@@ -376,14 +376,14 @@ fn check_version_compatibility(
 }
 
 #[must_use]
-pub fn detect_java_major_version(java_path: &Path) -> Option<u32> {
+pub(crate) fn detect_java_major_version(java_path: &Path) -> Option<u32> {
     let output = quiet_command(java_path.to_str()?, &["-version"]).ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     parse_java_version_output(&stderr)
 }
 
 #[must_use]
-pub fn parse_java_version_output(output: &str) -> Option<u32> {
+pub(crate) fn parse_java_version_output(output: &str) -> Option<u32> {
     for line in output.lines() {
         let line = line.trim();
         if line.is_empty() {

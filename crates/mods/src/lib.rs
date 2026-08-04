@@ -1,6 +1,5 @@
 pub mod modrinth;
-pub mod modrinth_types;
-pub mod packwiz;
+pub(crate) mod modrinth_types;
 pub mod parser;
 
 pub use modrinth::ModrinthProvider;
@@ -333,8 +332,7 @@ pub(crate) fn safe_join_under(base: &Path, rel: &Path) -> Result<PathBuf, ModsEr
 
     if let Some(parent) = joined.parent() {
         if parent.exists() {
-            if let (Ok(canon_base), Ok(canon_parent)) =
-                (base.canonicalize(), parent.canonicalize())
+            if let (Ok(canon_base), Ok(canon_parent)) = (base.canonicalize(), parent.canonicalize())
             {
                 if !canon_parent.starts_with(&canon_base) {
                     return Err(ModsError::Provider("Unsafe path".into()));
@@ -374,7 +372,7 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or_default()
         ));
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::remove_dir_all(&temp_dir).ok();
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let base = temp_dir.join("instance").join(".minecraft");
@@ -382,6 +380,6 @@ mod tests {
         assert_eq!(joined, base.join("mods/legit.jar"));
         assert!(joined.starts_with(&base));
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

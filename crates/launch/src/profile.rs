@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::resolve::default_java_major_for_version;
+use crate::resolve::parsers::default_java_major_for_version;
 use crate::{ClientDownload, Component, LaunchError, Library};
 
 fn maven_key(name: &str) -> String {

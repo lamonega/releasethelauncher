@@ -1,9 +1,9 @@
 use reqwest::Client;
 use serde::Deserialize;
 
+use crate::msa::{token_from_msa_tokens, MsaTokens};
 use crate::xbox::XboxTokens;
 use crate::AuthError;
-use crate::msa::{token_from_msa_tokens, MsaTokens};
 use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
 use release_the_launcher_constants::{defaults, urls};
 
@@ -52,7 +52,7 @@ struct EntitlementItem {
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails or the launcher login response is invalid.
-pub async fn launcher_login(
+pub(crate) async fn launcher_login(
     http: &Client,
     xbox_tokens: &XboxTokens,
 ) -> Result<(String, Token), AuthError> {
@@ -90,7 +90,7 @@ pub async fn launcher_login(
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails or the response cannot be deserialized.
-pub async fn fetch_profile(
+pub(crate) async fn fetch_profile(
     http: &Client,
     mc_token: &str,
 ) -> Result<Option<MinecraftProfile>, AuthError> {
@@ -137,7 +137,10 @@ pub async fn fetch_profile(
 /// # Errors
 ///
 /// Returns an error if the HTTP request fails or the response cannot be deserialized.
-pub async fn fetch_entitlement(http: &Client, mc_token: &str) -> Result<Entitlement, AuthError> {
+pub(crate) async fn fetch_entitlement(
+    http: &Client,
+    mc_token: &str,
+) -> Result<Entitlement, AuthError> {
     let resp = http
         .get(urls::MC_ENTITLEMENT_URL)
         .bearer_auth(mc_token)

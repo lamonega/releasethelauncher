@@ -116,12 +116,6 @@ impl ModrinthProvider {
         }
     }
 
-    #[must_use]
-    pub fn with_cache(mut self, cache: Arc<Mutex<HttpMetaCache>>) -> Self {
-        self.cache = cache;
-        self
-    }
-
     fn build_headers(&self) -> Vec<(&str, &str)> {
         let mut headers = vec![(
             "User-Agent",
@@ -308,7 +302,10 @@ impl ModrinthProvider {
             let Ok(dest) =
                 safe_join_under(&target_dir.join(".minecraft"), Path::new(&file_obj.path))
             else {
-                log::warn!("Skipping modpack file outside target dir: {}", file_obj.path);
+                log::warn!(
+                    "Skipping modpack file outside target dir: {}",
+                    file_obj.path
+                );
                 continue;
             };
             total_bytes += size;
@@ -518,7 +515,9 @@ impl ModProvider for ModrinthProvider {
                 is_eternal: false,
             };
             cache_guard.update(entry);
-            let _ = cache_guard.save();
+            if let Err(e) = cache_guard.save() {
+                log::warn!("Failed to persist modrinth search cache: {e}");
+            }
         }
 
         Ok(hits_to_summaries(resp))
@@ -580,7 +579,9 @@ impl ModProvider for ModrinthProvider {
                 is_eternal: false,
             };
             cache_guard.update(entry);
-            let _ = cache_guard.save();
+            if let Err(e) = cache_guard.save() {
+                log::warn!("Failed to persist modrinth versions cache: {e}");
+            }
         }
 
         let versions = resp.into_iter().map(Into::into).collect();
@@ -742,7 +743,7 @@ fn unpack_structured_mod_archive_if_needed(path: &Path, target_dir: &Path) -> Pa
         extract_mod_entries(&mut archive, target_dir);
     }
 
-    let _ = fs::remove_file(path);
+    fs::remove_file(path).ok();
     if has_jar_dir {
         new_jar_path
     } else {
@@ -806,18 +807,27 @@ fn repack_jar_entries<R: std::io::Read + std::io::Seek>(
                 let inner_name = &name[pfx.len()..];
                 if !inner_name.is_empty() {
                     if zip_entry.is_dir() {
-                        let _ = zip_writer.add_directory(inner_name, options);
+                        if let Err(e) = zip_writer.add_directory(inner_name, options) {
+                            log::warn!("Failed to add directory {inner_name} to repacked jar: {e}");
+                        }
                     } else if zip_writer.start_file(inner_name, options).is_ok() {
                         let mut buffer = Vec::new();
                         if std::io::Read::read_to_end(&mut zip_entry, &mut buffer).is_ok() {
-                            let _ = std::io::Write::write_all(&mut zip_writer, &buffer);
+                            if let Err(e) = std::io::Write::write_all(&mut zip_writer, &buffer) {
+                                log::warn!("Failed to write {inner_name} to repacked jar: {e}");
+                            }
                         }
                     }
                 }
             }
         }
     }
-    let _ = zip_writer.finish();
+    if let Err(e) = zip_writer.finish() {
+        log::warn!(
+            "Failed to finalize repacked jar {jar}: {e}",
+            jar = new_jar_path.display()
+        );
+    }
 }
 
 fn extract_resource_entries<R: std::io::Read + std::io::Seek>(
@@ -844,13 +854,25 @@ fn extract_resource_entries<R: std::io::Read + std::io::Seek>(
                         continue;
                     };
                     if zip_entry.is_dir() {
-                        let _ = fs::create_dir_all(&out_path);
+                        if let Err(e) = fs::create_dir_all(&out_path) {
+                            log::warn!(
+                                "Failed to create resource dir {dir}: {e}",
+                                dir = out_path.display()
+                            );
+                        }
                     } else {
                         if let Some(parent) = out_path.parent() {
-                            let _ = fs::create_dir_all(parent);
+                            if let Err(e) = fs::create_dir_all(parent) {
+                                log::warn!(
+                                    "Failed to create resource dir {dir}: {e}",
+                                    dir = parent.display()
+                                );
+                            }
                         }
                         if let Ok(mut out_file) = fs::File::create(&out_path) {
-                            let _ = std::io::copy(&mut zip_entry, &mut out_file);
+                            if let Err(e) = std::io::copy(&mut zip_entry, &mut out_file) {
+                                log::warn!("Failed to extract resource {name}: {e}");
+                            }
                         }
                     }
                 }
@@ -874,10 +896,17 @@ fn extract_mod_entries<R: std::io::Read + std::io::Seek>(
                         continue;
                     };
                     if let Some(parent) = out_path.parent() {
-                        let _ = fs::create_dir_all(parent);
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            log::warn!(
+                                "Failed to create mods dir {dir}: {e}",
+                                dir = parent.display()
+                            );
+                        }
                     }
                     if let Ok(mut out_file) = fs::File::create(&out_path) {
-                        let _ = std::io::copy(&mut zip_entry, &mut out_file);
+                        if let Err(e) = std::io::copy(&mut zip_entry, &mut out_file) {
+                            log::warn!("Failed to extract mod {name}: {e}");
+                        }
                     }
                 }
             }
@@ -900,7 +929,7 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or_default()
         ));
-        let _ = fs::remove_dir_all(&dir);
+        fs::remove_dir_all(&dir).ok();
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -917,9 +946,13 @@ mod tests {
         writer.write_all(b"evil").unwrap();
         writer.start_file("resources/legit.txt", options).unwrap();
         writer.write_all(b"text").unwrap();
-        writer.start_file("resources/../../evil.sh", options).unwrap();
+        writer
+            .start_file("resources/../../evil.sh", options)
+            .unwrap();
         writer.write_all(b"evil").unwrap();
-        writer.start_file("overrides/../../evil.sh", options).unwrap();
+        writer
+            .start_file("overrides/../../evil.sh", options)
+            .unwrap();
         writer.write_all(b"evil").unwrap();
 
         writer.finish().unwrap().into_inner()
@@ -944,7 +977,7 @@ mod tests {
         assert!(!root.join("evil").exists());
         assert!(!root.join("evil.sh").exists());
 
-        let _ = fs::remove_dir_all(&root);
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

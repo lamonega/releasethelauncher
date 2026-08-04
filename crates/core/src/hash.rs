@@ -30,14 +30,14 @@ pub fn compute_sha1_file(path: &Path) -> Result<String, io::Error> {
 }
 
 #[must_use]
-pub fn compute_sha256_bytes(bytes: &[u8]) -> String {
+pub(crate) fn compute_sha256_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
 /// # Errors
 ///
 /// Returns [`io::Error`] if opening or reading the file fails.
-pub fn compute_sha256_file(path: &Path) -> Result<String, io::Error> {
+pub(crate) fn compute_sha256_file(path: &Path) -> Result<String, io::Error> {
     hash_file(path, Sha256::new())
 }
 

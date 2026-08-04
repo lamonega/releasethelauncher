@@ -50,12 +50,12 @@ impl MsAuthFlow {
     }
 
     #[must_use]
-    pub fn new(client_id: String) -> Self {
+    pub(crate) fn new(client_id: String) -> Self {
         Self::with_http(client_id, release_the_launcher_net::default_client())
     }
 
     #[must_use]
-    pub const fn with_http(client_id: String, http: Client) -> Self {
+    pub(crate) const fn with_http(client_id: String, http: Client) -> Self {
         Self { client_id, http }
     }
 
@@ -143,7 +143,7 @@ impl MsAuthFlow {
 }
 
 #[must_use]
-pub fn now_unix() -> u64 {
+pub(crate) fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -151,7 +151,7 @@ pub fn now_unix() -> u64 {
 }
 
 #[must_use]
-pub fn token_from_msa_tokens(tokens: &MsaTokens, expires_in: u64) -> Token {
+pub(crate) fn token_from_msa_tokens(tokens: &MsaTokens, expires_in: u64) -> Token {
     Token::new(
         tokens.access_token.clone(),
         Some(tokens.refresh_token.clone()),

@@ -6,7 +6,7 @@ use crate::{LaunchError, Library};
 
 /// Helper to check if a file extension matches a dynamic library (.dll, .so, .dylib).
 #[must_use]
-pub fn is_native_binary(path: &Path) -> bool {
+pub(crate) fn is_native_binary(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {
@@ -177,7 +177,8 @@ mod tests {
         let mut zip = ZipWriter::new(file);
 
         // LWJGL 2.x root files
-        zip.start_file("lwjgl.dll", SimpleFileOptions::default()).unwrap();
+        zip.start_file("lwjgl.dll", SimpleFileOptions::default())
+            .unwrap();
         zip.write_all(b"dummy dll content").unwrap();
 
         zip.start_file("lwjgl64.dll", SimpleFileOptions::default())
@@ -226,6 +227,6 @@ mod tests {
         assert!(natives_dir.join("custom_native.dll").exists());
         assert_eq!(verify_natives_dir(&natives_dir), 5);
 
-        let _ = fs::remove_dir_all(temp_dir);
+        fs::remove_dir_all(temp_dir).ok();
     }
 }

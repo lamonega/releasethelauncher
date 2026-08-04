@@ -29,22 +29,26 @@ pub struct Instance {
 impl Instance {
     #[must_use]
     pub fn minecraft_dir(&self) -> std::path::PathBuf {
-        self.root.join(release_the_launcher_constants::paths::MINECRAFT_DIR)
+        self.root
+            .join(release_the_launcher_constants::paths::MINECRAFT_DIR)
     }
 
     #[must_use]
     pub fn mods_dir(&self) -> std::path::PathBuf {
-        self.minecraft_dir().join(release_the_launcher_constants::paths::MODS_DIR)
+        self.minecraft_dir()
+            .join(release_the_launcher_constants::paths::MODS_DIR)
     }
 
     #[must_use]
-    pub fn index_dir(&self) -> std::path::PathBuf {
-        self.root.join(release_the_launcher_constants::paths::INDEX_DIR)
+    pub(crate) fn index_dir(&self) -> std::path::PathBuf {
+        self.root
+            .join(release_the_launcher_constants::paths::INDEX_DIR)
     }
 
     #[must_use]
-    pub fn config_path(&self) -> std::path::PathBuf {
-        self.root.join(release_the_launcher_constants::paths::INSTANCE_CONFIG_FILE_NAME)
+    pub(crate) fn config_path(&self) -> std::path::PathBuf {
+        self.root
+            .join(release_the_launcher_constants::paths::INSTANCE_CONFIG_FILE_NAME)
     }
 }
 
@@ -55,7 +59,7 @@ pub struct InstanceManager {
 
 impl InstanceManager {
     #[must_use]
-    pub fn instances_dir(&self) -> &Path {
+    pub(crate) fn instances_dir(&self) -> &Path {
         &self.instances_dir
     }
 
@@ -179,7 +183,7 @@ impl InstanceManager {
     }
 
     #[must_use = "Returns the index directory path for the given instance, or None if not found"]
-    pub fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
+    pub(crate) fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
         self.instances.get(id).map(|i| i.index_dir())
     }
 

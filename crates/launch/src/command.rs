@@ -3,7 +3,6 @@ use crate::platform;
 use crate::LaunchError;
 use std::collections::HashSet;
 use std::path::Path;
-use std::process::ExitStatus;
 
 #[derive(Debug, Clone)]
 pub struct PlayerAuth {
@@ -12,7 +11,7 @@ pub struct PlayerAuth {
     pub access_token: String,
 }
 
-pub fn clean_environment(cmd: &mut std::process::Command) {
+pub(crate) fn clean_environment(cmd: &mut std::process::Command) {
     for var in [
         "_JAVA_OPTIONS",
         "_JAVA_TOOL_OPTIONS",
@@ -25,7 +24,11 @@ pub fn clean_environment(cmd: &mut std::process::Command) {
     }
 }
 
-pub fn set_game_env(cmd: &mut std::process::Command, instance_root: &Path, mc_version: &str) {
+pub(crate) fn set_game_env(
+    cmd: &mut std::process::Command,
+    instance_root: &Path,
+    mc_version: &str,
+) {
     cmd.env("INST_DIR", instance_root.display().to_string());
     cmd.env(
         "INST_MC_DIR",
@@ -85,11 +88,11 @@ fn replace_placeholders(
     res
 }
 
-pub const DEFAULT_WINDOW_WIDTH: &str = "854";
-pub const DEFAULT_WINDOW_HEIGHT: &str = "480";
+pub(crate) const DEFAULT_WINDOW_WIDTH: &str = "854";
+pub(crate) const DEFAULT_WINDOW_HEIGHT: &str = "480";
 
 #[must_use]
-pub fn jvm_args(
+pub(crate) fn jvm_args(
     profile: &LaunchProfile,
     instance_dir: &Path,
     java_path: &Path,
@@ -158,7 +161,7 @@ pub fn jvm_args(
 }
 
 #[must_use]
-pub fn game_args(
+pub(crate) fn game_args(
     profile: &LaunchProfile,
     instance_dir: &Path,
     player: &PlayerAuth,
@@ -302,22 +305,8 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
 }
 
 /// # Errors
-/// Returns an error if the process fails to spawn or wait.
-pub async fn launch_game(mut command: std::process::Command) -> Result<ExitStatus, LaunchError> {
-    tokio::task::spawn_blocking(move || {
-        command
-            .spawn()
-            .map_err(|e| LaunchError::Launch(e.to_string()))?
-            .wait()
-            .map_err(|e| LaunchError::Launch(e.to_string()))
-    })
-    .await
-    .map_err(|e| LaunchError::Launch(e.to_string()))?
-}
-
-/// # Errors
 /// Returns an error if executing the shell command fails and `fail_on_error` is true.
-pub async fn run_shell_command(
+pub(crate) async fn run_shell_command(
     command: &str,
     instance_root: &Path,
     fail_on_error: bool,

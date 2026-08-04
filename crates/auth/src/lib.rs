@@ -28,7 +28,7 @@ pub struct Token {
 
 impl Token {
     #[must_use]
-    pub fn new(token: String, refresh_token: Option<String>, expires_in: u64) -> Self {
+    pub(crate) fn new(token: String, refresh_token: Option<String>, expires_in: u64) -> Self {
         let now = msa::now_unix();
         Self {
             issue_instant: now,
@@ -39,7 +39,7 @@ impl Token {
     }
 
     #[must_use]
-    pub fn new_no_expiry(token: String) -> Self {
+    pub(crate) fn new_no_expiry(token: String) -> Self {
         Self {
             issue_instant: msa::now_unix(),
             not_after: None,
@@ -160,7 +160,7 @@ impl AccountData {
 /// Computes the offline-mode player UUID using MD5, matching vanilla Minecraft's
 /// `nameUUIDFromBytes` algorithm (UUID v3 with the `OfflinePlayer:` prefix).
 #[must_use]
-pub fn offline_uuid(username: &str) -> Uuid {
+pub(crate) fn offline_uuid(username: &str) -> Uuid {
     use md5::Digest as _;
 
     let input = format!("OfflinePlayer:{username}");

@@ -33,12 +33,12 @@ impl AssetManager {
     }
 
     #[must_use]
-    pub fn asset_index_path(&self, asset_id: &str) -> PathBuf {
+    pub(crate) fn asset_index_path(&self, asset_id: &str) -> PathBuf {
         self.index_dir.join(format!("{asset_id}.json"))
     }
 
     #[must_use]
-    pub fn asset_object_path(&self, hash: &str) -> PathBuf {
+    pub(crate) fn asset_object_path(&self, hash: &str) -> PathBuf {
         let prefix = &hash[..2.min(hash.len())];
         self.objects_dir.join(prefix).join(hash)
     }

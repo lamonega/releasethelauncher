@@ -32,7 +32,7 @@ pub fn needs_refresh(account: &AccountData) -> bool {
 /// # Errors
 ///
 /// Returns an error if the token refresh, Xbox authentication, or Minecraft authentication fails.
-pub async fn refresh_account(
+pub(crate) async fn refresh_account(
     client_id: &str,
     http: &Client,
     account: &mut AccountData,

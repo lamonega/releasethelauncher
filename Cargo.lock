@@ -3864,7 +3864,6 @@ dependencies = [
 name = "release-the-launcher-launch"
 version = "0.8.0"
 dependencies = [
- "anyhow",
  "dirs",
  "quick-xml",
  "release-the-launcher-constants",
@@ -3916,6 +3915,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.19",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

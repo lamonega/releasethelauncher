@@ -83,6 +83,7 @@ impl LogBuffer {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(ref mut file) = *file_guard {
+                // Benign discard: a log-write failure must never break the app.
                 let _ = writeln!(
                     file,
                     "[{}] [{}/{}] {}",

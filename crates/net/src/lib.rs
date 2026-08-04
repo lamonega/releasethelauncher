@@ -1,7 +1,5 @@
 pub mod cache;
 
-pub use cache::{CacheEntry, HttpMetaCache};
-
 use futures::StreamExt;
 use sha1::Digest as _;
 use std::path::Path;
@@ -121,7 +119,9 @@ pub async fn download_to_file(
         if let Some(h) = hasher {
             let actual = h.finalize();
             if !actual.eq_ignore_ascii_case(expected_hash) {
-                let _ = tokio::fs::remove_file(&tmp_dest).await;
+                if let Err(e) = tokio::fs::remove_file(&tmp_dest).await {
+                    tracing::warn!("Failed to remove temp file {}: {e}", tmp_dest.display());
+                }
                 return Err(NetError::ChecksumMismatch {
                     expected: expected_hash.to_string(),
                     actual,
