@@ -49,10 +49,7 @@ impl HttpMetaCache {
     /// # Errors
     /// Returns an error if writing to the cache file fails.
     pub fn save(&self) -> std::io::Result<()> {
-        let data = CacheFile {
-            entries: self.entries.clone(),
-        };
-        let json = serde_json::to_string_pretty(&data)?;
+        let json = serde_json::to_string_pretty(&self.entries)?;
         let tmp = self.file_path.with_extension("json.tmp");
         fs::write(&tmp, &json)?;
         fs::rename(&tmp, &self.file_path)?;

@@ -9,7 +9,7 @@ license.workspace = true
 reqwest    = { workspace = true, features = ["stream"] }
 sha2       = "0.10"
 sha1       = "0.10"
-tokio      = { workspace = true, features = ["fs", "io-util", "rt", "sync", "time", "macros"] }
+tokio      = { workspace = true, features = ["fs", "io-util", "rt", "sync", "time"] }
 futures    = "0.3"
 serde      = { workspace = true }
 serde_json = { workspace = true }

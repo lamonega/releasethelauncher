@@ -62,7 +62,6 @@ pub enum ModFilter {
     All,
     EnabledOnly,
     DisabledOnly,
-    None,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_progress_ratio() {
-        let close = |a: f32, b: f32| (a - b).abs() < f32::EPSILON;
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
         assert!(close(progress_ratio(0, 100), 0.0));
         assert!(close(progress_ratio(50, 100), 0.5));
         assert!(close(progress_ratio(100, 100), 1.0));

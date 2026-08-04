@@ -4,22 +4,13 @@ use crate::download::DownloadManager;
 use crate::{LaunchError, LaunchProfile};
 use release_the_launcher_constants::urls;
 
-struct FmlLibSeed {
-    sha1: &'static str,
-}
-
 // fallback for jars that have no usable hash in fmlversion.properties
 // (missing/placeholder). Only 1.5.2 has a checksum-verified copy
 // (Prism Launcher mirror / web.archive.org snapshot; the sha1 matches what FML 5.2.23.738
 // expects — the file served by files.minecraftforge.net today differs and
 // fails FML's check). The 1.5.x family is covered by auto-extraction from the
 // universal jar instead.
-const FML_LIB_SEEDS: &[(&str, FmlLibSeed)] = &[(
-    "1.5.2",
-    FmlLibSeed {
-        sha1: "446e55cd986582c70fcf12cb27bc00114c5adfd9",
-    },
-)];
+const FML_LIB_SEEDS: &[(&str, &str)] = &[("1.5.2", "446e55cd986582c70fcf12cb27bc00114c5adfd9")];
 
 /// FML (pre-1.6) downloads `deobfuscation_data_{mc}.zip` into its home
 /// (`~/.minecraft/lib` — FML of that era ignores `--gameDir`) on first launch
@@ -42,9 +33,9 @@ pub async fn ensure_fml_deobfuscation_data(
         return Ok(());
     }
     let mc = &profile.mc_version;
-    let seed = FML_LIB_SEEDS.iter().find(|(m, _)| m == mc).map(|(_, s)| s);
-    let expected = deobfuscation_hash_from_jar(profile, instance_root)
-        .or_else(|| seed.map(|s| s.sha1.to_string()));
+    let seed = FML_LIB_SEEDS.iter().find(|(m, _)| m == mc).map(|(_, s)| *s);
+    let expected =
+        deobfuscation_hash_from_jar(profile, instance_root).or_else(|| seed.map(|s| s.to_string()));
     let Some(expected) = expected else {
         return Ok(());
     };
@@ -151,9 +142,9 @@ mod tests {
         let seed = FML_LIB_SEEDS
             .iter()
             .find(|(mc, _)| *mc == "1.5.2")
-            .map(|(_, s)| s)
+            .map(|(_, s)| *s)
             .expect("1.5.2 seed");
-        assert_eq!(seed.sha1.len(), 40);
+        assert_eq!(seed.len(), 40);
     }
 
     #[test]

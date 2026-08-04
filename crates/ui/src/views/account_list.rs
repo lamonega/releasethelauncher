@@ -67,7 +67,7 @@ fn show_accounts(app: &mut App, ui: &mut egui::Ui, accounts: &[AccountSummary]) 
             }
         });
 
-        account_auth_state_badge(ui, &app.theme, account);
+        widgets::auth_state_ui(ui, &app.theme, &account.account_type, account.auth_state);
     }
     if let Some(i) = select_idx {
         let name = accounts[i].name.clone();
@@ -95,38 +95,6 @@ fn show_accounts(app: &mut App, ui: &mut egui::Ui, accounts: &[AccountSummary]) 
                 &format!("Failed to remove account '{name}': {err}"),
             );
             app.status_message = format!("Failed to remove account: {err}");
-        }
-    }
-}
-
-fn account_auth_state_badge(
-    ui: &mut egui::Ui,
-    theme: &crate::theme::Theme,
-    account: &AccountSummary,
-) {
-    if account.account_type == release_the_launcher_auth::AccountType::Microsoft {
-        let auth = &account.auth_state;
-        let state_label = match auth {
-            release_the_launcher_auth::AuthState::Online => "Online",
-            release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
-            release_the_launcher_auth::AuthState::Expired => "Token Expired",
-            release_the_launcher_auth::AuthState::Disabled => "Disabled",
-            release_the_launcher_auth::AuthState::Gone => "No token",
-            release_the_launcher_auth::AuthState::Offline => "",
-        };
-        if !state_label.is_empty() {
-            let state_color = match auth {
-                release_the_launcher_auth::AuthState::Online => theme.log_colors.info,
-                release_the_launcher_auth::AuthState::Expired
-                | release_the_launcher_auth::AuthState::Gone => theme.log_colors.warn,
-                release_the_launcher_auth::AuthState::Disabled => theme.log_colors.error,
-                release_the_launcher_auth::AuthState::Refreshing
-                | release_the_launcher_auth::AuthState::Offline => theme.text_secondary,
-            };
-            ui.horizontal(|ui| {
-                ui.add_space(32.0);
-                ui.colored_label(state_color, state_label);
-            });
         }
     }
 }

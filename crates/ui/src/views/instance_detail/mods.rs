@@ -166,7 +166,6 @@ fn show_mod_list(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut Det
         .filter(|(_, m)| match filter {
             ModFilter::EnabledOnly if !m.enabled => false,
             ModFilter::DisabledOnly if m.enabled => false,
-            ModFilter::None => false,
             _ => query.is_empty() || m.name.to_lowercase().contains(&query),
         })
         .map(|(i, _)| i)

@@ -3850,7 +3850,6 @@ name = "release-the-launcher-core"
 version = "0.8.0"
 dependencies = [
  "hex",
- "log",
  "release-the-launcher-constants",
  "serde",
  "sha1",
@@ -3876,7 +3875,6 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tracing",
- "url",
  "version-compare",
  "winreg",
  "zip",

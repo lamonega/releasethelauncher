@@ -1,7 +1,6 @@
 use super::{LoaderType, NewInstanceState, VersionListState};
 use crate::App;
 use crate::View;
-use release_the_launcher_core::ModLoader;
 
 pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Name:");
@@ -214,21 +213,9 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
                 "Wait for loader versions to load or enter one manually.".to_string();
             return;
         }
-        let loader = match state.loader_type {
-            LoaderType::Vanilla => ModLoader::Vanilla,
-            LoaderType::Fabric => ModLoader::Fabric {
-                loader_version: state.loader_version.clone(),
-            },
-            LoaderType::Forge => ModLoader::Forge {
-                loader_version: state.loader_version.clone(),
-            },
-            LoaderType::NeoForge => ModLoader::NeoForge {
-                loader_version: state.loader_version.clone(),
-            },
-            LoaderType::Quilt => ModLoader::Quilt {
-                loader_version: state.loader_version.clone(),
-            },
-        };
+        let loader = state
+            .loader_type
+            .into_mod_loader(state.loader_version.clone());
 
         match app.coordinator.create_instance(
             &state.name,

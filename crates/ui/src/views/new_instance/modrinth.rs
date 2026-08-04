@@ -1,4 +1,4 @@
-use super::{LoaderFilter, NewInstanceState};
+use super::{LoaderType, NewInstanceState};
 use crate::App;
 use egui_extras::{Column, TableBuilder};
 use release_the_launcher_mods::{ModVersion, ProjectSummary};
@@ -32,11 +32,12 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
         state.modrinth_status = "Searching...".to_string();
         state.modrinth_results = Vec::new();
         let loader = match state.loader_filter {
-            LoaderFilter::Any => String::new(),
-            LoaderFilter::Fabric => "fabric".to_string(),
-            LoaderFilter::Forge => "forge".to_string(),
-            LoaderFilter::NeoForge => "neoforge".to_string(),
-            LoaderFilter::Quilt => "quilt".to_string(),
+            LoaderType::Any => String::new(),
+            LoaderType::Fabric => "fabric".to_string(),
+            LoaderType::Forge => "forge".to_string(),
+            LoaderType::NeoForge => "neoforge".to_string(),
+            LoaderType::Quilt => "quilt".to_string(),
+            LoaderType::Vanilla => String::new(),
         };
         app.search_modrinth_modpacks(
             state.modrinth_query.clone(),
@@ -134,7 +135,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
         .selected_text(state.loader_filter.as_str())
         .show_ui(ui, |ui| {
             if ui
-                .selectable_value(&mut state.loader_filter, LoaderFilter::Any, "Any")
+                .selectable_value(&mut state.loader_filter, LoaderType::Any, "Any")
                 .changed()
             {
                 app.log(
@@ -143,7 +144,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 );
             }
             if ui
-                .selectable_value(&mut state.loader_filter, LoaderFilter::Fabric, "Fabric")
+                .selectable_value(&mut state.loader_filter, LoaderType::Fabric, "Fabric")
                 .changed()
             {
                 app.log(
@@ -152,7 +153,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 );
             }
             if ui
-                .selectable_value(&mut state.loader_filter, LoaderFilter::Forge, "Forge")
+                .selectable_value(&mut state.loader_filter, LoaderType::Forge, "Forge")
                 .changed()
             {
                 app.log(
@@ -161,7 +162,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 );
             }
             if ui
-                .selectable_value(&mut state.loader_filter, LoaderFilter::NeoForge, "NeoForge")
+                .selectable_value(&mut state.loader_filter, LoaderType::NeoForge, "NeoForge")
                 .changed()
             {
                 app.log(
@@ -170,7 +171,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 );
             }
             if ui
-                .selectable_value(&mut state.loader_filter, LoaderFilter::Quilt, "Quilt")
+                .selectable_value(&mut state.loader_filter, LoaderType::Quilt, "Quilt")
                 .changed()
             {
                 app.log(

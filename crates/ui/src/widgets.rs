@@ -93,11 +93,11 @@ pub fn settings_field(ui: &mut egui::Ui, label: &str, value: &mut String) -> boo
 pub fn auth_state_ui(
     ui: &mut egui::Ui,
     theme: &Theme,
-    account: &release_the_launcher_auth::AccountData,
+    account_type: &release_the_launcher_auth::AccountType,
+    auth_state: release_the_launcher_auth::AuthState,
 ) {
-    if account.account_type == release_the_launcher_auth::AccountType::Microsoft {
-        let auth = account.auth_state();
-        let state_label = match auth {
+    if *account_type == release_the_launcher_auth::AccountType::Microsoft {
+        let state_label = match auth_state {
             release_the_launcher_auth::AuthState::Online => "Online",
             release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
             release_the_launcher_auth::AuthState::Expired => "Token Expired",
@@ -106,7 +106,7 @@ pub fn auth_state_ui(
             release_the_launcher_auth::AuthState::Offline => "",
         };
         if !state_label.is_empty() {
-            let state_color = match auth {
+            let state_color = match auth_state {
                 release_the_launcher_auth::AuthState::Online => theme.log_colors.info,
                 release_the_launcher_auth::AuthState::Expired
                 | release_the_launcher_auth::AuthState::Gone => theme.log_colors.warn,

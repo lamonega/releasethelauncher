@@ -49,7 +49,7 @@ pub fn show(
             if ui.button("Microsoft Login").clicked() {
                 app.log(crate::log::LogLevel::Info, "UI: Microsoft Login started");
                 *login_state = LoginState::MicrosoftPending;
-                start_ms_login(app);
+                app.start_ms_login();
             }
         }
         LoginState::MicrosoftPending => {
@@ -102,10 +102,6 @@ pub fn show(
             }
         }
     }
-}
-
-fn start_ms_login(app: &App) {
-    app.start_ms_login();
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

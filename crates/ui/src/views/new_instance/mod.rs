@@ -204,7 +204,7 @@ pub struct NewInstanceState {
     pub tab: InstanceTab,
     pub modrinth_query: String,
     pub mc_version_filter: String,
-    pub loader_filter: LoaderFilter,
+    pub loader_filter: LoaderType,
     pub modrinth_status: String,
     pub modrinth_results: Vec<ProjectSummary>,
     pub installing_modpack_id: Option<String>,
@@ -233,7 +233,7 @@ impl Default for NewInstanceState {
             tab: InstanceTab::default(),
             modrinth_query: String::new(),
             mc_version_filter: String::new(),
-            loader_filter: LoaderFilter::default(),
+            loader_filter: LoaderType::default(),
             modrinth_status: String::new(),
             modrinth_results: Vec::new(),
             installing_modpack_id: None,
@@ -267,11 +267,10 @@ pub enum InstanceTab {
     Modrinth,
 }
 
-pub type NewInstanceTab = InstanceTab;
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum LoaderType {
     #[default]
+    Any,
     Vanilla,
     Fabric,
     Forge,
@@ -283,6 +282,7 @@ impl LoaderType {
     #[must_use]
     pub const fn as_str(&self) -> &str {
         match self {
+            Self::Any => "Any",
             Self::Vanilla => "Vanilla",
             Self::Fabric => "Fabric",
             Self::Forge => "Forge",
@@ -290,27 +290,23 @@ impl LoaderType {
             Self::Quilt => "Quilt",
         }
     }
-}
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum LoaderFilter {
-    #[default]
-    Any,
-    Fabric,
-    Forge,
-    NeoForge,
-    Quilt,
-}
-
-impl LoaderFilter {
     #[must_use]
-    pub const fn as_str(&self) -> &str {
+    pub fn into_mod_loader(self, version: String) -> ModLoader {
         match self {
-            Self::Any => "Any",
-            Self::Fabric => "Fabric",
-            Self::Forge => "Forge",
-            Self::NeoForge => "NeoForge",
-            Self::Quilt => "Quilt",
+            Self::Vanilla | Self::Any => ModLoader::Vanilla,
+            Self::Fabric => ModLoader::Fabric {
+                loader_version: version,
+            },
+            Self::Forge => ModLoader::Forge {
+                loader_version: version,
+            },
+            Self::NeoForge => ModLoader::NeoForge {
+                loader_version: version,
+            },
+            Self::Quilt => ModLoader::Quilt {
+                loader_version: version,
+            },
         }
     }
 }

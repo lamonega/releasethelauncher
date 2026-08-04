@@ -563,30 +563,6 @@ fn count_asset_sizes(
 mod tests {
     use super::*;
 
-    struct TestDir(PathBuf);
-    impl TestDir {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "rtl_test_{}_{}",
-                name,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(&path).ok();
-            Self(path)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).ok();
-        }
-    }
-
     #[test]
     fn test_local_path_and_maven_url_for_standard_and_native_libraries() {
         let std_lib = Library {
@@ -656,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_libraries_skips_cached() {
-        let dir = TestDir::new("skip_cached");
+        let dir = tempfile::tempdir().unwrap();
         let dm = DownloadManager::new(dir.path().to_path_buf());
 
         let native_lib = Library {
@@ -725,7 +701,7 @@ mod tests {
         });
         let base = format!("http://{addr}/");
 
-        let dir = TestDir::new("partial_failure");
+        let dir = tempfile::tempdir().unwrap();
         let dm = DownloadManager::new(dir.path().to_path_buf());
 
         let ok_lib = Library {
