@@ -372,25 +372,8 @@ impl DownloadManager {
                 return Ok(());
             }
 
-            let mut initial_downloaded: u64 = 0;
-            let mut total_bytes: u64 = 0;
-
-            for (_, obj) in objects {
-                let hash = obj.get("hash").and_then(|v| v.as_str()).unwrap_or("");
-                let size = obj
-                    .get("size")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                total_bytes += size;
-
-                if !hash.is_empty() {
-                    let prefix = &hash[..2.min(hash.len())];
-                    let target_path = objects_dir.join(prefix).join(hash);
-                    if target_path.exists() {
-                        initial_downloaded += size;
-                    }
-                }
-            }
+            let (total_bytes, initial_downloaded) =
+                count_asset_sizes(objects, &objects_dir);
 
             let total_b = Arc::new(AtomicU64::new(total_bytes));
             let downloaded_b = Arc::new(AtomicU64::new(initial_downloaded));
@@ -530,6 +513,30 @@ impl DownloadManager {
         debug!(target = %target.display(), "File downloaded successfully");
         Ok(())
     }
+}
+
+fn count_asset_sizes(
+    objects: &serde_json::Map<String, serde_json::Value>,
+    objects_dir: &Path,
+) -> (u64, u64) {
+    let mut total_bytes: u64 = 0;
+    let mut initial_downloaded: u64 = 0;
+    for (_, obj) in objects {
+        let hash = obj.get("hash").and_then(|v| v.as_str()).unwrap_or("");
+        let size = obj
+            .get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        total_bytes += size;
+        if !hash.is_empty() {
+            let prefix = &hash[..2.min(hash.len())];
+            let target_path = objects_dir.join(prefix).join(hash);
+            if target_path.exists() {
+                initial_downloaded += size;
+            }
+        }
+    }
+    (total_bytes, initial_downloaded)
 }
 
 #[cfg(test)]

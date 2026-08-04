@@ -19,7 +19,7 @@ pub fn show_logs(
     if let Some(ref path) = cache.file_path {
         let metadata = std::fs::metadata(path).ok();
         let current_mtime = metadata.as_ref().and_then(|m| m.modified().ok());
-        let current_len = metadata.as_ref().map_or(0, |m| m.len());
+        let current_len = metadata.as_ref().map_or(0, std::fs::Metadata::len);
 
         if cache.last_mtime != current_mtime || cache.file_len != current_len {
             if let Ok(content) = std::fs::read_to_string(path) {

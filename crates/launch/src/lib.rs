@@ -1,3 +1,6 @@
+//! Game launch pipeline: version resolution and dependency graphs
+//! ([`resolve`]), asset/native/library downloads ([`download`], [`assets`],
+//! [`natives`]), Java discovery ([`java`]) and command assembly ([`command`]).
 pub mod assets;
 pub mod command;
 pub mod download;

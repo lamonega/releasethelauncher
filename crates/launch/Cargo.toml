@@ -3,6 +3,7 @@ name = "release-the-launcher-launch"
 version = { workspace = true }
 edition = "2021"
 description = "Version resolution, dependency graph, Java launch"
+license.workspace = true
 
 [dependencies]
 release-the-launcher-net       = { path = "../net" }

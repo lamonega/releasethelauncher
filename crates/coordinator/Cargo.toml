@@ -3,6 +3,7 @@ name = "release-the-launcher-coordinator"
 version = { workspace = true }
 edition = "2021"
 description = "Application coordinator: owns state, orchestrates launch, mod and auth flows"
+license.workspace = true
 
 [dependencies]
 release-the-launcher-core      = { path = "../core" }

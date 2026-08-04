@@ -3,6 +3,7 @@ name = "release-the-launcher-mods"
 version = { workspace = true }
 edition = "2021"
 description = "Mod provider trait, Modrinth implementation"
+license.workspace = true
 
 [dependencies]
 reqwest     = { workspace = true, features = ["stream", "json"] }

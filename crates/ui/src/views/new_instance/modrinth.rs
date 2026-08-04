@@ -15,6 +15,44 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
 
     ui.add_space(app.theme.spacing.sm);
 
+    show_mc_version_filter(app, ui, state);
+    show_loader_filter(app, ui, state);
+
+    ui.add_space(app.theme.spacing.sm);
+
+    if ui
+        .add(crate::widgets::icon_button(crate::icons::SEARCH, "Search"))
+        .clicked()
+        && !state.modrinth_query.is_empty()
+    {
+        app.log(
+            crate::log::LogLevel::Info,
+            &format!("UI: Searched Modrinth for '{}'", state.modrinth_query),
+        );
+        state.modrinth_status = "Searching...".to_string();
+        state.modrinth_results = Vec::new();
+        let loader = match state.loader_filter {
+            LoaderFilter::Any => String::new(),
+            LoaderFilter::Fabric => "fabric".to_string(),
+            LoaderFilter::Forge => "forge".to_string(),
+            LoaderFilter::NeoForge => "neoforge".to_string(),
+            LoaderFilter::Quilt => "quilt".to_string(),
+        };
+        app.search_modrinth_modpacks(
+            state.modrinth_query.clone(),
+            state.mc_version_filter.clone(),
+            loader,
+        );
+    }
+
+    ui.add_space(app.theme.spacing.sm);
+    ui.separator();
+    ui.add_space(app.theme.spacing.sm);
+
+    show_modrinth_results(app, ui, state);
+}
+
+fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("MC Version:");
     if state.available_versions.is_empty() {
         ui.text_edit_singleline(&mut state.mc_version_filter);
@@ -86,7 +124,9 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
             }
         });
     }
+}
 
+fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Loader:");
@@ -139,39 +179,6 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
                 );
             }
         });
-
-    ui.add_space(app.theme.spacing.sm);
-
-    if ui
-        .add(crate::widgets::icon_button(crate::icons::SEARCH, "Search"))
-        .clicked()
-        && !state.modrinth_query.is_empty()
-    {
-        app.log(
-            crate::log::LogLevel::Info,
-            &format!("UI: Searched Modrinth for '{}'", state.modrinth_query),
-        );
-        state.modrinth_status = "Searching...".to_string();
-        state.modrinth_results = Vec::new();
-        let loader = match state.loader_filter {
-            LoaderFilter::Any => String::new(),
-            LoaderFilter::Fabric => "fabric".to_string(),
-            LoaderFilter::Forge => "forge".to_string(),
-            LoaderFilter::NeoForge => "neoforge".to_string(),
-            LoaderFilter::Quilt => "quilt".to_string(),
-        };
-        app.search_modrinth_modpacks(
-            state.modrinth_query.clone(),
-            state.mc_version_filter.clone(),
-            loader,
-        );
-    }
-
-    ui.add_space(app.theme.spacing.sm);
-    ui.separator();
-    ui.add_space(app.theme.spacing.sm);
-
-    show_modrinth_results(app, ui, state);
 }
 
 fn show_modrinth_results(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {

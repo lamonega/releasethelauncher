@@ -1,3 +1,6 @@
+//! Centralized constants for the whole workspace: filesystem paths
+//! ([`paths`]), remote endpoints and user-agent ([`urls`], [`net`]), default
+//! values ([`defaults`]) and OAuth/Xbox error codes ([`auth`]).
 pub mod defaults {
     pub const DEFAULT_MEMORY_MIN: &str = "1024M";
     pub const DEFAULT_MEMORY_MAX: &str = "4096M";

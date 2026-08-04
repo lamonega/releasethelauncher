@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::Client;
 
-use super::modrinth_types::{ModrinthProject, ModrinthVersion, MrpackIndex, SearchResponse};
+use super::modrinth_types::{ModrinthProject, ModrinthVersion, MrpackFile, MrpackIndex, SearchResponse};
 use crate::{
     safe_join_under, InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo,
     ProjectSummary, ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
@@ -293,27 +293,9 @@ impl ModrinthProvider {
             return Ok(());
         }
 
-        // Pre-scan: sum sizes of existing and missing files using f.file_size
-        let mut initial_downloaded: u64 = 0;
-        let mut total_bytes: u64 = 0;
-
-        for file_obj in &index.files {
-            let size = file_obj.file_size;
-            let Ok(dest) =
-                safe_join_under(&target_dir.join(".minecraft"), Path::new(&file_obj.path))
-            else {
-                log::warn!(
-                    "Skipping modpack file outside target dir: {}",
-                    file_obj.path
-                );
-                continue;
-            };
-            total_bytes += size;
-
-            if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
-                initial_downloaded += size;
-            }
-        }
+        let mc_dir = target_dir.join(".minecraft");
+        let (total_bytes, initial_downloaded) =
+            count_modpack_file_sizes(&index.files, &mc_dir);
 
         let total_b = Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
         let downloaded_b = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
@@ -429,14 +411,13 @@ impl ModrinthProvider {
         let loader = version
             .loaders
             .first()
-            .map(|l| match l.to_lowercase().as_str() {
+            .map_or("Vanilla", |l| match l.to_lowercase().as_str() {
                 "fabric" => "Fabric",
                 "forge" => "Forge",
                 "neoforge" => "NeoForge",
                 "quilt" => "Quilt",
                 _ => "Vanilla",
             })
-            .unwrap_or("Vanilla")
             .to_string();
 
         Ok((instance_name, mc_version, loader))
@@ -701,6 +682,26 @@ impl ModProvider for ModrinthProvider {
         let final_path = unpack_structured_mod_archive_if_needed(&path, target_dir);
         Ok(final_path)
     }
+}
+
+fn count_modpack_file_sizes(files: &[MrpackFile], mc_dir: &Path) -> (u64, u64) {
+    let mut total_bytes: u64 = 0;
+    let mut initial_downloaded: u64 = 0;
+    for file_obj in files {
+        let size = file_obj.file_size;
+        if let Ok(dest) = safe_join_under(mc_dir, Path::new(&file_obj.path)) {
+            total_bytes += size;
+            if dest.exists() && dest.metadata().is_ok_and(|m| m.len() > 0) {
+                initial_downloaded += size;
+            }
+        } else {
+            log::warn!(
+                "Skipping modpack file outside target dir: {}",
+                file_obj.path
+            );
+        }
+    }
+    (total_bytes, initial_downloaded)
 }
 
 fn unpack_structured_mod_archive_if_needed(path: &Path, target_dir: &Path) -> PathBuf {

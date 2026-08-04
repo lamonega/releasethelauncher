@@ -3,6 +3,7 @@ name = "release-the-launcher-auth"
 version = { workspace = true }
 edition = "2021"
 description = "Account types, offline UUID, Microsoft OAuth"
+license.workspace = true
 
 [dependencies]
 reqwest    = { workspace = true, features = ["json"] }

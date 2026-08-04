@@ -1,12 +1,7 @@
 use super::{DetailTabState, ModFilter, ModUpdatesState};
 use crate::{widgets, App, View};
 
-pub fn show_mods(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    id: &str,
-    tab_state: &mut DetailTabState,
-) {
+pub fn show_mods(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
     handle_mod_messages(app, id, tab_state);
     show_mods_toolbar(app, ui, id, tab_state);
     show_mod_updates(app, ui, id, tab_state);
@@ -136,12 +131,7 @@ fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut Deta
 
 use super::CachedModEntry;
 
-fn show_mod_list(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    id: &str,
-    tab_state: &mut DetailTabState,
-) {
+fn show_mod_list(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
     let cache = &mut tab_state.mods_cache;
 
     // Refresh cache if instance changed or cache marked dirty

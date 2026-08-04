@@ -75,7 +75,7 @@ pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component,
 
     Ok(Component {
         uid: params.uid.to_string(),
-        version: loader_ver.to_string(),
+        version: loader_ver.clone(),
         is_locked: true,
         dependencies: vec![
             Requirement {

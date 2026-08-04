@@ -166,7 +166,7 @@ pub fn handle_install_result(
         ModLoader::Vanilla
     };
     match app.coordinator.create_instance(
-        name.to_string(),
+        name,
         mc_version.to_string(),
         loader,
         modpack_project_id,

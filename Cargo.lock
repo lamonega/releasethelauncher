@@ -3854,7 +3854,6 @@ dependencies = [
  "release-the-launcher-constants",
  "serde",
  "sha1",
- "sha2",
  "thiserror 2.0.19",
  "toml",
  "zip",

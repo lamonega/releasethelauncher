@@ -1,3 +1,6 @@
+//! HTTP layer shared by the backend: a default [`reqwest::Client`]
+//! ([`default_client`]), streaming downloads with checksum validation
+//! ([`download_to_file`]) and the metadata HTTP cache ([`cache`]).
 pub mod cache;
 
 use futures::StreamExt;

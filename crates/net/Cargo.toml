@@ -3,6 +3,7 @@ name = "release-the-launcher-net"
 version = { workspace = true }
 edition = "2021"
 description = "HTTP downloads, caching, checksum validation"
+license.workspace = true
 
 [dependencies]
 reqwest    = { workspace = true, features = ["stream"] }

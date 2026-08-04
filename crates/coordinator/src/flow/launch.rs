@@ -105,53 +105,57 @@ pub async fn do_launch(mut params: LaunchParams) {
     }
 }
 
-async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
-    // 1. Refresh Microsoft token if near expiry
-    if let Some(ref mut auth_account) = params.active_auth_account {
-        if release_the_launcher_auth::refresh::needs_refresh(auth_account) {
-            send_log(
-                &params.queue,
-                LogLevel::Info,
-                "Refreshing Microsoft account session before launch...",
-            );
-            let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
-            match release_the_launcher_auth::refresh::try_refresh_if_needed(
-                auth_account,
-                &params.http_client,
-                client_id,
-            )
-            .await
-            {
-                Ok(Some(refreshed)) => {
-                    params.account_data = Some(AccountData {
-                        name: refreshed.display_name().to_string(),
-                        uuid: refreshed.internal_id.clone(),
-                        token: refreshed
-                            .mc_token
-                            .as_ref()
-                            .map_or_else(String::new, |t| t.token.clone()),
-                    });
-                    push_event(
-                        &params.queue,
-                        Event::MsLoginSuccess {
-                            account: Box::new(refreshed),
-                        },
-                    );
-                    push_event(
-                        &params.queue,
-                        Event::Status("Account refreshed".to_string()),
-                    );
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(fail(
-                        &params.queue,
-                        format!("Session expired: re-login required ({e})"),
-                    ));
-                }
-            }
-        }
+async fn refresh_if_needed(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
+    let Some(ref mut auth_account) = params.active_auth_account else {
+        return Ok(());
+    };
+    if !release_the_launcher_auth::refresh::needs_refresh(auth_account) {
+        return Ok(());
     }
+    send_log(
+        &params.queue,
+        LogLevel::Info,
+        "Refreshing Microsoft account session before launch...",
+    );
+    let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
+    match release_the_launcher_auth::refresh::try_refresh_if_needed(
+        auth_account,
+        &params.http_client,
+        client_id,
+    )
+    .await
+    {
+        Ok(Some(refreshed)) => {
+            params.account_data = Some(AccountData {
+                name: refreshed.display_name().to_string(),
+                uuid: refreshed.internal_id.clone(),
+                token: refreshed
+                    .mc_token
+                    .as_ref()
+                    .map_or_else(String::new, |t| t.token.clone()),
+            });
+            push_event(
+                &params.queue,
+                Event::MsLoginSuccess {
+                    account: Box::new(refreshed),
+                },
+            );
+            push_event(
+                &params.queue,
+                Event::Status("Account refreshed".to_string()),
+            );
+            Ok(())
+        }
+        Ok(None) => Ok(()),
+        Err(e) => Err(fail(
+            &params.queue,
+            format!("Session expired: re-login required ({e})"),
+        )),
+    }
+}
+
+async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
+    refresh_if_needed(params).await?;
 
     // 2. Validate account data
     let account = params.account_data.as_ref().ok_or_else(|| {
@@ -337,7 +341,13 @@ async fn resolve_and_prepare_downloads(
         LogLevel::Info,
         "Checking & downloading game assets...",
     );
-    download_assets(&params.queue, &params.http_client, &params.instance_root, &profile.asset_index).await?;
+    download_assets(
+        &params.queue,
+        &params.http_client,
+        &params.instance_root,
+        &profile.asset_index,
+    )
+    .await?;
 
     download_client_jar(params, &profile).await?;
 
@@ -770,7 +780,7 @@ async fn download_assets(
     );
     let index_path = asset_mgr
         .download_asset_index(
-            &http,
+            http,
             &asset_index.id,
             &asset_index.url,
             asset_index.sha1.as_deref(),
@@ -782,7 +792,7 @@ async fn download_assets(
     let dl_manager = DownloadManager::new(instance_root.to_path_buf());
     let progress_queue = queue.clone();
     dl_manager
-        .download_asset_objects(&http, &index_path, move |done, total, asset_name| {
+        .download_asset_objects(http, &index_path, move |done, total, asset_name| {
             emit_progress(
                 &progress_queue,
                 format!("Downloading asset: {asset_name}"),

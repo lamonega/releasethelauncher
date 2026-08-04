@@ -1,3 +1,5 @@
+//! Mod management: the [`ModProvider`] trait, the [`ModrinthProvider`]
+//! implementation ([`modrinth`]) and mod-metadata parsing ([`parser`]).
 pub mod modrinth;
 pub(crate) mod modrinth_types;
 pub mod parser;

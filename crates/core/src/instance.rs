@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::settings::{InstanceSettings, SettingsError};
@@ -40,12 +40,6 @@ impl Instance {
     }
 
     #[must_use]
-    pub(crate) fn index_dir(&self) -> std::path::PathBuf {
-        self.root
-            .join(release_the_launcher_constants::paths::INDEX_DIR)
-    }
-
-    #[must_use]
     pub(crate) fn config_path(&self) -> std::path::PathBuf {
         self.root
             .join(release_the_launcher_constants::paths::INSTANCE_CONFIG_FILE_NAME)
@@ -58,11 +52,6 @@ pub struct InstanceManager {
 }
 
 impl InstanceManager {
-    #[must_use]
-    pub(crate) fn instances_dir(&self) -> &Path {
-        &self.instances_dir
-    }
-
     #[must_use]
     pub fn new(instances_dir: PathBuf) -> Self {
         Self {
@@ -179,12 +168,7 @@ impl InstanceManager {
 
     #[must_use = "Returns the mods directory path for the given instance, or None if not found"]
     pub fn get_mods_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances.get(id).map(|i| i.mods_dir())
-    }
-
-    #[must_use = "Returns the index directory path for the given instance, or None if not found"]
-    pub(crate) fn get_index_dir(&self, id: &InstanceId) -> Option<PathBuf> {
-        self.instances.get(id).map(|i| i.index_dir())
+        self.instances.get(id).map(Instance::mods_dir)
     }
 
     /// Updates and saves Java settings for a specific instance.

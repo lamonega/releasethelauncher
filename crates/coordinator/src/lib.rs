@@ -1,3 +1,11 @@
+//! Facade between the UI and the backend crates.
+//!
+//! `Coordinator` owns the shared state (instances, accounts, settings) and every
+//! stateful/IO operation the UI can trigger: launching, mod and auth flows
+//! (`flow`), plus the read snapshots and mutations exposed on [`Coordinator`]
+//! itself. **The UI must not reach past this crate into `core`/`auth`/`mods`/
+//! `launch`/`net` for logic — only for data types.** This crate also defines the
+//! [`Event`] queue that async flows publish to and the [`dto`] view snapshots.
 pub mod dto;
 pub mod flow;
 
@@ -14,7 +22,7 @@ pub use release_the_launcher_core::log;
 
 pub use flow::launch::{do_launch, extract_account_data, AccountData, LaunchParams};
 
-pub use dto::{AccountSummary, InstanceSummary, InstalledModEntry};
+pub use dto::{AccountSummary, InstalledModEntry, InstanceSummary};
 
 pub type Queue = tokio::sync::mpsc::UnboundedSender<Event>;
 
@@ -86,6 +94,12 @@ pub struct Coordinator {
     queue: Queue,
     rx: Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<Event>>>,
     tokio_handle: Option<tokio::runtime::Handle>,
+}
+
+impl Default for Coordinator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Coordinator {
@@ -348,17 +362,17 @@ impl Coordinator {
     /// writing the instance config fails.
     pub fn create_instance(
         &mut self,
-        name: String,
+        name: &str,
         mc_version: String,
         loader: ModLoader,
         modpack_project_id: Option<String>,
         modpack_version_id: Option<String>,
     ) -> Result<String, String> {
-        let mut settings = InstanceSettings::new(name.clone(), mc_version, loader);
+        let mut settings = InstanceSettings::new(name.to_string(), mc_version, loader);
         settings.modpack_project_id = modpack_project_id;
         settings.modpack_version_id = modpack_version_id;
         self.instance_manager
-            .create(&name, settings)
+            .create(name, settings)
             .map(|inst| inst.id.clone())
             .map_err(|e| e.to_string())
     }
@@ -648,11 +662,10 @@ impl Coordinator {
         let id = instance_id;
 
         self.run_async(move |queue| async move {
-            let mods = tokio::task::spawn_blocking(move || {
-                Self::parse_enabled_mod_metadata(&mods_dir)
-            })
-            .await
-            .unwrap_or_default();
+            let mods =
+                tokio::task::spawn_blocking(move || Self::parse_enabled_mod_metadata(&mods_dir))
+                    .await
+                    .unwrap_or_default();
 
             push_event(
                 &queue,
@@ -713,4 +726,3 @@ impl Coordinator {
         });
     }
 }
-

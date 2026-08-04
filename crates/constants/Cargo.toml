@@ -3,6 +3,6 @@ name = "release-the-launcher-constants"
 version = { workspace = true }
 edition = "2021"
 description = "Centralized constants for Release The Launcher"
-license = "MIT"
+license.workspace = true
 
 [dependencies]

@@ -1,3 +1,6 @@
+//! egui-based user interface: layout, theme, widgets and the views. The views
+//! only render and forward user intent; all stateful/IO work goes through
+//! [`Coordinator`] (re-exported facade), never directly into the backend crates.
 pub mod layout;
 pub mod theme;
 pub mod views;

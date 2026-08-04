@@ -1,3 +1,6 @@
+//! Account model and authentication flows: account persistence
+//! ([`account_list`]), Microsoft device-code OAuth ([`msa`]), Xbox/Minecraft
+//! token exchange ([`xbox`], [`minecraft`]) and refresh handling ([`refresh`]).
 pub mod account_list;
 pub mod minecraft;
 pub mod msa;

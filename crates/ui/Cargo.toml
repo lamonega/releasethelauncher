@@ -3,6 +3,7 @@ name = "release-the-launcher-ui"
 version = { workspace = true }
 edition = "2021"
 description = "egui-based UI, views only"
+license.workspace = true
 
 [dependencies]
 release-the-launcher-core = { path = "../core" }

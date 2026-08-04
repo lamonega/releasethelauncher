@@ -1,3 +1,7 @@
+//! Domain model and low-level utilities shared by the backend crates: the
+//! instance model and filesystem layout ([`instance`]), persisted settings
+//! ([`settings`]), archive extraction ([`archive`]), hashing ([`hash`]) and the
+//! in-memory log buffer ([`log`]).
 pub mod archive;
 pub mod hash;
 pub mod instance;

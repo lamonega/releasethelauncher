@@ -122,13 +122,13 @@ fn find_system_java(
 }
 
 fn scan_common_java_paths(
-    _check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>,
+    check_candidate: &mut impl FnMut(&Path) -> Option<PathBuf>,
 ) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let candidates = find_java_from_registry();
         for path in candidates {
-            if let Some(valid) = _check_candidate(&path) {
+            if let Some(valid) = check_candidate(&path) {
                 return Some(valid);
             }
         }
@@ -145,7 +145,7 @@ fn scan_common_java_paths(
                         let path = entry.path();
                         for exe in &["bin/javaw.exe", "bin/java.exe", "bin/java"] {
                             let candidate = path.join(exe);
-                            if let Some(valid) = _check_candidate(&candidate) {
+                            if let Some(valid) = check_candidate(&candidate) {
                                 return Some(valid);
                             }
                         }
@@ -172,7 +172,7 @@ fn scan_common_java_paths(
         ];
         for fallback in &fallbacks {
             let path = PathBuf::from(fallback);
-            if let Some(valid) = _check_candidate(&path) {
+            if let Some(valid) = check_candidate(&path) {
                 return Some(valid);
             }
         }
@@ -195,11 +195,11 @@ fn scan_common_java_paths(
                     for entry in entries.flatten() {
                         let path = entry.path();
                         let candidate = path.join("bin/java");
-                        if let Some(valid) = _check_candidate(&candidate) {
+                        if let Some(valid) = check_candidate(&candidate) {
                             return Some(valid);
                         }
                         let macos_candidate = path.join("Contents/Home/bin/java");
-                        if let Some(valid) = _check_candidate(&macos_candidate) {
+                        if let Some(valid) = check_candidate(&macos_candidate) {
                             return Some(valid);
                         }
                     }
@@ -299,10 +299,10 @@ fn traverse_registry_key(
     candidates: &mut Vec<PathBuf>,
     depth: usize,
 ) {
+    const VALUE_NAMES: [&str; 3] = ["JavaHome", "Path", "InstallationPath"];
     if depth > 4 {
         return;
     }
-    const VALUE_NAMES: [&str; 3] = ["JavaHome", "Path", "InstallationPath"];
     for val_name in &VALUE_NAMES {
         if let Ok(java_home) = key.get_value::<String, _>(val_name) {
             add_java_bin_candidates(&java_home, candidates);

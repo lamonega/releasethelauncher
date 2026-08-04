@@ -231,7 +231,7 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
         };
 
         match app.coordinator.create_instance(
-            state.name.clone(),
+            &state.name,
             state.mc_version.clone(),
             loader,
             None,

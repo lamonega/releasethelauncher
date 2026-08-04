@@ -169,10 +169,7 @@ fn show_results(
                         let project_id = result.id.clone();
                         state.installing_mod_id = Some(project_id.clone());
                         state.install_status = format!("Installing {}...", result.name);
-                        let mods_dir = app
-                            .coordinator
-                            .instance_mods_dir(&id)
-                            .unwrap_or_default();
+                        let mods_dir = app.coordinator.instance_mods_dir(id).unwrap_or_default();
 
                         let loader_clean = loader_name
                             .to_lowercase()
