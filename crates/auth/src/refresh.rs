@@ -15,18 +15,13 @@ pub fn needs_refresh(account: &AccountData) -> bool {
         return false;
     }
 
-    if let Some(ref msa_token) = account.msa_token {
-        if msa_token.refresh_token.is_none() {
-            return false;
-        }
-
-        msa_token.not_after.is_none_or(|not_after| {
-            let now = now_unix();
-            not_after < now + defaults::TOKEN_EXPIRY_BUFFER
-        })
-    } else {
-        false
-    }
+    account.msa_token.as_ref().is_some_and(|t| {
+        t.refresh_token.is_some()
+            && t.not_after.is_none_or(|not_after| {
+                let now = now_unix();
+                not_after < now + defaults::TOKEN_EXPIRY_BUFFER
+            })
+    })
 }
 
 /// # Errors
@@ -41,12 +36,12 @@ pub(crate) async fn refresh_account(
         return Ok(false);
     }
 
-    let refresh_token = match account.msa_token.as_ref() {
-        Some(t) => match t.refresh_token.as_ref() {
-            Some(rt) => rt.clone(),
-            None => return Ok(false),
-        },
-        None => return Ok(false),
+    let Some(refresh_token) = account
+        .msa_token
+        .as_ref()
+        .and_then(|t| t.refresh_token.clone())
+    else {
+        return Ok(false);
     };
 
     let oauth_client = BasicClient::new(ClientId::new(client_id.to_string())).set_token_uri(

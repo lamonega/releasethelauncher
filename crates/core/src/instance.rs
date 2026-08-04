@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::settings::{InstanceSettings, SettingsError};
+use crate::settings::{InstanceSettings, JavaSettings, SettingsError};
 use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
@@ -180,17 +180,13 @@ impl InstanceManager {
     pub fn update_instance_java_settings(
         &mut self,
         id: &str,
-        path: Option<String>,
-        memory_min: Option<String>,
-        memory_max: Option<String>,
+        java: &JavaSettings,
     ) -> Result<(), CoreError> {
         let instance = self
             .instances
             .get_mut(id)
             .ok_or_else(|| CoreError::InstanceNotFound(id.to_string()))?;
-        instance.settings.java.path = path;
-        instance.settings.java.memory_min = memory_min;
-        instance.settings.java.memory_max = memory_max;
+        instance.settings.java = java.clone();
         let config_path = instance.config_path();
         instance.settings.save(&config_path)?;
         Ok(())

@@ -1,5 +1,5 @@
 use release_the_launcher_constants::defaults;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -12,6 +12,14 @@ pub enum SettingsError {
     Io(#[from] io::Error),
     #[error("TOML parse error: {0}")]
     Parse(#[from] toml::de::Error),
+}
+
+fn load_toml<T: DeserializeOwned + Default>(path: &Path) -> Result<T, SettingsError> {
+    if !path.exists() {
+        return Ok(T::default());
+    }
+    let content = fs::read_to_string(path)?;
+    Ok(toml::from_str(&content)?)
 }
 
 fn save_toml<T: Serialize>(value: &T, path: &Path) -> std::io::Result<()> {
@@ -116,18 +124,8 @@ impl InstanceSettings {
         }
     }
 
-    /// Loads instance settings from a TOML file.
-    /// Returns `Ok(Default)` if the file does not exist.
-    /// Returns `Err(SettingsError)` if the file exists but cannot be read or parsed.
-    ///
-    /// # Errors
-    /// Returns an error if the file exists but is invalid.
     pub fn load(path: &Path) -> Result<Self, SettingsError> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let content = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&content)?)
+        load_toml(path)
     }
 
     /// Saves instance settings to a TOML file.
@@ -180,18 +178,8 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
-    /// Loads settings from a TOML file.
-    /// Returns `Ok(Default)` if the file does not exist.
-    /// Returns `Err(SettingsError)` if the file exists but cannot be read or parsed.
-    ///
-    /// # Errors
-    /// Returns an error if the file exists but is invalid.
     pub fn load(path: &Path) -> Result<Self, SettingsError> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let content = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&content)?)
+        load_toml(path)
     }
 
     /// # Errors

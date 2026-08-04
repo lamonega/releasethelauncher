@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::log::LogBuffer;
 use release_the_launcher_core::settings::GlobalSettings;
-use release_the_launcher_core::{InstanceManager, InstanceSettings, ModLoader};
+use release_the_launcher_core::{InstanceManager, InstanceSettings, JavaSettings, ModLoader};
 
 pub use release_the_launcher_core::log;
 
@@ -281,18 +281,11 @@ impl Coordinator {
 
     /// Parses metadata for every enabled mod in `mods_dir`.
     fn parse_enabled_mod_metadata(mods_dir: &Path) -> Vec<release_the_launcher_mods::ModDetails> {
-        let entries = release_the_launcher_mods::list_mods(mods_dir);
-        let mut results = Vec::new();
-        for entry in entries {
-            if entry.enabled {
-                if let Ok(details) =
-                    release_the_launcher_mods::parser::parse_mod_metadata(&entry.path)
-                {
-                    results.push(details);
-                }
-            }
-        }
-        results
+        release_the_launcher_mods::list_mods(mods_dir)
+            .into_iter()
+            .filter(|e| e.enabled)
+            .filter_map(|e| release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok())
+            .collect()
     }
 
     /// Returns the mods directory for an instance, or `None` if it does not
@@ -385,12 +378,10 @@ impl Coordinator {
     pub fn update_instance_java_settings(
         &mut self,
         id: &str,
-        java_path: Option<String>,
-        memory_min: Option<String>,
-        memory_max: Option<String>,
+        java: &JavaSettings,
     ) -> Result<(), String> {
         self.instance_manager
-            .update_instance_java_settings(id, java_path, memory_min, memory_max)
+            .update_instance_java_settings(id, java)
             .map_err(|e| e.to_string())
     }
 
@@ -419,9 +410,7 @@ impl Coordinator {
     ///
     /// Returns an error if saving the account list fails.
     pub fn add_offline_account(&mut self, username: &str) -> Result<(), String> {
-        let account = release_the_launcher_auth::AccountData::offline(username);
-        self.account_list.add(account);
-        self.account_list.save().map_err(|e| e.to_string())
+        self.add_account(release_the_launcher_auth::AccountData::offline(username))
     }
 
     /// Adds an account and persists the account list.
@@ -434,7 +423,7 @@ impl Coordinator {
         account: release_the_launcher_auth::AccountData,
     ) -> Result<(), String> {
         self.account_list.add(account);
-        self.account_list.save().map_err(|e| e.to_string())
+        self.persist_accounts()
     }
 
     /// Marks the account at `index` as active and persists the account list.
@@ -446,7 +435,7 @@ impl Coordinator {
         if !self.account_list.set_active(index) {
             return Err(format!("No account at index {index}"));
         }
-        self.account_list.save().map_err(|e| e.to_string())
+        self.persist_accounts()
     }
 
     /// Removes the account at `index` and persists the account list.
@@ -459,6 +448,10 @@ impl Coordinator {
             return Err(format!("No account at index {index}"));
         }
         self.account_list.remove(index);
+        self.persist_accounts()
+    }
+
+    fn persist_accounts(&self) -> Result<(), String> {
         self.account_list.save().map_err(|e| e.to_string())
     }
 
@@ -487,77 +480,44 @@ impl Coordinator {
     }
 
     pub fn launch_instance(&self, instance_id: &str) {
-        let account_data = extract_account_data(&self.account_list);
-        let active_auth_account = self.account_list.active().cloned();
-        let http_client = self.http_provider.clone();
-
-        let inst = if let Some(inst) = self.instance_manager.get(&instance_id.to_string()) {
-            let gs = &self.global_settings;
-            let pre = if inst.settings.pre_launch_command.is_empty() {
-                gs.pre_launch_command.clone()
-            } else {
-                inst.settings.pre_launch_command.clone()
-            };
-            let post = if inst.settings.post_launch_command.is_empty() {
-                gs.post_launch_command.clone()
-            } else {
-                inst.settings.post_launch_command.clone()
-            };
-            let close = inst.settings.close_after_launch || gs.close_after_launch;
-            (
-                inst.root.clone(),
-                inst.settings.minecraft_version.clone(),
-                inst.settings.loader.clone(),
-                inst.settings.modpack_project_id.clone(),
-                inst.settings.modpack_version_id.clone(),
-                gs.java_path_for(inst.settings.java.path.as_deref()),
-                gs.memory_min_for(inst.settings.java.memory_min.as_deref()),
-                gs.memory_max_for(inst.settings.java.memory_max.as_deref()),
-                pre,
-                post,
-                close,
-            )
-        } else {
+        let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             push_event(
                 &self.queue(),
                 Event::DownloadError(format!("Instance '{instance_id}' not found")),
             );
             return;
         };
-        let (
-            instance_root,
-            mc_version,
-            loader,
-            modpack_project_id,
-            modpack_version_id,
-            java_path_override,
-            memory_min,
-            memory_max,
-            pre_launch_command,
-            post_launch_command,
-            close_after_launch,
-        ) = inst;
 
-        let id_str = instance_id.to_string();
-        self.run_async(move |queue| {
-            do_launch(LaunchParams {
-                queue,
-                account_data,
-                active_auth_account,
-                http_client,
-                instance_id: id_str,
-                instance_root,
-                mc_version,
-                loader,
-                modpack_project_id,
-                modpack_version_id,
-                java_path_override,
-                memory_min,
-                memory_max,
-                pre_launch_command,
-                post_launch_command,
-                close_after_launch,
-            })
+        let gs = &self.global_settings;
+        let params = LaunchParams {
+            queue: self.queue(),
+            account_data: extract_account_data(&self.account_list),
+            active_auth_account: self.account_list.active().cloned(),
+            http_client: self.http_provider.clone(),
+            instance_id: instance_id.to_string(),
+            instance_root: inst.root.clone(),
+            mc_version: inst.settings.minecraft_version.clone(),
+            loader: inst.settings.loader.clone(),
+            modpack_project_id: inst.settings.modpack_project_id.clone(),
+            modpack_version_id: inst.settings.modpack_version_id.clone(),
+            java_path_override: gs.java_path_for(inst.settings.java.path.as_deref()),
+            memory_min: gs.memory_min_for(inst.settings.java.memory_min.as_deref()),
+            memory_max: gs.memory_max_for(inst.settings.java.memory_max.as_deref()),
+            pre_launch_command: if inst.settings.pre_launch_command.is_empty() {
+                gs.pre_launch_command.clone()
+            } else {
+                inst.settings.pre_launch_command.clone()
+            },
+            post_launch_command: if inst.settings.post_launch_command.is_empty() {
+                gs.post_launch_command.clone()
+            } else {
+                inst.settings.post_launch_command.clone()
+            },
+            close_after_launch: inst.settings.close_after_launch || gs.close_after_launch,
+        };
+
+        self.run_async(move |queue| async move {
+            do_launch(LaunchParams { queue, ..params }).await;
         });
     }
 
@@ -689,22 +649,21 @@ impl Coordinator {
 
         self.run_async(move |queue| async move {
             use release_the_launcher_mods::ModProvider;
-            let entries = release_the_launcher_mods::list_mods(&mods_dir);
-            let mut installed_mods = Vec::new();
-            for entry in entries {
-                if entry.enabled {
-                    if let Ok(bytes) = std::fs::read(&entry.path) {
-                        let hash = release_the_launcher_core::hash::compute_sha1_bytes(&bytes);
-                        installed_mods.push(release_the_launcher_mods::InstalledMod {
-                            path: entry.path,
-                            hash,
-                            hash_type: "sha1".to_string(),
-                            project_id: None,
-                            version_id: None,
-                        });
-                    }
-                }
-            }
+            let installed_mods: Vec<_> = release_the_launcher_mods::list_mods(&mods_dir)
+                .into_iter()
+                .filter(|e| e.enabled)
+                .filter_map(|e| {
+                    let bytes = std::fs::read(&e.path).ok()?;
+                    let hash = release_the_launcher_core::hash::compute_sha1_bytes(&bytes);
+                    Some(release_the_launcher_mods::InstalledMod {
+                        path: e.path,
+                        hash,
+                        hash_type: "sha1".to_string(),
+                        project_id: None,
+                        version_id: None,
+                    })
+                })
+                .collect();
             let provider = release_the_launcher_mods::ModrinthProvider::new(None);
             let updates = match provider
                 .check_updates(&installed_mods, &[mc_version], &[loader_str])

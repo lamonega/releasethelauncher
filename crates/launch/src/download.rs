@@ -54,20 +54,10 @@ impl DownloadManager {
         &self.libraries_dir
     }
 
-    fn library_maven_path(lib: &Library) -> Option<String> {
-        let parts: Vec<&str> = lib.name.split(':').collect();
-        if parts.len() < 3 {
-            return None;
-        }
-        let group = parts[0].replace('.', "/");
-        let artifact = parts[1];
-        let version = parts[2];
-        let filename = library_filename(lib);
-        Some(format!("{group}/{artifact}/{version}/{filename}"))
-    }
-
     fn maven_urls_for_library(lib: &Library) -> Vec<String> {
-        let Some(path) = Self::library_maven_path(lib) else {
+        let Some(path) =
+            Self::local_path_for_library(lib).map(|p| p.to_string_lossy().replace('\\', "/"))
+        else {
             return Vec::new();
         };
 

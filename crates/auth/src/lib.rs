@@ -100,6 +100,23 @@ pub struct AccountData {
     pub entitlement: Option<Entitlement>,
 }
 
+impl Default for AccountData {
+    fn default() -> Self {
+        Self {
+            account_type: AccountType::Offline,
+            internal_id: String::new(),
+            active: None,
+            msa_client_id: None,
+            msa_token: None,
+            user_token: None,
+            xsts_token: None,
+            mc_token: None,
+            profile: None,
+            entitlement: None,
+        }
+    }
+}
+
 impl AccountData {
     #[must_use]
     pub fn offline(username: &str) -> Self {
@@ -108,12 +125,6 @@ impl AccountData {
         Self {
             account_type: AccountType::Offline,
             internal_id: id.clone(),
-            active: None,
-            msa_client_id: None,
-            msa_token: None,
-            user_token: None,
-            xsts_token: None,
-            mc_token: None,
             profile: Some(MinecraftProfile {
                 id,
                 name: username.to_string(),
@@ -125,6 +136,7 @@ impl AccountData {
                 owns_minecraft: true,
                 can_play_minecraft: true,
             }),
+            ..Default::default()
         }
     }
 

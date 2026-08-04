@@ -497,17 +497,14 @@ fn spawn_line_reader<R: std::io::Read + Send + 'static>(
 }
 
 fn stderr_level(line: &str) -> LogLevel {
-    if line.contains("ERROR")
-        || line.contains("Error")
-        || line.contains("EXCEPTION")
-        || line.contains("Exception")
-        || line.contains("FATAL")
-        || line.contains("Fatal")
-        || line.contains("SEVERE")
-        || line.contains("Severe")
+    let lower = line.to_lowercase();
+    if lower.contains("error")
+        || lower.contains("exception")
+        || lower.contains("fatal")
+        || lower.contains("severe")
     {
         LogLevel::Error
-    } else if line.contains("WARN") || line.contains("Warn") || line.contains("WARNING") {
+    } else if lower.contains("warn") {
         LogLevel::Warn
     } else {
         LogLevel::Info

@@ -71,6 +71,21 @@ impl From<ModrinthVersion> for ModVersion {
     }
 }
 
+impl ModVersion {
+    fn checksum(&self) -> Option<(HashKind, &str)> {
+        match (&self.hash_type, &self.hash) {
+            (Some(ht), Some(h)) => {
+                let kind = match ht.as_str() {
+                    "sha512" => HashKind::Sha512,
+                    _ => HashKind::Sha1,
+                };
+                Some((kind, h.as_str()))
+            }
+            _ => None,
+        }
+    }
+}
+
 fn hits_to_summaries(resp: SearchResponse) -> SearchResults {
     let hits = resp
         .hits
@@ -127,6 +142,34 @@ impl ModrinthProvider {
             headers.push(("Authorization", token));
         }
         headers
+    }
+
+    fn cache_get(&self, cache_key: &str) -> Option<String> {
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            if let Some(entry) = cache_guard.resolve(BASE_URL, cache_key) {
+                return entry.md5;
+            }
+        }
+        None
+    }
+
+    fn cache_put(&self, cache_key: &str, json: &str) {
+        if let Ok(mut cache_guard) = self.cache.lock() {
+            let entry = release_the_launcher_net::cache::CacheEntry {
+                base_path: BASE_URL.to_string(),
+                relative_path: cache_key.to_string(),
+                etag: None,
+                last_modified: None,
+                md5: Some(json.to_string()),
+                max_age: 900,
+                last_accessed: 0,
+                is_eternal: false,
+            };
+            cache_guard.update(entry);
+            if let Err(e) = cache_guard.save() {
+                log::warn!("Failed to persist modrinth cache: {e}");
+            }
+        }
     }
 
     fn build_search_query(args: &SearchArgs, project_type: &str) -> Vec<(String, String)> {
@@ -210,16 +253,7 @@ impl ModrinthProvider {
         }
         fs::create_dir_all(target_dir)?;
 
-        let checksum = match (&version.hash_type, &version.hash) {
-            (Some(ht), Some(h)) => {
-                let kind = match ht.as_str() {
-                    "sha512" => HashKind::Sha512,
-                    _ => HashKind::Sha1,
-                };
-                Some((kind, h.as_str()))
-            }
-            _ => None,
-        };
+        let checksum = version.checksum();
 
         download_to_file(&self.http, url, &zip_path, checksum, None::<fn(u64, u64)>)
             .await
@@ -378,6 +412,27 @@ impl ModrinthProvider {
         Ok(())
     }
 
+    async fn resolve_version(
+        &self,
+        project_id: &str,
+        version_id: Option<&str>,
+    ) -> Result<ModVersion, ModsError> {
+        let versions = self.get_versions(project_id, &[], &[]).await?;
+        if let Some(vid) = version_id {
+            versions
+                .iter()
+                .find(|v| v.id == vid)
+                .or_else(|| versions.first())
+                .cloned()
+                .ok_or_else(|| ModsError::Provider("Version not found".into()))
+        } else {
+            versions
+                .first()
+                .cloned()
+                .ok_or_else(|| ModsError::Provider("No versions found".into()))
+        }
+    }
+
     /// Resolves a modpack without downloading anything. Returns
     /// (`instance_name`, `mc_version`, `loader_name`).
     ///
@@ -389,18 +444,7 @@ impl ModrinthProvider {
         project_id: &str,
         version_id: Option<&str>,
     ) -> Result<(String, String, String), ModsError> {
-        let versions = self.get_versions(project_id, &[], &[]).await?;
-        let version = if let Some(vid) = version_id {
-            versions
-                .iter()
-                .find(|v| v.id == vid)
-                .or_else(|| versions.first())
-                .ok_or_else(|| ModsError::Provider("Version not found".into()))?
-        } else {
-            versions
-                .first()
-                .ok_or_else(|| ModsError::Provider("No versions found".into()))?
-        };
+        let version = self.resolve_version(project_id, version_id).await?;
 
         let project = self.get_project(project_id).await?;
         let instance_name = if version_id.is_some() {
@@ -436,20 +480,9 @@ impl ModrinthProvider {
         version_id: Option<&str>,
         target_dir: &Path,
     ) -> Result<(), ModsError> {
-        let versions = self.get_versions(project_id, &[], &[]).await?;
-        let version = if let Some(vid) = version_id {
-            versions
-                .iter()
-                .find(|v| v.id == vid)
-                .or_else(|| versions.first())
-                .ok_or_else(|| ModsError::Provider("Version not found".into()))?
-        } else {
-            versions
-                .first()
-                .ok_or_else(|| ModsError::Provider("No versions found".into()))?
-        };
+        let version = self.resolve_version(project_id, version_id).await?;
 
-        self.download_modpack(version, target_dir).await?;
+        self.download_modpack(&version, target_dir).await?;
         Ok(())
     }
 }
@@ -468,13 +501,9 @@ impl ModProvider for ModrinthProvider {
             "search?{}",
             serde_json::to_string(&query_params).unwrap_or_default()
         );
-        if let Ok(mut cache_guard) = self.cache.lock() {
-            if let Some(entry) = cache_guard.resolve(BASE_URL, &cache_key) {
-                if let Some(ref json_str) = entry.md5 {
-                    if let Ok(resp) = serde_json::from_str::<SearchResponse>(json_str) {
-                        return Ok(hits_to_summaries(resp));
-                    }
-                }
+        if let Some(json) = self.cache_get(&cache_key) {
+            if let Ok(resp) = serde_json::from_str::<SearchResponse>(&json) {
+                return Ok(hits_to_summaries(resp));
             }
         }
 
@@ -485,22 +514,7 @@ impl ModProvider for ModrinthProvider {
         let json_text = req.send().await?.text().await?;
         let resp: SearchResponse = serde_json::from_str(&json_text)?;
 
-        if let Ok(mut cache_guard) = self.cache.lock() {
-            let entry = release_the_launcher_net::cache::CacheEntry {
-                base_path: BASE_URL.to_string(),
-                relative_path: cache_key,
-                etag: None,
-                last_modified: None,
-                md5: Some(json_text),
-                max_age: 900,
-                last_accessed: 0,
-                is_eternal: false,
-            };
-            cache_guard.update(entry);
-            if let Err(e) = cache_guard.save() {
-                log::warn!("Failed to persist modrinth search cache: {e}");
-            }
-        }
+        self.cache_put(&cache_key, &json_text);
 
         Ok(hits_to_summaries(resp))
     }
@@ -531,14 +545,10 @@ impl ModProvider for ModrinthProvider {
             serde_json::to_string(&query_params).unwrap_or_default()
         );
 
-        if let Ok(mut cache_guard) = self.cache.lock() {
-            if let Some(entry) = cache_guard.resolve(BASE_URL, &cache_key) {
-                if let Some(ref json_str) = entry.md5 {
-                    if let Ok(resp) = serde_json::from_str::<Vec<ModrinthVersion>>(json_str) {
-                        let versions = resp.into_iter().map(Into::into).collect();
-                        return Ok(versions);
-                    }
-                }
+        if let Some(json) = self.cache_get(&cache_key) {
+            if let Ok(resp) = serde_json::from_str::<Vec<ModrinthVersion>>(&json) {
+                let versions = resp.into_iter().map(Into::into).collect();
+                return Ok(versions);
             }
         }
 
@@ -549,22 +559,7 @@ impl ModProvider for ModrinthProvider {
         let json_text = req.send().await?.text().await?;
         let resp: Vec<ModrinthVersion> = serde_json::from_str(&json_text)?;
 
-        if let Ok(mut cache_guard) = self.cache.lock() {
-            let entry = release_the_launcher_net::cache::CacheEntry {
-                base_path: BASE_URL.to_string(),
-                relative_path: cache_key,
-                etag: None,
-                last_modified: None,
-                md5: Some(json_text),
-                max_age: 900,
-                last_accessed: 0,
-                is_eternal: false,
-            };
-            cache_guard.update(entry);
-            if let Err(e) = cache_guard.save() {
-                log::warn!("Failed to persist modrinth versions cache: {e}");
-            }
-        }
+        self.cache_put(&cache_key, &json_text);
 
         let versions = resp.into_iter().map(Into::into).collect();
         Ok(versions)
@@ -665,16 +660,7 @@ impl ModProvider for ModrinthProvider {
         fs::create_dir_all(target_dir)?;
         let path = target_dir.join(&version.filename);
 
-        let checksum = match (&version.hash_type, &version.hash) {
-            (Some(ht), Some(h)) => {
-                let kind = match ht.as_str() {
-                    "sha512" => HashKind::Sha512,
-                    _ => HashKind::Sha1,
-                };
-                Some((kind, h.as_str()))
-            }
-            _ => None,
-        };
+        let checksum = version.checksum();
 
         download_to_file(&self.http, url, &path, checksum, None::<fn(u64, u64)>)
             .await

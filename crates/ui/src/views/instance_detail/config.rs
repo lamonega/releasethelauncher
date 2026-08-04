@@ -1,5 +1,6 @@
 use super::DetailTabState;
 use crate::App;
+use release_the_launcher_core::JavaSettings;
 
 pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
     ui.label(egui::RichText::new("Instance Java & Memory Settings:").strong());
@@ -51,26 +52,25 @@ pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut D
         .add(crate::widgets::icon_button(crate::icons::ADD, "Save Settings").fill(app.theme.accent))
         .clicked()
     {
-        let java_path = if tab_state.config_java_path.trim().is_empty() {
-            None
-        } else {
-            Some(tab_state.config_java_path.trim().to_string())
-        };
-        let memory_min = if tab_state.config_memory_min.trim().is_empty() {
-            None
-        } else {
-            Some(tab_state.config_memory_min.trim().to_string())
-        };
-        let memory_max = if tab_state.config_memory_max.trim().is_empty() {
-            None
-        } else {
-            Some(tab_state.config_memory_max.trim().to_string())
+        let java = JavaSettings {
+            path: if tab_state.config_java_path.trim().is_empty() {
+                None
+            } else {
+                Some(tab_state.config_java_path.trim().to_string())
+            },
+            memory_min: if tab_state.config_memory_min.trim().is_empty() {
+                None
+            } else {
+                Some(tab_state.config_memory_min.trim().to_string())
+            },
+            memory_max: if tab_state.config_memory_max.trim().is_empty() {
+                None
+            } else {
+                Some(tab_state.config_memory_max.trim().to_string())
+            },
         };
 
-        if let Err(e) = app
-            .coordinator
-            .update_instance_java_settings(id, java_path, memory_min, memory_max)
-        {
+        if let Err(e) = app.coordinator.update_instance_java_settings(id, &java) {
             app.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to save instance settings for '{id}': {e}"),

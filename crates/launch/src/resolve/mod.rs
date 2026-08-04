@@ -16,12 +16,6 @@ pub struct DependencyResolver {
     manifest: Option<prism::VersionManifest>,
 }
 
-impl Default for DependencyResolver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DependencyResolver {
     #[must_use]
     pub fn new() -> Self {
