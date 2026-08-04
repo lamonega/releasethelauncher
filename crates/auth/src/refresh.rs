@@ -77,12 +77,7 @@ pub(crate) async fn refresh_account(
 
     let refreshed = complete_microsoft_auth(http, client_id, &xbox_tokens, &msa_tokens).await?;
 
-    account.msa_token = refreshed.msa_token;
-    account.user_token = refreshed.user_token;
-    account.xsts_token = refreshed.xsts_token;
-    account.mc_token = refreshed.mc_token;
-    account.profile = refreshed.profile;
-    account.entitlement = refreshed.entitlement;
+    *account = refreshed;
 
     Ok(true)
 }

@@ -1,8 +1,8 @@
 use super::DetailTabState;
-use crate::App;
+use crate::LauncherApp;
 
 pub fn show_logs(
-    app: &mut App,
+    app: &mut LauncherApp,
     ui: &mut egui::Ui,
     instance_id: &str,
     _root_path: &std::path::Path,
@@ -66,7 +66,7 @@ pub fn show_logs(
 }
 
 fn show_logs_header(
-    app: &mut App,
+    app: &mut LauncherApp,
     ui: &mut egui::Ui,
     instance_id: &str,
     buffer_entries: &[crate::log::LogEntry],
@@ -99,7 +99,7 @@ fn show_logs_header(
                 }
                 ui.output_mut(|o| o.copied_text = full_logs);
                 app.status_message = "Logs copied to clipboard!".to_string();
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Copied logs for instance '{instance_id}' to clipboard"),
                 );
@@ -109,7 +109,7 @@ fn show_logs_header(
 }
 
 fn show_logs_content(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     buffer_entries: &[crate::log::LogEntry],
     disk_lines: &[String],

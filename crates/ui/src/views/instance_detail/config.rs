@@ -1,8 +1,13 @@
 use super::DetailTabState;
-use crate::App;
+use crate::LauncherApp;
 use release_the_launcher_core::JavaSettings;
 
-pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
+pub fn show_config(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    tab_state: &mut DetailTabState,
+) {
     ui.label(egui::RichText::new("Instance Java & Memory Settings:").strong());
     ui.colored_label(
         app.theme.text_secondary,
@@ -71,13 +76,13 @@ pub fn show_config(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut D
         };
 
         if let Err(e) = app.coordinator.update_instance_java_settings(id, &java) {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to save instance settings for '{id}': {e}"),
             );
             app.status_message = format!("Failed to save settings: {e}");
         } else {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("Saved custom settings for instance '{id}'"),
             );

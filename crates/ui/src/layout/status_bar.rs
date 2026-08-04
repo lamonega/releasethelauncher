@@ -1,16 +1,14 @@
-use crate::{widgets, App, DownloadPhase};
+use crate::{widgets, DownloadPhase};
 
 #[must_use]
 pub fn progress_ratio(completed: u64, total: u64) -> f32 {
     if total == 0 {
         return 0.0;
     }
-    let permil = completed.saturating_mul(1000) / total;
-    let permil_u16 = u16::try_from(permil).unwrap_or(u16::MAX);
-    f32::from(permil_u16) / 1000.0
+    (completed as f32 / total as f32).clamp(0.0, 1.0)
 }
 
-pub fn show(ctx: &egui::Context, app: &App) {
+pub fn show(app: &crate::LauncherApp, ctx: &egui::Context) {
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.style_mut().visuals.panel_fill = app.theme.surface_alt;
         ui.add_space(app.theme.spacing.xs);

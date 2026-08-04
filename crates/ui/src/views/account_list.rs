@@ -1,7 +1,7 @@
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 use release_the_launcher_coordinator::AccountSummary;
 
-pub fn show(app: &mut App, ui: &mut egui::Ui) {
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
     if widgets::page_header(ui, app, "Accounts", Some(View::InstanceList)) {
         return;
     }
@@ -14,7 +14,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            app.log(crate::log::LogLevel::Info, "UI: Navigated to Add Account");
+            app.coordinator
+                .log(crate::log::LogLevel::Info, "UI: Navigated to Add Account");
             app.current_view = View::AccountLogin;
         }
     });
@@ -31,7 +32,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-fn show_accounts(app: &mut App, ui: &mut egui::Ui, accounts: &[AccountSummary]) {
+fn show_accounts(app: &mut LauncherApp, ui: &mut egui::Ui, accounts: &[AccountSummary]) {
     let mut remove_idx = None;
     let mut select_idx = None;
     for (i, account) in accounts.iter().enumerate() {
@@ -71,12 +72,12 @@ fn show_accounts(app: &mut App, ui: &mut egui::Ui, accounts: &[AccountSummary]) 
     }
     if let Some(i) = select_idx {
         let name = accounts[i].name.clone();
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Selected account '{name}'"),
         );
         if let Err(err) = app.coordinator.set_active_account(i) {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to select account '{name}': {err}"),
             );
@@ -85,12 +86,12 @@ fn show_accounts(app: &mut App, ui: &mut egui::Ui, accounts: &[AccountSummary]) 
     }
     if let Some(i) = remove_idx {
         let name = accounts[i].name.clone();
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Removed account '{name}'"),
         );
         if let Err(err) = app.coordinator.remove_account(i) {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to remove account '{name}': {err}"),
             );

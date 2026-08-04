@@ -96,20 +96,8 @@ pub struct SearchArgs {
 
 #[derive(Debug, Clone)]
 pub struct SearchResults {
-    pub hits: Vec<ProjectSummary>,
+    pub hits: Vec<ProjectInfo>,
     pub total_hits: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProjectSummary {
-    pub id: String,
-    pub name: String,
-    pub slug: String,
-    pub description: String,
-    pub author: String,
-    pub icon_url: Option<String>,
-    pub downloads: u64,
-    pub side: Side,
 }
 
 #[derive(Debug, Clone)]
@@ -168,33 +156,38 @@ pub struct ModDetails {
     pub side: Option<String>,
 }
 
-#[async_trait::async_trait]
 pub trait ModProvider: Send + Sync {
     fn name(&self) -> &str;
 
-    async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError>;
+    fn search(
+        &self,
+        args: SearchArgs,
+    ) -> impl std::future::Future<Output = Result<SearchResults, ModsError>> + Send;
 
-    async fn get_versions(
+    fn get_versions(
         &self,
         project_id: &str,
         mc_versions: &[String],
         loaders: &[String],
-    ) -> Result<Vec<ModVersion>, ModsError>;
+    ) -> impl std::future::Future<Output = Result<Vec<ModVersion>, ModsError>> + Send;
 
-    async fn get_project(&self, project_id: &str) -> Result<ProjectInfo, ModsError>;
+    fn get_project(
+        &self,
+        project_id: &str,
+    ) -> impl std::future::Future<Output = Result<ProjectInfo, ModsError>> + Send;
 
-    async fn check_updates(
+    fn check_updates(
         &self,
         installed: &[InstalledMod],
         mc_versions: &[String],
         loaders: &[String],
-    ) -> Result<Vec<ModUpdate>, ModsError>;
+    ) -> impl std::future::Future<Output = Result<Vec<ModUpdate>, ModsError>> + Send;
 
-    async fn download_mod(
+    fn download_mod(
         &self,
         version: &ModVersion,
         target_dir: &Path,
-    ) -> Result<PathBuf, ModsError>;
+    ) -> impl std::future::Future<Output = Result<PathBuf, ModsError>> + Send;
 }
 
 /// A mod entry in a mods directory, with its enabled/disabled state.
@@ -323,9 +316,14 @@ pub(crate) fn safe_join_under(base: &Path, rel: &Path) -> Result<PathBuf, ModsEr
         return Ok(base.to_path_buf());
     }
     if rel.is_absolute()
-        || rel
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
+        || rel.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
     {
         return Err(ModsError::Provider("Unsafe path".into()));
     }

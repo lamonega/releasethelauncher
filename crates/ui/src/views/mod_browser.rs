@@ -1,68 +1,62 @@
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 
 #[derive(Default)]
 pub struct ModBrowserState {
     pub current_instance_id: String,
     pub query: String,
-    pub results: Vec<release_the_launcher_mods::ProjectSummary>,
+    pub results: Vec<release_the_launcher_mods::ProjectInfo>,
     pub status: String,
     pub installing_mod_id: Option<String>,
     pub install_status: String,
 }
 
-pub fn show(app: &mut App, ui: &mut egui::Ui, instance_id: &str, state: &mut ModBrowserState) {
-    let id = instance_id.to_string();
-    process_messages(app, state);
-
-    let (mc_version, loader_name) = app
-        .coordinator
-        .instance_summary(&id)
-        .map(|summary| (summary.mc_version, summary.loader_name))
-        .unwrap_or_default();
-
-    if state.current_instance_id != id {
-        state.current_instance_id.clone_from(&id);
-        state.query.clear();
-        state.results.clear();
-        state.status = "Loading compatible mods...".to_string();
-        trigger_search(app, "", &mc_version, &loader_name);
-    }
-
-    show_header(app, ui, &id, &mc_version, &loader_name);
-    show_search(app, ui, state, &mc_version, &loader_name);
-    ui.add_space(app.theme.spacing.sm);
-    ui.separator();
-    ui.add_space(app.theme.spacing.sm);
-    show_results(app, ui, state, &id, &mc_version, &loader_name);
-}
-
-fn process_messages(app: &App, state: &mut ModBrowserState) {
-    let messages = app.drain_view_events();
-    for msg in messages {
-        match msg {
-            crate::UiMessage::ModrinthSearchResult(result) => match result {
-                Ok(results) => {
-                    state.status = format!("Found {} compatible mods", results.total_hits);
-                    state.results = results.hits;
-                }
-                Err(e) => {
-                    state.status = format!("Search failed: {e}");
-                }
-            },
-            crate::UiMessage::ModrinthInstallResult { name, .. } => {
-                state.status = format!("Installed: {name}");
-                state.installing_mod_id = None;
+pub fn process_message(app: &mut crate::LauncherApp, msg: crate::UiMessage) {
+    let state = &mut app.mod_browser_state;
+    match msg {
+        crate::UiMessage::ModrinthSearchResult(result) => match result {
+            Ok(results) => {
+                state.status = format!("Found {} compatible mods", results.total_hits);
+                state.results = results.hits;
             }
-            crate::UiMessage::DownloadError(err) => {
-                state.status = format!("Install failed: {err}");
-                state.installing_mod_id = None;
+            Err(e) => {
+                state.status = format!("Search failed: {e}");
             }
-            _ => {}
+        },
+        crate::UiMessage::ModrinthInstallResult { name, .. } => {
+            state.status = format!("Installed: {name}");
+            state.installing_mod_id = None;
         }
+        crate::UiMessage::DownloadError(err) => {
+            state.status = format!("Install failed: {err}");
+            state.installing_mod_id = None;
+        }
+        _ => {}
     }
 }
 
-fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str, mc_version: &str, loader_name: &str) {
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui, instance_id: &str) {
+    let Some(instance) = app.coordinator.instance_summary(instance_id) else {
+        ui.label("Instance not found.");
+        return;
+    };
+    let mc_version = instance.mc_version.clone();
+    let loader_name = instance.loader_name.clone();
+
+    show_header(app, ui, instance_id, &mc_version, &loader_name);
+
+    let mut state = std::mem::take(&mut app.mod_browser_state);
+    show_search(app, ui, &mut state, &mc_version, &loader_name);
+    show_results(app, ui, &mut state, instance_id, &mc_version, &loader_name);
+    app.mod_browser_state = state;
+}
+
+fn show_header(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    mc_version: &str,
+    loader_name: &str,
+) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.heading("Browse Mods (Modrinth)");
@@ -76,7 +70,7 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str, mc_version: &str, loa
                 .add(widgets::icon_button(crate::icons::BACK, "Back"))
                 .clicked()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Navigated back from Mod Browser",
                 );
@@ -89,8 +83,8 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, id: &str, mc_version: &str, loa
     });
 }
 
-fn trigger_search(app: &App, query_str: &str, mc_version: &str, loader_name: &str) {
-    app.search_mods(
+fn trigger_search(app: &LauncherApp, query_str: &str, mc_version: &str, loader_name: &str) {
+    app.coordinator.search_mods(
         query_str.to_string(),
         mc_version.to_string(),
         loader_name.to_string(),
@@ -98,7 +92,7 @@ fn trigger_search(app: &App, query_str: &str, mc_version: &str, loader_name: &st
 }
 
 fn show_search(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     state: &mut ModBrowserState,
     mc_version: &str,
@@ -106,7 +100,7 @@ fn show_search(
 ) {
     ui.add_space(app.theme.spacing.sm);
     if widgets::search_bar(ui, &mut state.query) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Searched mods for '{}'", state.query),
         );
@@ -118,7 +112,7 @@ fn show_search(
 }
 
 fn show_results(
-    app: &App,
+    app: &mut LauncherApp,
     ui: &mut egui::Ui,
     state: &mut ModBrowserState,
     id: &str,
@@ -151,7 +145,8 @@ fn show_results(
                             );
                         }
                         ui.label(&result.name);
-                        ui.colored_label(app.theme.text_secondary, format!("by {}", result.author));
+                        let authors_str = result.authors.join(", ");
+                        ui.colored_label(app.theme.text_secondary, format!("by {authors_str}"));
                         ui.colored_label(
                             app.theme.text_secondary,
                             format!("({} downloads)", result.downloads),
@@ -162,7 +157,7 @@ fn show_results(
                     if state.installing_mod_id == Some(result.id.clone()) {
                         ui.colored_label(app.theme.text_secondary, &state.install_status);
                     } else if ui.button("Install").clicked() {
-                        app.log(
+                        app.coordinator.log(
                             crate::log::LogLevel::Info,
                             &format!("UI: Installing mod '{}' from Modrinth", result.name),
                         );
@@ -178,7 +173,7 @@ fn show_results(
                             .unwrap_or("")
                             .to_string();
 
-                        app.install_mod_from_modrinth(
+                        app.coordinator.install_mod(
                             project_id,
                             mods_dir,
                             Some(mc_version.to_string()),

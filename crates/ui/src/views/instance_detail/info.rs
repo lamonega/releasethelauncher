@@ -1,7 +1,7 @@
-use crate::App;
+use crate::LauncherApp;
 
 pub fn show_info(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     root_display: &str,
     loader_name: &str,

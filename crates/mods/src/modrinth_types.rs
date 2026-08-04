@@ -5,9 +5,6 @@ use std::collections::HashMap;
 pub struct SearchResponse {
     pub hits: Vec<SearchHit>,
     pub total_hits: usize,
-    #[serde(default)]
-    pub _offset: usize,
-    pub _limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,17 +73,7 @@ pub struct ModrinthFile {
 #[serde(rename_all = "camelCase")]
 pub struct MrpackIndex {
     #[serde(default)]
-    pub _format_version: u32,
-    #[serde(default)]
-    pub _game: String,
-    #[serde(default)]
-    pub _version_id: String,
-    #[serde(default)]
-    pub _name: String,
-    #[serde(default)]
     pub files: Vec<MrpackFile>,
-    #[serde(default)]
-    pub _dependencies: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

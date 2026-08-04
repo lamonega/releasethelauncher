@@ -11,7 +11,6 @@ pub mod flow;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 
 use release_the_launcher_auth::AccountList;
 use release_the_launcher_core::log::LogBuffer;
@@ -92,7 +91,7 @@ pub struct Coordinator {
     settings_path: PathBuf,
     http_provider: reqwest::Client,
     queue: Queue,
-    rx: Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<Event>>>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
     tokio_handle: Option<tokio::runtime::Handle>,
 }
 
@@ -131,7 +130,7 @@ impl Coordinator {
                     .unwrap_or_else(|_| InstanceManager::new(instances_dir))
             });
 
-        let account_list = AccountList::load(&accounts_path);
+        let account_list = AccountList::load_or_default(&accounts_path);
         let global_settings = GlobalSettings::load(&settings_path).unwrap_or_else(|e| {
             tracing::warn!("Global settings corrupted or unreadable ({e}), using defaults");
             GlobalSettings::default()
@@ -164,7 +163,7 @@ impl Coordinator {
             settings_path,
             http_provider: release_the_launcher_net::default_client(),
             queue: tx,
-            rx: Arc::new(Mutex::new(rx)),
+            rx,
             tokio_handle,
         }
     }
@@ -185,12 +184,10 @@ impl Coordinator {
 
     /// Drains all pending events.
     #[must_use]
-    pub fn drain_events(&self) -> Vec<Event> {
+    pub fn drain_events(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
-        if let Ok(mut rx) = self.rx.lock() {
-            while let Ok(ev) = rx.try_recv() {
-                events.push(ev);
-            }
+        while let Ok(ev) = self.rx.try_recv() {
+            events.push(ev);
         }
         events
     }
@@ -253,22 +250,11 @@ impl Coordinator {
         let Some(inst) = self.instance_manager.get(&id.to_string()) else {
             return Vec::new();
         };
-        let mods_dir = inst.mods_dir();
-        let metadata_list = Self::parse_enabled_mod_metadata(&mods_dir);
-        release_the_launcher_mods::list_mods(&mods_dir)
+        release_the_launcher_mods::list_mods(&inst.mods_dir())
             .into_iter()
             .map(|entry| {
-                let details = metadata_list
-                    .iter()
-                    .find(|d| {
-                        d.mod_id.eq_ignore_ascii_case(&entry.name)
-                            || entry.name.to_lowercase().contains(&d.mod_id.to_lowercase())
-                            || entry.name.to_lowercase().contains(&d.name.to_lowercase())
-                    })
-                    .cloned()
-                    .or_else(|| {
-                        release_the_launcher_mods::parser::parse_mod_metadata(&entry.path).ok()
-                    });
+                let details =
+                    release_the_launcher_mods::parser::parse_mod_metadata(&entry.path).ok();
                 InstalledModEntry {
                     name: entry.name,
                     path: entry.path,
@@ -276,15 +262,6 @@ impl Coordinator {
                     details,
                 }
             })
-            .collect()
-    }
-
-    /// Parses metadata for every enabled mod in `mods_dir`.
-    fn parse_enabled_mod_metadata(mods_dir: &Path) -> Vec<release_the_launcher_mods::ModDetails> {
-        release_the_launcher_mods::list_mods(mods_dir)
-            .into_iter()
-            .filter(|e| e.enabled)
-            .filter_map(|e| release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok())
             .collect()
     }
 
@@ -391,8 +368,7 @@ impl Coordinator {
     ///
     /// Returns an error if the path is not a recognised mod file or the rename
     /// fails.
-    pub fn toggle_mod(&mut self, id: &str, mod_path: &Path) -> Result<(), String> {
-        let _ = id;
+    pub fn toggle_mod(&mut self, mod_path: &Path) -> Result<(), String> {
         let result = if mod_path
             .file_name()
             .is_some_and(|name| name.to_string_lossy().ends_with(".disabled"))
@@ -611,7 +587,12 @@ impl Coordinator {
         let Some(inst) = self.instance_manager.get(&instance_id.to_string()) else {
             return Vec::new();
         };
-        Self::parse_enabled_mod_metadata(&inst.mods_dir())
+        let mods_dir = inst.mods_dir();
+        release_the_launcher_mods::list_mods(&mods_dir)
+            .into_iter()
+            .filter(|e| e.enabled)
+            .filter_map(|e| release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok())
+            .collect()
     }
 
     pub fn request_mods_metadata(&self, instance_id: String) {
@@ -622,10 +603,17 @@ impl Coordinator {
         let id = instance_id;
 
         self.run_async(move |queue| async move {
-            let mods =
-                tokio::task::spawn_blocking(move || Self::parse_enabled_mod_metadata(&mods_dir))
-                    .await
-                    .unwrap_or_default();
+            let mods = tokio::task::spawn_blocking(move || {
+                release_the_launcher_mods::list_mods(&mods_dir)
+                    .into_iter()
+                    .filter(|e| e.enabled)
+                    .filter_map(|e| {
+                        release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok()
+                    })
+                    .collect()
+            })
+            .await
+            .unwrap_or_default();
 
             push_event(
                 &queue,
@@ -653,8 +641,7 @@ impl Coordinator {
                 .into_iter()
                 .filter(|e| e.enabled)
                 .filter_map(|e| {
-                    let bytes = std::fs::read(&e.path).ok()?;
-                    let hash = release_the_launcher_core::hash::compute_sha1_bytes(&bytes);
+                    let hash = release_the_launcher_core::hash::compute_sha1_file(&e.path).ok()?;
                     Some(release_the_launcher_mods::InstalledMod {
                         path: e.path,
                         hash,

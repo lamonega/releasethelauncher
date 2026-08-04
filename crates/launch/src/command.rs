@@ -47,6 +47,9 @@ fn replace_placeholders(
     player: &PlayerAuth,
     cp_str: &str,
 ) -> String {
+    if !raw.contains('{') {
+        return raw.to_string();
+    }
     let mc_dir = instance_dir.join(".minecraft");
     let assets_dir = instance_dir.join("assets");
     let natives_dir = instance_dir.join("natives");

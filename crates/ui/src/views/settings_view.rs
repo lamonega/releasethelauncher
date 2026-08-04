@@ -1,7 +1,7 @@
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 use release_the_launcher_core::GlobalSettings;
 
-pub fn show(app: &mut App, ui: &mut egui::Ui) {
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
     let mut settings = local_settings(ui).unwrap_or_else(|| app.coordinator.settings());
 
     show_header(app, ui, &mut settings);
@@ -28,7 +28,7 @@ fn set_local_settings(ui: &egui::Ui, settings: &GlobalSettings) {
     ui.data_mut(|data| data.insert_temp(id, settings.clone()));
 }
 
-fn show_header(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
+fn show_header(app: &mut LauncherApp, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
     if widgets::page_header(ui, app, "Settings", Some(View::InstanceList)) {
         return;
     }
@@ -38,7 +38,8 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSettings) 
             .add(widgets::icon_button(crate::icons::ADD, "Save").fill(app.theme.accent))
             .clicked()
         {
-            app.log(crate::log::LogLevel::Info, "UI: Settings saved");
+            app.coordinator
+                .log(crate::log::LogLevel::Info, "UI: Settings saved");
             if let Err(e) = app.coordinator.update_settings(settings.clone()) {
                 app.status_message = format!("Failed to save settings: {e}");
             } else {
@@ -48,7 +49,7 @@ fn show_header(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSettings) 
     });
 }
 
-fn show_java_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
+fn show_java_settings(app: &mut LauncherApp, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
     ui.heading("Java");
     ui.add_space(app.theme.spacing.sm);
 
@@ -58,7 +59,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSet
         "Java Path (optional, leave empty for auto-detect):",
         &mut java_path,
     ) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Java path changed to '{java_path}'"),
         );
@@ -77,7 +78,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSet
         .clone()
         .unwrap_or_else(|| "1G".to_string());
     if widgets::settings_field(ui, "Memory Min:", &mut mem_min) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Memory min changed to '{mem_min}'"),
         );
@@ -90,7 +91,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSet
         .clone()
         .unwrap_or_else(|| "2G".to_string());
     if widgets::settings_field(ui, "Memory Max:", &mut mem_max) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Memory max changed to '{mem_max}'"),
         );
@@ -98,7 +99,7 @@ fn show_java_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSet
     }
 }
 
-fn show_launch_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
+fn show_launch_settings(app: &mut LauncherApp, ui: &mut egui::Ui, settings: &mut GlobalSettings) {
     ui.heading("Launch");
     ui.add_space(app.theme.spacing.sm);
 
@@ -110,7 +111,7 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalS
         .changed()
     {
         let close_after = settings.close_after_launch;
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Close after launch toggled to {close_after}"),
         );
@@ -120,7 +121,7 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalS
 
     let mut pre = settings.pre_launch_command.clone();
     if widgets::settings_field(ui, "Pre-launch command:", &mut pre) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Pre-launch command changed to '{pre}'"),
         );
@@ -129,7 +130,7 @@ fn show_launch_settings(app: &mut App, ui: &mut egui::Ui, settings: &mut GlobalS
 
     let mut post = settings.post_launch_command.clone();
     if widgets::settings_field(ui, "Post-launch command:", &mut post) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Post-launch command changed to '{post}'"),
         );

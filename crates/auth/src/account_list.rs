@@ -14,6 +14,13 @@ pub struct AccountListFile {
     pub accounts: Vec<AccountData>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AccountListFileRef<'a> {
+    pub format_version: u32,
+    pub active_index: Option<usize>,
+    pub accounts: &'a [AccountData],
+}
+
 pub struct AccountList {
     pub accounts: Vec<AccountData>,
     pub active_index: Option<usize>,
@@ -22,33 +29,40 @@ pub struct AccountList {
 
 impl AccountList {
     #[must_use]
-    pub fn load(path: &Path) -> Self {
+    pub fn load(path: &Path) -> std::io::Result<Self> {
         if path.exists() {
-            if let Ok(content) = fs::read_to_string(path) {
-                if let Ok(data) = serde_json::from_str::<AccountListFile>(&content) {
-                    return Self {
-                        accounts: data.accounts,
-                        active_index: data.active_index,
-                        file_path: path.to_path_buf(),
-                    };
-                }
-            }
+            let content = fs::read_to_string(path)?;
+            let data: AccountListFile = serde_json::from_str(&content)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            return Ok(Self {
+                accounts: data.accounts,
+                active_index: data.active_index,
+                file_path: path.to_path_buf(),
+            });
         }
-        Self {
+        Ok(Self {
             accounts: Vec::new(),
             active_index: None,
             file_path: path.to_path_buf(),
-        }
+        })
+    }
+
+    pub fn load_or_default(path: &Path) -> Self {
+        Self::load(path).unwrap_or_else(|_| Self {
+            accounts: Vec::new(),
+            active_index: None,
+            file_path: path.to_path_buf(),
+        })
     }
 
     /// # Errors
     ///
     /// Returns an error if writing the account list file to disk fails.
     pub fn save(&self) -> std::io::Result<()> {
-        let data = AccountListFile {
+        let data = AccountListFileRef {
             format_version: 1,
             active_index: self.active_index,
-            accounts: self.accounts.clone(),
+            accounts: &self.accounts,
         };
         let json = serde_json::to_string_pretty(&data)?;
         let tmp = self.file_path.with_extension("json.tmp");
@@ -117,14 +131,14 @@ mod tests {
             "account_list_perms_test_{}.json",
             std::process::id()
         ));
-        let mut list = AccountList::load(&path);
+        let mut list = AccountList::load_or_default(&path);
         list.add(AccountData::offline("TestUser"));
         list.save().unwrap();
 
         let perms = fs::metadata(&path).unwrap().permissions();
         assert_eq!(perms.mode() & 0o777, 0o600);
 
-        let reloaded = AccountList::load(&path);
+        let reloaded = AccountList::load_or_default(&path);
         assert_eq!(reloaded.accounts.len(), 1);
 
         fs::remove_file(&path).ok();

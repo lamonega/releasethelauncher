@@ -1,16 +1,21 @@
 use crate::theme::Theme;
-use crate::{App, View};
+use crate::{LauncherApp, View};
 
 /// Renders a standardized page header with a title and optional back navigation button.
 /// Returns `true` if the back button was clicked.
-pub fn page_header(ui: &mut egui::Ui, app: &mut App, title: &str, back_to: Option<View>) -> bool {
+pub fn page_header(
+    ui: &mut egui::Ui,
+    app: &mut LauncherApp,
+    title: &str,
+    back_to: Option<View>,
+) -> bool {
     let mut back_clicked = false;
     ui.horizontal(|ui| {
         ui.heading(title);
         if let Some(view) = back_to {
             right_aligned(ui, |ui| {
                 if ui.add(icon_button(crate::icons::BACK, "Back")).clicked() {
-                    app.log(
+                    app.coordinator.log(
                         crate::log::LogLevel::Info,
                         &format!("UI: Navigated back from {title}"),
                     );

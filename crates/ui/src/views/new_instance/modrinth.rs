@@ -1,9 +1,9 @@
 use super::{LoaderType, NewInstanceState};
-use crate::App;
+use crate::LauncherApp;
 use egui_extras::{Column, TableBuilder};
-use release_the_launcher_mods::{ModVersion, ProjectSummary};
+use release_the_launcher_mods::{ModVersion, ProjectInfo};
 
-pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+pub(crate) fn show_modrinth(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Search for modpacks on Modrinth:");
 
     ui.add_space(app.theme.spacing.sm);
@@ -25,7 +25,7 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
         .clicked()
         && !state.modrinth_query.is_empty()
     {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Searched Modrinth for '{}'", state.modrinth_query),
         );
@@ -39,7 +39,7 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
             LoaderType::Quilt => "quilt".to_string(),
             LoaderType::Vanilla => String::new(),
         };
-        app.search_modrinth_modpacks(
+        app.coordinator.search_modpacks(
             state.modrinth_query.clone(),
             state.mc_version_filter.clone(),
             loader,
@@ -53,7 +53,7 @@ pub(crate) fn show_modrinth(app: &App, ui: &mut egui::Ui, state: &mut NewInstanc
     show_modrinth_results(app, ui, state);
 }
 
-fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_mc_version_filter(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("MC Version:");
     if state.available_versions.is_empty() {
         ui.text_edit_singleline(&mut state.mc_version_filter);
@@ -82,7 +82,7 @@ fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceS
                     .clicked()
                 {
                     state.mc_version_filter.clear();
-                    app.log(
+                    app.coordinator.log(
                         crate::log::LogLevel::Info,
                         "UI: Modrinth MC version filter changed to Any",
                     );
@@ -93,7 +93,7 @@ fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceS
                         .clicked()
                     {
                         state.mc_version_filter.clone_from(version);
-                        app.log(
+                        app.coordinator.log(
                             crate::log::LogLevel::Info,
                             &format!("UI: Modrinth MC version filter changed to {version}"),
                         );
@@ -118,7 +118,7 @@ fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceS
                     .checkbox(&mut state.manual_show_types[3], "Old Alphas")
                     .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth MC version type filter changed",
                 );
@@ -127,7 +127,7 @@ fn show_mc_version_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceS
     }
 }
 
-fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_loader_filter(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Loader:");
@@ -138,7 +138,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 .selectable_value(&mut state.loader_filter, LoaderType::Any, "Any")
                 .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth loader filter changed to Any",
                 );
@@ -147,7 +147,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 .selectable_value(&mut state.loader_filter, LoaderType::Fabric, "Fabric")
                 .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth loader filter changed to Fabric",
                 );
@@ -156,7 +156,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 .selectable_value(&mut state.loader_filter, LoaderType::Forge, "Forge")
                 .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth loader filter changed to Forge",
                 );
@@ -165,7 +165,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 .selectable_value(&mut state.loader_filter, LoaderType::NeoForge, "NeoForge")
                 .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth loader filter changed to NeoForge",
                 );
@@ -174,7 +174,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                 .selectable_value(&mut state.loader_filter, LoaderType::Quilt, "Quilt")
                 .changed()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Modrinth loader filter changed to Quilt",
                 );
@@ -182,7 +182,7 @@ fn show_loader_filter(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
         });
 }
 
-fn show_modrinth_results(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_modrinth_results(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     if !state.modrinth_status.is_empty() {
         ui.colored_label(app.theme.text_secondary, &state.modrinth_status);
         ui.add_space(app.theme.spacing.sm);
@@ -205,16 +205,17 @@ fn show_modrinth_results(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceSt
 }
 
 fn show_modrinth_result_card(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     state: &mut NewInstanceState,
-    result: &ProjectSummary,
+    result: &ProjectInfo,
 ) {
     ui.group(|ui| {
         ui.set_min_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.label(&result.name);
-            ui.colored_label(app.theme.text_secondary, format!("by {}", result.author));
+            let author_str = result.authors.join(", ");
+            ui.colored_label(app.theme.text_secondary, format!("by {author_str}"));
             ui.colored_label(
                 app.theme.text_secondary,
                 format!("({} downloads)", result.downloads),
@@ -227,10 +228,10 @@ fn show_modrinth_result_card(
 }
 
 fn show_modrinth_result_actions(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     state: &mut NewInstanceState,
-    result: &ProjectSummary,
+    result: &ProjectInfo,
 ) {
     ui.horizontal(|ui| {
         if ui
@@ -240,13 +241,14 @@ fn show_modrinth_result_actions(
             ))
             .clicked()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("UI: Installing modpack '{}' (latest)", result.name),
             );
             state.installing_modpack_id = Some(result.id.clone());
             state.modrinth_status = format!("Installing {}...", result.name);
-            app.install_modpack_as_instance(result.id.clone(), None);
+            app.coordinator
+                .install_modpack_as_instance(result.id.clone(), None);
         }
 
         let is_expanded = state.expanded_project_id.as_deref() == Some(&result.id);
@@ -258,20 +260,20 @@ fn show_modrinth_result_actions(
 
         if ui.button(expand_text).clicked() {
             if is_expanded {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Hid versions for '{}'", result.name),
                 );
                 state.expanded_project_id = None;
             } else {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Showed versions for '{}'", result.name),
                 );
                 state.expanded_project_id = Some(result.id.clone());
                 if !state.modpack_versions.contains_key(&result.id) {
                     state.loading_versions_for_project = Some(result.id.clone());
-                    app.fetch_modpack_versions(result.id.clone());
+                    app.coordinator.fetch_modpack_versions(result.id.clone());
                 }
             }
         }
@@ -292,10 +294,10 @@ fn show_modrinth_result_actions(
 }
 
 fn show_modrinth_version_list(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     state: &mut NewInstanceState,
-    result: &ProjectSummary,
+    result: &ProjectInfo,
     versions: &[ModVersion],
 ) {
     if versions.is_empty() {
@@ -316,7 +318,7 @@ fn show_modrinth_version_list(
     let install_target = show_version_table(app, ui, &filtered);
 
     if let Some((ver_number, ver_id)) = install_target {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!(
                 "UI: Installing modpack '{}' version '{}'",
@@ -325,7 +327,8 @@ fn show_modrinth_version_list(
         );
         state.installing_modpack_id = Some(result.id.clone());
         state.modrinth_status = format!("Installing {} ({})...", result.name, ver_number);
-        app.install_modpack_as_instance(result.id.clone(), Some(ver_id));
+        app.coordinator
+            .install_modpack_as_instance(result.id.clone(), Some(ver_id));
     }
 }
 
@@ -374,7 +377,7 @@ fn filter_versions<'a>(
 }
 
 fn show_version_table(
-    app: &App,
+    app: &LauncherApp,
     ui: &mut egui::Ui,
     filtered_versions: &[&ModVersion],
 ) -> Option<(String, String)> {

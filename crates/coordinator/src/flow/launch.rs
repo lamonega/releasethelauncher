@@ -19,6 +19,19 @@ pub struct AccountData {
     pub token: String,
 }
 
+impl AccountData {
+    pub fn from_auth(account: &release_the_launcher_auth::AccountData) -> Self {
+        Self {
+            name: account.display_name().to_string(),
+            uuid: account.internal_id.clone(),
+            token: account
+                .mc_token
+                .as_ref()
+                .map_or_else(String::new, |t| t.token.clone()),
+        }
+    }
+}
+
 pub struct LaunchParams {
     pub queue: Queue,
     pub account_data: Option<AccountData>,
@@ -39,15 +52,7 @@ pub struct LaunchParams {
 }
 
 pub fn extract_account_data(account_list: &AccountList) -> Option<AccountData> {
-    let active = account_list.active()?;
-    Some(AccountData {
-        name: active.display_name().to_string(),
-        uuid: active.internal_id.clone(),
-        token: active
-            .mc_token
-            .as_ref()
-            .map_or_else(String::new, |t| t.token.clone()),
-    })
+    account_list.active().map(AccountData::from_auth)
 }
 
 fn fail(queue: &Queue, msg: impl Into<String>) -> anyhow::Error {
@@ -126,14 +131,7 @@ async fn refresh_if_needed(params: &mut LaunchParams) -> Result<(), anyhow::Erro
     .await
     {
         Ok(Some(refreshed)) => {
-            params.account_data = Some(AccountData {
-                name: refreshed.display_name().to_string(),
-                uuid: refreshed.internal_id.clone(),
-                token: refreshed
-                    .mc_token
-                    .as_ref()
-                    .map_or_else(String::new, |t| t.token.clone()),
-            });
+            params.account_data = Some(AccountData::from_auth(&refreshed));
             push_event(
                 &params.queue,
                 Event::MsLoginSuccess {

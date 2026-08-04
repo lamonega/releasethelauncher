@@ -63,9 +63,12 @@ pub fn should_include_library(lib: &crate::Library) -> bool {
         return false;
     }
 
-    let parts: Vec<&str> = lib.name.split(':').collect();
-    if parts.len() >= 4 {
-        let classifier = parts[3].to_lowercase();
+    let Some(coord) = crate::MavenCoord::parse(&lib.name) else {
+        return true;
+    };
+
+    if let Some(classifier) = coord.classifier {
+        let classifier = classifier.to_lowercase();
         let arch = current_arch();
 
         if (classifier.contains("arm64") || classifier.contains("aarch64")) && arch != "aarch64" {

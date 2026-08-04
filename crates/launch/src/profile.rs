@@ -4,33 +4,22 @@ use crate::resolve::parsers::default_java_major_for_version;
 use crate::{ClientDownload, Component, LaunchError, Library};
 
 fn maven_key(name: &str) -> String {
-    let parts: Vec<&str> = name.split(':').collect();
-    if parts.len() >= 4 {
-        format!("{}:{}:{}", parts[0], parts[1], parts[3])
-    } else if parts.len() >= 2 {
-        format!("{}:{}", parts[0], parts[1])
+    if let Some(coord) = crate::MavenCoord::parse(name) {
+        if let Some(classifier) = coord.classifier {
+            format!("{}:{}:{}", coord.group, coord.artifact, classifier)
+        } else {
+            format!("{}:{}", coord.group, coord.artifact)
+        }
     } else {
         name.to_string()
     }
 }
 
-fn maven_version(name: &str) -> &str {
-    let mut count = 0;
-    let mut start = 0;
-    for (i, b) in name.bytes().enumerate() {
-        if b == b':' {
-            count += 1;
-            if count == 2 {
-                start = i + 1;
-            } else if count == 3 {
-                return &name[start..i];
-            }
-        }
-    }
-    if count >= 2 {
-        &name[start..]
+fn maven_version(name: &str) -> String {
+    if let Some(coord) = crate::MavenCoord::parse(name) {
+        coord.version
     } else {
-        ""
+        String::new()
     }
 }
 
@@ -70,7 +59,7 @@ pub struct AssetIndex {
 
 fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
     let key = maven_key(&lib.name);
-    let version = maven_version(&lib.name).to_string();
+    let version = maven_version(&lib.name);
     match map.get(&key) {
         Some(existing) if existing.rules != lib.rules => {
             // Platform variants of the same artifact (e.g. lwjgl 2.9.0 vs the
@@ -84,7 +73,7 @@ fn upsert_library(map: &mut HashMap<String, Library>, lib: &Library) {
             map.insert(format!("{key}#{version}"), lib.clone());
         }
         Some(existing) => {
-            if is_higher_version(&version, maven_version(&existing.name)) {
+            if is_higher_version(&version, &maven_version(&existing.name)) {
                 map.insert(key, lib.clone());
             }
         }
@@ -159,10 +148,14 @@ struct ComponentAccumulator {
     mc_version: String,
     mc_version_type: String,
     jvm_args: Vec<String>,
+    jvm_args_set: std::collections::HashSet<String>,
     game_args_template: String,
     all_traits: Vec<String>,
+    all_traits_set: std::collections::HashSet<String>,
     all_tweakers: Vec<String>,
+    all_tweakers_set: std::collections::HashSet<String>,
     compatible_java_majors: Vec<u32>,
+    compatible_java_majors_set: std::collections::HashSet<u32>,
     asset_index: AssetIndex,
     client_download: Option<ClientDownload>,
 }
@@ -206,22 +199,22 @@ impl ComponentAccumulator {
             }
         }
         for arg in &component.version_file.jvm_args {
-            if !self.jvm_args.contains(arg) {
+            if self.jvm_args_set.insert(arg.clone()) {
                 self.jvm_args.push(arg.clone());
             }
         }
         for t in &component.version_file.traits {
-            if !self.all_traits.contains(t) {
+            if self.all_traits_set.insert(t.clone()) {
                 self.all_traits.push(t.clone());
             }
         }
         for t in &component.version_file.tweakers {
-            if !self.all_tweakers.contains(t) {
+            if self.all_tweakers_set.insert(t.clone()) {
                 self.all_tweakers.push(t.clone());
             }
         }
         for j in &component.version_file.compatible_java_majors {
-            if !self.compatible_java_majors.contains(j) {
+            if self.compatible_java_majors_set.insert(*j) {
                 self.compatible_java_majors.push(*j);
             }
         }

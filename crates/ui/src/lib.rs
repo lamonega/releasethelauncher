@@ -6,15 +6,12 @@ pub mod theme;
 pub mod views;
 pub mod widgets;
 
-pub use layout::LauncherApp;
 pub use release_the_launcher_coordinator::Event as UiMessage;
 pub use release_the_launcher_core::log;
 pub use theme::icons;
 
-use std::sync::{Arc, Mutex};
-
 use release_the_launcher_coordinator::log::LogLevel;
-use release_the_launcher_coordinator::{Coordinator, Event};
+use release_the_launcher_coordinator::Coordinator;
 
 /// Renders a centered empty-state label in muted text using the given theme.
 pub fn empty_state(ui: &mut egui::Ui, theme: &Theme, messages: &[&str]) {
@@ -27,17 +24,20 @@ pub fn empty_state(ui: &mut egui::Ui, theme: &Theme, messages: &[&str]) {
 
 use theme::Theme;
 
-pub struct App {
+pub struct LauncherApp {
     pub coordinator: Coordinator,
     pub current_view: View,
     pub status_message: String,
     pub download_state: DownloadState,
     pub theme: Theme,
     pub ctx: Option<egui::Context>,
-    /// Dedicated UI-only event queue for view-specific results.
-    /// Separate from Coordinator's channel to avoid re-enqueue loops.
-    ui_tx: std::sync::mpsc::Sender<UiMessage>,
-    ui_rx: Arc<Mutex<std::sync::mpsc::Receiver<UiMessage>>>,
+    pub new_instance_state: views::new_instance::NewInstanceState,
+    pub login_username: String,
+    pub login_state: views::account_login::LoginState,
+    pub mod_browser_state: views::mod_browser::ModBrowserState,
+    pub detail_tab_state: views::instance_detail::DetailTabState,
+    pub selected_instance_id: Option<String>,
+    pub maximized: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -76,10 +76,9 @@ pub struct DownloadState {
     pub total: u64,
 }
 
-impl App {
+impl LauncherApp {
     #[must_use]
     pub fn new(coordinator: Coordinator, theme: Theme, ctx: Option<egui::Context>) -> Self {
-        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
         Self {
             coordinator,
             current_view: View::InstanceList,
@@ -87,90 +86,13 @@ impl App {
             download_state: DownloadState::default(),
             theme,
             ctx,
-            ui_tx,
-            ui_rx: Arc::new(Mutex::new(ui_rx)),
+            new_instance_state: views::new_instance::NewInstanceState::default(),
+            login_username: String::new(),
+            login_state: views::account_login::LoginState::Idle,
+            mod_browser_state: views::mod_browser::ModBrowserState::default(),
+            detail_tab_state: views::instance_detail::DetailTabState::default(),
+            selected_instance_id: None,
+            maximized: false,
         }
-    }
-
-    /// Drains coordinator-level events (log, status, progress, auth, etc.).
-    #[must_use]
-    pub fn drain_coordinator_events(&self) -> Vec<UiMessage> {
-        self.coordinator.drain_events()
-    }
-
-    /// Drains view-specific events (Modrinth results, version lists, etc.)
-    /// that were forwarded to the dedicated UI channel.
-    #[must_use]
-    pub fn drain_view_events(&self) -> Vec<UiMessage> {
-        let mut events = Vec::new();
-        if let Ok(rx) = self.ui_rx.lock() {
-            while let Ok(ev) = rx.try_recv() {
-                events.push(ev);
-            }
-        }
-        events
-    }
-
-    /// Forwards a view-specific event into the UI-only queue.
-    pub fn forward_view_event(&self, event: Event) {
-        let _ = self.ui_tx.send(event);
-    }
-
-    #[must_use]
-    pub fn instance_ids(&self) -> Vec<String> {
-        self.coordinator.instance_ids()
-    }
-
-    pub fn log(&self, level: LogLevel, message: &str) {
-        self.coordinator.log(level, message);
-    }
-
-    pub fn launch_instance(&self, instance_id: &str) {
-        self.coordinator.launch_instance(instance_id);
-    }
-
-    pub fn fetch_versions_list(&self) {
-        self.coordinator.fetch_versions_list();
-    }
-
-    pub fn fetch_loader_versions(&self, loader_type: &str, mc_version: &str) {
-        self.coordinator
-            .fetch_loader_versions(loader_type, mc_version);
-    }
-
-    pub fn search_modrinth_modpacks(&self, query: String, mc_version: String, loader: String) {
-        self.coordinator.search_modpacks(query, mc_version, loader);
-    }
-
-    pub fn search_mods(&self, query: String, mc_version: String, loader_name: String) {
-        self.coordinator.search_mods(query, mc_version, loader_name);
-    }
-
-    pub fn install_mod_from_modrinth(
-        &self,
-        project_id: String,
-        mods_dir: std::path::PathBuf,
-        mc_version: Option<String>,
-        loader_name: Option<String>,
-    ) {
-        self.coordinator
-            .install_mod(project_id, mods_dir, mc_version, loader_name);
-    }
-
-    pub fn fetch_modpack_versions(&self, project_id: String) {
-        self.coordinator.fetch_modpack_versions(project_id);
-    }
-
-    pub fn install_modpack_as_instance(&self, project_id: String, version_id: Option<String>) {
-        self.coordinator
-            .install_modpack_as_instance(project_id, version_id);
-    }
-
-    pub fn check_mod_updates(&self, instance_id: String) {
-        self.coordinator.check_mod_updates(instance_id);
-    }
-
-    pub fn start_ms_login(&self) {
-        self.coordinator.start_ms_login();
     }
 }

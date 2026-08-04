@@ -1,20 +1,19 @@
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 
-pub fn show(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    username_input: &mut String,
-    login_state: &mut LoginState,
-) {
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
+    let mut login_state = std::mem::replace(&mut app.login_state, LoginState::Idle);
+    let mut login_username = std::mem::take(&mut app.login_username);
+
     if widgets::page_header(ui, app, "Add Account", Some(View::AccountList)) {
-        *login_state = LoginState::Idle;
+        app.login_state = LoginState::Idle;
+        app.login_username = login_username;
         return;
     }
 
-    match login_state {
+    match &mut login_state {
         LoginState::Idle => {
             ui.label("Enter a username for offline play:");
-            ui.text_edit_singleline(username_input);
+            ui.text_edit_singleline(&mut login_username);
 
             ui.add_space(app.theme.spacing.sm);
             if ui
@@ -23,23 +22,23 @@ pub fn show(
                         .fill(app.theme.accent),
                 )
                 .clicked()
-                && !username_input.is_empty()
+                && !login_username.is_empty()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
-                    &format!("UI: Added offline account '{username_input}'"),
+                    &format!("UI: Added offline account '{login_username}'"),
                 );
-                if let Err(err) = app.coordinator.add_offline_account(username_input) {
-                    app.log(
+                if let Err(err) = app.coordinator.add_offline_account(&login_username) {
+                    app.coordinator.log(
                         crate::log::LogLevel::Error,
                         &format!("Failed to add offline account: {err}"),
                     );
                     app.status_message = format!("Failed to add offline account: {err}");
                 } else {
-                    app.status_message = format!("Added offline account: {username_input}");
+                    app.status_message = format!("Added offline account: {login_username}");
                 }
                 app.current_view = View::AccountList;
-                *login_state = LoginState::Idle;
+                login_state = LoginState::Idle;
             }
 
             ui.add_space(app.theme.spacing.sm);
@@ -47,9 +46,10 @@ pub fn show(
             ui.add_space(app.theme.spacing.sm);
             ui.label("Or sign in with Microsoft:");
             if ui.button("Microsoft Login").clicked() {
-                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login started");
-                *login_state = LoginState::MicrosoftPending;
-                app.start_ms_login();
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Microsoft Login started");
+                login_state = LoginState::MicrosoftPending;
+                app.coordinator.start_ms_login();
             }
         }
         LoginState::MicrosoftPending => {
@@ -57,8 +57,9 @@ pub fn show(
             ui.label("Check the terminal for the device code and URL.");
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
-                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login cancelled");
-                *login_state = LoginState::Idle;
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Microsoft Login cancelled");
+                login_state = LoginState::Idle;
             }
         }
         LoginState::MicrosoftDeviceCode {
@@ -67,7 +68,7 @@ pub fn show(
             message,
         } => {
             ui.label("Open this URL in your browser:");
-            ui.hyperlink(verification_uri);
+            ui.hyperlink(verification_uri.as_str());
             ui.label("And enter this code:");
             ui.monospace(user_code.as_str());
             ui.separator();
@@ -75,33 +76,37 @@ pub fn show(
             ui.label(message.as_str());
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Microsoft Login cancelled (device code)",
                 );
-                *login_state = LoginState::Idle;
+                login_state = LoginState::Idle;
             }
         }
         LoginState::MicrosoftPolling => {
             widgets::loading_row(ui, "Waiting for you to approve in the browser...");
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Cancel").clicked() {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     "UI: Microsoft Login cancelled (polling)",
                 );
-                *login_state = LoginState::Idle;
+                login_state = LoginState::Idle;
             }
         }
         LoginState::MicrosoftError(err) => {
             ui.colored_label(app.theme.log_colors.error, err.as_str());
             ui.add_space(app.theme.spacing.sm);
             if ui.button("Try Again").clicked() {
-                app.log(crate::log::LogLevel::Info, "UI: Microsoft Login retry");
-                *login_state = LoginState::Idle;
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Microsoft Login retry");
+                login_state = LoginState::Idle;
             }
         }
     }
+
+    app.login_state = login_state;
+    app.login_username = login_username;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

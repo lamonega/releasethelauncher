@@ -3,8 +3,16 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-fn hash_file<D: Digest>(path: &Path, mut hasher: D) -> io::Result<String> {
+pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
+    hex::encode(Sha1::digest(bytes))
+}
+
+/// # Errors
+///
+/// Returns [`io::Error`] if opening or reading the file fails.
+pub fn compute_sha1_file(path: &Path) -> Result<String, io::Error> {
     let mut file = File::open(path)?;
+    let mut hasher = Sha1::new();
     let mut buffer = [0u8; 8192];
     loop {
         let count = file.read(&mut buffer)?;
@@ -14,18 +22,6 @@ fn hash_file<D: Digest>(path: &Path, mut hasher: D) -> io::Result<String> {
         hasher.update(&buffer[..count]);
     }
     Ok(hex::encode(hasher.finalize()))
-}
-
-#[must_use]
-pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
-    hex::encode(Sha1::digest(bytes))
-}
-
-/// # Errors
-///
-/// Returns [`io::Error`] if opening or reading the file fails.
-pub fn compute_sha1_file(path: &Path) -> Result<String, io::Error> {
-    hash_file(path, Sha1::new())
 }
 
 #[cfg(test)]

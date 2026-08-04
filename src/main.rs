@@ -2,7 +2,7 @@
 
 use release_the_launcher_coordinator::Coordinator;
 use release_the_launcher_ui::theme::Theme;
-use release_the_launcher_ui::{App, LauncherApp};
+use release_the_launcher_ui::LauncherApp;
 
 fn main() -> Result<(), eframe::Error> {
     tracing_subscriber::fmt()
@@ -36,8 +36,12 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let theme = Theme::apply(&cc.egui_ctx);
-            let app = App::new(coordinator, theme, Some(cc.egui_ctx.clone()));
-            Box::new(LauncherApp::new(app))
+
+            Box::new(LauncherApp::new(
+                coordinator,
+                theme,
+                Some(cc.egui_ctx.clone()),
+            ))
         }),
     )
 }

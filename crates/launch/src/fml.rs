@@ -34,8 +34,14 @@ pub async fn ensure_fml_deobfuscation_data(
     }
     let mc = &profile.mc_version;
     let seed = FML_LIB_SEEDS.iter().find(|(m, _)| m == mc).map(|(_, s)| *s);
-    let expected =
-        deobfuscation_hash_from_jar(profile, instance_root).or_else(|| seed.map(|s| s.to_string()));
+    let profile_clone = profile.clone();
+    let root_clone = instance_root.to_path_buf();
+    let expected = tokio::task::spawn_blocking(move || {
+        deobfuscation_hash_from_jar(&profile_clone, &root_clone)
+    })
+    .await
+    .unwrap_or(None)
+    .or_else(|| seed.map(|s| s.to_string()));
     let Some(expected) = expected else {
         return Ok(());
     };
@@ -48,7 +54,13 @@ pub async fn ensure_fml_deobfuscation_data(
         .join(".minecraft")
         .join("lib");
     let target = lib_dir.join(&file_name);
-    if sha1_file(&target)?.as_deref() == Some(expected.as_str()) {
+    let target_clone = target.clone();
+    if tokio::task::spawn_blocking(move || sha1_file(&target_clone))
+        .await
+        .unwrap_or(Ok(None))?
+        .as_deref()
+        == Some(expected.as_str())
+    {
         return Ok(());
     }
 
@@ -73,8 +85,15 @@ pub async fn ensure_fml_deobfuscation_data(
         }
     };
 
-    std::fs::create_dir_all(&lib_dir)?;
-    std::fs::write(&target, &bytes)?;
+    let lib_dir_clone = lib_dir.clone();
+    let target_clone2 = target.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
+        std::fs::create_dir_all(&lib_dir_clone)?;
+        std::fs::write(&target_clone2, &bytes)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| LaunchError::Launch(e.to_string()))??;
     Ok(())
 }
 

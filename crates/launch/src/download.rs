@@ -100,20 +100,14 @@ impl DownloadManager {
 
     #[must_use]
     pub(crate) fn local_path_for_library(lib: &Library) -> Option<PathBuf> {
-        let parts: Vec<&str> = lib.name.split(':').collect();
-        if parts.len() < 3 {
-            return None;
-        }
+        let coord = crate::MavenCoord::parse(&lib.name)?;
 
-        let group = parts[0].replace('.', "/");
-        let artifact = parts[1];
-        let version = parts[2];
         let filename = library_filename(lib);
 
         Some(
-            PathBuf::from(&group)
-                .join(artifact)
-                .join(version)
+            PathBuf::from(coord.group.replace('.', "/"))
+                .join(&coord.artifact)
+                .join(&coord.version)
                 .join(filename),
         )
     }
@@ -290,7 +284,7 @@ async fn download_with_fallback(
             url,
             target,
             checksum,
-            None::<fn(u64, u64)>,
+            None::<&(dyn Fn(u64, u64) + Send + Sync)>,
         )
         .await
         {
@@ -434,7 +428,7 @@ impl DownloadManager {
                             &url,
                             &target_path,
                             checksum,
-                            None::<fn(u64, u64)>,
+                            None,
                         )
                         .await
                         {
@@ -516,7 +510,7 @@ impl DownloadManager {
             url,
             target,
             checksum,
-            None::<fn(u64, u64)>,
+            None::<&(dyn Fn(u64, u64) + Send + Sync)>,
         )
         .await
         .map_err(|e| LaunchError::Launch(format!("Failed downloading file from {url}: {e}")))?;

@@ -1,7 +1,7 @@
 use crate::theme;
-use crate::{widgets, App, LogLevel, View};
+use crate::{widgets, LogLevel, View};
 
-pub fn show(app: &mut App, maximized: &mut bool, ctx: &egui::Context) {
+pub fn show(app: &mut crate::LauncherApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("toolbar")
         .frame(
             egui::Frame::none()
@@ -21,41 +21,49 @@ pub fn show(app: &mut App, maximized: &mut bool, ctx: &egui::Context) {
                     let close_btn = egui::Button::new(egui::RichText::new("X").strong().size(14.0))
                         .min_size(btn_size);
                     if ui.add(close_btn).clicked() {
-                        app.log(LogLevel::Info, "UI: Close button clicked");
+                        app.coordinator
+                            .log(LogLevel::Info, "UI: Close button clicked");
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
 
                     // Maximize / Restore Button
-                    let max_text = if *maximized { "❐" } else { "□" };
+                    let max_text = if app.maximized { "❐" } else { "□" };
                     let max_btn =
                         egui::Button::new(egui::RichText::new(max_text).strong().size(14.0))
                             .min_size(btn_size);
                     if ui.add(max_btn).clicked() {
-                        *maximized = !*maximized;
-                        let action = if *maximized { "maximized" } else { "restored" };
-                        app.log(LogLevel::Info, &format!("UI: Window {action}"));
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(*maximized));
+                        app.maximized = !app.maximized;
+                        let action = if app.maximized {
+                            "maximized"
+                        } else {
+                            "restored"
+                        };
+                        app.coordinator
+                            .log(LogLevel::Info, &format!("UI: Window {action}"));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(app.maximized));
                     }
 
                     // Minimize Button
                     let min_btn = egui::Button::new(egui::RichText::new("—").strong().size(14.0))
                         .min_size(btn_size);
                     if ui.add(min_btn).clicked() {
-                        app.log(LogLevel::Info, "UI: Window minimized");
+                        app.coordinator.log(LogLevel::Info, "UI: Window minimized");
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                     }
 
                     ui.separator();
 
                     if ui.button("Accounts").clicked() {
-                        app.log(LogLevel::Info, "UI: Navigated to Accounts");
+                        app.coordinator
+                            .log(LogLevel::Info, "UI: Navigated to Accounts");
                         app.current_view = View::AccountList;
                     }
                     if ui
                         .add(widgets::icon_button(theme::icons::SETTINGS, "Settings"))
                         .clicked()
                     {
-                        app.log(LogLevel::Info, "UI: Navigated to Settings");
+                        app.coordinator
+                            .log(LogLevel::Info, "UI: Navigated to Settings");
                         app.current_view = View::Settings;
                     }
 

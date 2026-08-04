@@ -10,16 +10,11 @@ pub struct CacheEntry {
     pub relative_path: String,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
-    pub md5: Option<String>,
+    pub data: Option<String>,
     pub max_age: u64,
     #[serde(default, alias = "current_age")]
     pub last_accessed: u64,
     pub is_eternal: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CacheFile {
-    entries: HashMap<String, HashMap<String, CacheEntry>>,
 }
 
 pub struct HttpMetaCache {
@@ -32,9 +27,11 @@ impl HttpMetaCache {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             if let Ok(content) = fs::read_to_string(path) {
-                if let Ok(data) = serde_json::from_str::<CacheFile>(&content) {
+                if let Ok(entries) =
+                    serde_json::from_str::<HashMap<String, HashMap<String, CacheEntry>>>(&content)
+                {
                     return Self {
-                        entries: data.entries,
+                        entries,
                         file_path: path.to_path_buf(),
                     };
                 }

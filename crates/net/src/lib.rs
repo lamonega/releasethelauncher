@@ -82,7 +82,7 @@ pub async fn download_to_file(
     url: &str,
     dest: &Path,
     checksum: Option<(HashKind, &str)>,
-    progress: Option<impl Fn(u64, u64) + Send + Sync + 'static>,
+    progress: Option<&(dyn Fn(u64, u64) + Send + Sync)>,
 ) -> Result<(), NetError> {
     let res = client.get(url).send().await?.error_for_status()?;
     let total = res.content_length().unwrap_or(0);

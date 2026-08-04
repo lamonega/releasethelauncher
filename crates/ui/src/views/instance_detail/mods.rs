@@ -1,8 +1,12 @@
 use super::{DetailTabState, ModFilter, ModUpdatesState};
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 
-pub fn show_mods(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
-    handle_mod_messages(app, id, tab_state);
+pub fn show_mods(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    tab_state: &mut DetailTabState,
+) {
     show_mods_toolbar(app, ui, id, tab_state);
     show_mod_updates(app, ui, id, tab_state);
     show_mod_search_filter(app, ui, tab_state);
@@ -12,21 +16,12 @@ pub fn show_mods(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut Det
     show_mod_list(app, ui, id, tab_state);
 }
 
-fn handle_mod_messages(app: &mut App, id: &str, tab_state: &mut DetailTabState) {
-    for msg in app.drain_view_events() {
-        if let crate::UiMessage::ModUpdatesResult {
-            instance_id: target_id,
-            updates,
-        } = msg
-        {
-            if target_id == id {
-                tab_state.mod_updates = ModUpdatesState::Loaded(updates);
-            }
-        }
-    }
-}
-
-fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
+fn show_mods_toolbar(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    tab_state: &mut DetailTabState,
+) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Installed mods:").strong());
         widgets::right_aligned(ui, |ui| {
@@ -34,7 +29,7 @@ fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut
                 .add(widgets::icon_button(crate::icons::ADD, "Add mods"))
                 .clicked()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Opened Mod Browser for instance '{id}'"),
                 );
@@ -49,19 +44,24 @@ fn show_mods_toolbar(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut
                 ))
                 .clicked()
             {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Checking mod updates for instance '{id}'"),
                 );
                 tab_state.mod_updates = ModUpdatesState::Checking;
-                app.check_mod_updates(id.to_string());
+                app.coordinator.check_mod_updates(id.to_string());
             }
         });
     });
     ui.add_space(app.theme.spacing.xs);
 }
 
-fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &DetailTabState) {
+fn show_mod_updates(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    tab_state: &DetailTabState,
+) {
     match &tab_state.mod_updates {
         ModUpdatesState::Checking => {
             ui.colored_label(app.theme.text_secondary, "Checking for updates...");
@@ -84,7 +84,7 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
                                 app.coordinator.instance_mods_dir(id),
                                 app.coordinator.instance_summary(id),
                             ) {
-                                app.install_mod_from_modrinth(
+                                app.coordinator.install_mod(
                                     update.latest.project_id.clone(),
                                     mods_dir,
                                     Some(summary.mc_version),
@@ -101,7 +101,11 @@ fn show_mod_updates(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &Deta
     }
 }
 
-fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut DetailTabState) {
+fn show_mod_search_filter(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    tab_state: &mut DetailTabState,
+) {
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.add(
@@ -121,7 +125,7 @@ fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut Deta
                 .radio_value(filter, ModFilter::DisabledOnly, "Inactive")
                 .changed()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("UI: Mod filter changed to {filter:?}"),
             );
@@ -131,7 +135,12 @@ fn show_mod_search_filter(app: &mut App, ui: &mut egui::Ui, tab_state: &mut Deta
 
 use super::CachedModEntry;
 
-fn show_mod_list(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut DetailTabState) {
+fn show_mod_list(
+    app: &mut LauncherApp,
+    ui: &mut egui::Ui,
+    id: &str,
+    tab_state: &mut DetailTabState,
+) {
     let cache = &mut tab_state.mods_cache;
 
     // Refresh cache if instance changed or cache marked dirty
@@ -210,13 +219,13 @@ fn show_mod_list(app: &mut App, ui: &mut egui::Ui, id: &str, tab_state: &mut Det
     if let Some(idx) = toggle_idx {
         let entry = &mut cache.mods[idx];
         let action = if entry.enabled { "disabled" } else { "enabled" };
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Mod '{}' {action}", entry.name),
         );
-        let result = app.coordinator.toggle_mod(id, &entry.path);
+        let result = app.coordinator.toggle_mod(&entry.path);
         if let Err(e) = result {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to toggle mod: {e}"),
             );

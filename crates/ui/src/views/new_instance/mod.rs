@@ -1,6 +1,6 @@
-use crate::{widgets, App, View};
+use crate::{widgets, LauncherApp, View};
 use release_the_launcher_core::ModLoader;
-use release_the_launcher_mods::ProjectSummary;
+use release_the_launcher_mods::ProjectInfo;
 
 mod manual;
 mod modrinth;
@@ -8,13 +8,10 @@ mod modrinth;
 use manual::show_manual;
 use modrinth::show_modrinth;
 
-pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
-    process_messages(app, state);
-
-    // Trigger version list fetch on first open if not yet loaded
-    if state.version_list_state == VersionListState::Idle {
-        state.version_list_state = VersionListState::Loading;
-        app.fetch_versions_list();
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
+    if app.new_instance_state.version_list_state == VersionListState::Idle {
+        app.new_instance_state.version_list_state = VersionListState::Loading;
+        app.coordinator.fetch_versions_list();
     }
 
     if widgets::page_header(ui, app, "New Instance", Some(View::InstanceList)) {
@@ -26,115 +23,114 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
         (InstanceTab::Modrinth, "From Modrinth"),
     ];
 
-    if let Some(target_tab) = widgets::tab_row(ui, &app.theme, &state.tab, &tabs) {
-        app.log(
+    if let Some(target_tab) = widgets::tab_row(ui, &app.theme, &app.new_instance_state.tab, &tabs) {
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Switched to {target_tab:?} tab"),
         );
-        state.tab = target_tab;
+        app.new_instance_state.tab = target_tab;
     }
 
     ui.add_space(app.theme.spacing.sm);
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
+    let mut state = std::mem::take(&mut app.new_instance_state);
     match state.tab {
-        InstanceTab::Manual => show_manual(app, ui, state),
-        InstanceTab::Modrinth => show_modrinth(app, ui, state),
+        InstanceTab::Manual => show_manual(app, ui, &mut state),
+        InstanceTab::Modrinth => show_modrinth(app, ui, &mut state),
     }
+    app.new_instance_state = state;
 }
 
-pub fn process_messages(app: &mut App, state: &mut NewInstanceState) {
-    let messages = app.drain_view_events();
-    for msg in messages {
-        match msg {
-            crate::UiMessage::ModrinthSearchResult(result) => match result {
-                Ok(results) => {
-                    state.modrinth_status = format!("Found {} modpacks", results.total_hits);
-                    state.modrinth_results = results.hits;
-                }
-                Err(e) => {
-                    state.modrinth_status = format!("Search failed: {e}");
-                }
-            },
-            crate::UiMessage::ModrinthVersionsResult { project_id, result } => match result {
-                Ok(versions) => {
-                    state.modpack_versions.insert(project_id, versions);
-                    state.loading_versions_for_project = None;
-                }
-                Err(e) => {
-                    state.modrinth_status = format!("Failed to load versions: {e}");
-                    state.loading_versions_for_project = None;
-                }
-            },
-            crate::UiMessage::ModrinthInstallResult {
-                instance_id,
-                name,
-                mc_version,
-                loader,
-                modpack_project_id,
-                modpack_version_id,
-            } => {
-                let modpack_ids = modpack_project_id
-                    .as_deref()
-                    .zip(modpack_version_id.as_deref());
-                handle_install_result(
-                    app,
-                    state,
-                    &instance_id,
-                    &name,
-                    &mc_version,
-                    &loader,
-                    modpack_ids,
-                );
+pub fn process_message(app: &mut crate::LauncherApp, msg: crate::UiMessage) {
+    match msg {
+        crate::UiMessage::ModrinthSearchResult(result) => match result {
+            Ok(results) => {
+                app.new_instance_state.modrinth_status =
+                    format!("Found {} modpacks", results.total_hits);
+                app.new_instance_state.modrinth_results = results.hits;
             }
-            crate::UiMessage::VersionListResult(result) => match result {
-                Ok(versions) => {
-                    if let Some((latest, _)) = versions
-                        .iter()
-                        .find(|(_, t)| t == "release")
-                        .or_else(|| versions.first())
-                    {
-                        state.mc_version = latest.clone();
-                    }
-                    state.available_versions = versions;
-                    state.version_list_state = VersionListState::Loaded;
-                }
-                Err(e) => {
-                    state.modrinth_status = format!("Failed to load versions: {e}");
-                }
-            },
-            crate::UiMessage::LoaderVersionsResult {
-                loader_type,
-                mc_version,
-                result,
-            } if state.loader_type.as_str() == loader_type && state.mc_version == mc_version => {
-                match result {
-                    Ok(versions) => {
-                        state.loader_versions = versions;
-                        state.loader_versions_loading = false;
-                        state.loader_versions_error = None;
-                        if !state.loader_versions.is_empty()
-                            && (state.loader_version.is_empty()
-                                || !state.loader_versions.contains(&state.loader_version))
-                        {
-                            state.loader_version = state.loader_versions[0].clone();
-                        }
-                    }
-                    Err(e) => {
-                        state.loader_versions_loading = false;
-                        state.loader_versions_error = Some(e);
-                    }
-                }
+            Err(e) => {
+                app.new_instance_state.modrinth_status = format!("Search failed: {e}");
             }
-            _ => {}
+        },
+        crate::UiMessage::ModrinthVersionsResult { project_id, result } => match result {
+            Ok(versions) => {
+                app.new_instance_state
+                    .modpack_versions
+                    .insert(project_id, versions);
+                app.new_instance_state.loading_versions_for_project = None;
+            }
+            Err(e) => {
+                app.new_instance_state.modrinth_status = format!("Failed to load versions: {e}");
+                app.new_instance_state.loading_versions_for_project = None;
+            }
+        },
+        crate::UiMessage::ModrinthInstallResult {
+            instance_id,
+            name,
+            mc_version,
+            loader,
+            modpack_project_id,
+            modpack_version_id,
+        } => {
+            let modpack_ids = modpack_project_id
+                .as_deref()
+                .zip(modpack_version_id.as_deref());
+            handle_install_result(app, &instance_id, &name, &mc_version, &loader, modpack_ids);
         }
+        crate::UiMessage::VersionListResult(result) => match result {
+            Ok(versions) => {
+                if let Some((latest, _)) = versions
+                    .iter()
+                    .find(|(_, t)| t == "release")
+                    .or_else(|| versions.first())
+                {
+                    app.new_instance_state.mc_version = latest.clone();
+                }
+                app.new_instance_state.available_versions = versions;
+                app.new_instance_state.version_list_state = VersionListState::Loaded;
+            }
+            Err(e) => {
+                app.new_instance_state.modrinth_status = format!("Failed to load versions: {e}");
+            }
+        },
+        crate::UiMessage::LoaderVersionsResult {
+            loader_type,
+            mc_version,
+            result,
+        } if app.new_instance_state.loader_type.as_str() == loader_type
+            && app.new_instance_state.mc_version == mc_version =>
+        {
+            match result {
+                Ok(versions) => {
+                    app.new_instance_state.loader_versions = versions;
+                    app.new_instance_state.loader_versions_loading = false;
+                    app.new_instance_state.loader_versions_error = None;
+                    if !app.new_instance_state.loader_versions.is_empty()
+                        && (app.new_instance_state.loader_version.is_empty()
+                            || !app
+                                .new_instance_state
+                                .loader_versions
+                                .contains(&app.new_instance_state.loader_version))
+                    {
+                        app.new_instance_state.loader_version =
+                            app.new_instance_state.loader_versions[0].clone();
+                    }
+                }
+                Err(e) => {
+                    app.new_instance_state.loader_versions_loading = false;
+                    app.new_instance_state.loader_versions_error = Some(e);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
 pub fn handle_install_result(
-    app: &mut App,
-    state: &mut NewInstanceState,
+    app: &mut LauncherApp,
     instance_id: &str,
     name: &str,
     mc_version: &str,
@@ -177,21 +173,21 @@ pub fn handle_install_result(
         modpack_version_id,
     ) {
         Ok(instance_id) => {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("UI: Installed modpack instance '{instance_id}'"),
             );
             app.status_message = format!("Installed modpack instance: {name}");
             app.current_view = View::InstanceList;
-            state.installing_modpack_id = None;
+            app.new_instance_state.installing_modpack_id = None;
         }
         Err(e) => {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Error,
                 &format!("Failed to install modpack instance: {e}"),
             );
             app.status_message = format!("Error: {e}");
-            state.installing_modpack_id = None;
+            app.new_instance_state.installing_modpack_id = None;
         }
     }
 }
@@ -206,7 +202,7 @@ pub struct NewInstanceState {
     pub mc_version_filter: String,
     pub loader_filter: LoaderType,
     pub modrinth_status: String,
-    pub modrinth_results: Vec<ProjectSummary>,
+    pub modrinth_results: Vec<ProjectInfo>,
     pub installing_modpack_id: Option<String>,
     pub available_versions: Vec<(String, String)>,
     pub version_list_state: VersionListState,

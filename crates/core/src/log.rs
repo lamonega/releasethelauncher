@@ -38,8 +38,12 @@ impl LogLevel {
 
 #[derive(Clone)]
 pub struct LogBuffer {
-    entries: Arc<Mutex<VecDeque<LogEntry>>>,
-    log_file: Arc<Mutex<Option<File>>>,
+    inner: Arc<Mutex<LogBufferInner>>,
+}
+
+pub struct LogBufferInner {
+    pub entries: VecDeque<LogEntry>,
+    pub log_file: Option<File>,
 }
 
 impl Default for LogBuffer {
@@ -52,18 +56,20 @@ impl LogBuffer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_LOG_ENTRIES))),
-            log_file: Arc::new(Mutex::new(None)),
+            inner: Arc::new(Mutex::new(LogBufferInner {
+                entries: VecDeque::with_capacity(MAX_LOG_ENTRIES),
+                log_file: None,
+            })),
         }
     }
 
     pub fn set_log_file_path(&self, path: PathBuf) {
         let file = OpenOptions::new().create(true).append(true).open(path).ok();
         let mut guard = self
-            .log_file
+            .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *guard = file;
+        guard.log_file = file;
     }
 
     pub fn push(&self, entry: LogEntry) {
@@ -76,40 +82,36 @@ impl LogBuffer {
             entry.message
         );
 
-        // Write to log file if open
-        {
-            let mut file_guard = self
-                .log_file
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(ref mut file) = *file_guard {
-                // Benign discard: a log-write failure must never break the app.
-                let _ = writeln!(
-                    file,
-                    "[{}] [{}/{}] {}",
-                    entry.timestamp,
-                    entry.level.as_str(),
-                    entry.target,
-                    entry.message
-                );
-            }
-        }
-
-        let mut buffer = self
-            .entries
+        let mut inner = self
+            .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if buffer.len() >= MAX_LOG_ENTRIES {
-            buffer.pop_front();
+
+        // Write to log file if open
+        if let Some(ref mut file) = inner.log_file {
+            // Benign discard: a log-write failure must never break the app.
+            let _ = writeln!(
+                file,
+                "[{}] [{}/{}] {}",
+                entry.timestamp,
+                entry.level.as_str(),
+                entry.target,
+                entry.message
+            );
         }
-        buffer.push_back(entry);
+
+        if inner.entries.len() >= MAX_LOG_ENTRIES {
+            inner.entries.pop_front();
+        }
+        inner.entries.push_back(entry);
     }
 
     #[must_use]
     pub fn entries(&self) -> Vec<LogEntry> {
-        self.entries
+        self.inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entries
             .iter()
             .cloned()
             .collect()

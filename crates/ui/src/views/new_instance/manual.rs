@@ -1,8 +1,8 @@
 use super::{LoaderType, NewInstanceState, VersionListState};
-use crate::App;
+use crate::LauncherApp;
 use crate::View;
 
-pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+pub(crate) fn show_manual(app: &mut LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Name:");
     ui.text_edit_singleline(&mut state.name);
 
@@ -14,7 +14,7 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
             .checkbox(&mut state.manual_show_types[0], "Releases")
             .changed()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!(
                     "UI: MC version filter - Releases: {}",
@@ -26,7 +26,7 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
             .checkbox(&mut state.manual_show_types[1], "Snapshots")
             .changed()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!(
                     "UI: MC version filter - Snapshots: {}",
@@ -38,7 +38,7 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
             .checkbox(&mut state.manual_show_types[2], "Old Betas")
             .changed()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!(
                     "UI: MC version filter - Betas: {}",
@@ -50,7 +50,7 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
             .checkbox(&mut state.manual_show_types[3], "Old Alphas")
             .changed()
         {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!(
                     "UI: MC version filter - Alphas: {}",
@@ -73,31 +73,36 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
                 .selectable_value(&mut state.loader_type, LoaderType::Vanilla, "Vanilla")
                 .changed()
             {
-                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Vanilla");
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Vanilla");
             }
             if ui
                 .selectable_value(&mut state.loader_type, LoaderType::Fabric, "Fabric")
                 .changed()
             {
-                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Fabric");
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Fabric");
             }
             if ui
                 .selectable_value(&mut state.loader_type, LoaderType::Forge, "Forge")
                 .changed()
             {
-                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Forge");
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Forge");
             }
             if ui
                 .selectable_value(&mut state.loader_type, LoaderType::NeoForge, "NeoForge")
                 .changed()
             {
-                app.log(crate::log::LogLevel::Info, "UI: Loader changed to NeoForge");
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Loader changed to NeoForge");
             }
             if ui
                 .selectable_value(&mut state.loader_type, LoaderType::Quilt, "Quilt")
                 .changed()
             {
-                app.log(crate::log::LogLevel::Info, "UI: Loader changed to Quilt");
+                app.coordinator
+                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Quilt");
             }
         });
 
@@ -110,7 +115,7 @@ pub(crate) fn show_manual(app: &mut App, ui: &mut egui::Ui, state: &mut NewInsta
     show_manual_create(app, ui, state);
 }
 
-fn show_manual_version(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_manual_version(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Minecraft Version:");
     if state.available_versions.is_empty() {
         if state.version_list_state == VersionListState::Loading {
@@ -140,7 +145,7 @@ fn show_manual_version(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceStat
                         .selectable_value(&mut state.mc_version, version.clone(), version)
                         .changed()
                     {
-                        app.log(
+                        app.coordinator.log(
                             crate::log::LogLevel::Info,
                             &format!("UI: MC version selected: {}", state.mc_version),
                         );
@@ -150,7 +155,7 @@ fn show_manual_version(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceStat
     }
 }
 
-fn show_manual_loader(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+fn show_manual_loader(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     if state.loader_type != LoaderType::Vanilla && !state.mc_version.is_empty() {
         let current_key = (state.loader_type.clone(), state.mc_version.clone());
         if state.last_fetched_loader_key.as_ref() != Some(&current_key) {
@@ -159,7 +164,8 @@ fn show_manual_loader(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
             state.loader_versions.clear();
             state.loader_version.clear();
             state.last_fetched_loader_key = Some(current_key);
-            app.fetch_loader_versions(state.loader_type.as_str(), &state.mc_version);
+            app.coordinator
+                .fetch_loader_versions(state.loader_type.as_str(), &state.mc_version);
         }
     }
 
@@ -179,7 +185,7 @@ fn show_manual_loader(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
                             .selectable_value(&mut state.loader_version, ver.clone(), ver)
                             .changed()
                         {
-                            app.log(
+                            app.coordinator.log(
                                 crate::log::LogLevel::Info,
                                 &format!("UI: Loader version selected: {ver}"),
                             );
@@ -198,7 +204,7 @@ fn show_manual_loader(app: &App, ui: &mut egui::Ui, state: &mut NewInstanceState
     }
 }
 
-fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState) {
+fn show_manual_create(app: &mut LauncherApp, ui: &mut egui::Ui, state: &NewInstanceState) {
     if ui
         .add(
             crate::widgets::icon_button(crate::icons::ADD, "Create Instance")
@@ -225,7 +231,7 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
             None,
         ) {
             Ok(_) => {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!(
                         "UI: Created instance '{}' (MC {}, loader {})",
@@ -238,7 +244,7 @@ fn show_manual_create(app: &mut App, ui: &mut egui::Ui, state: &NewInstanceState
                 app.current_view = View::InstanceList;
             }
             Err(e) => {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Error,
                     &format!("Failed to create instance: {e}"),
                 );

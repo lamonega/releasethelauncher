@@ -8,7 +8,7 @@ pub use info::show_info;
 pub use logs::show_logs;
 pub use mods::show_mods;
 
-use crate::{App, DetailTab, View};
+use crate::{DetailTab, LauncherApp, View};
 
 pub struct InstanceView<'a> {
     pub id: &'a str,
@@ -89,13 +89,7 @@ impl Default for DetailTabState {
     }
 }
 
-pub fn show(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    instance_id: &str,
-    tab: DetailTab,
-    tab_state: &mut DetailTabState,
-) {
+pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui, instance_id: &str, tab: DetailTab) {
     let id = instance_id.to_string();
 
     let Some(instance) = app.coordinator.instance_summary(&id) else {
@@ -115,6 +109,8 @@ pub fn show(
         java_settings: &instance.java,
     };
 
+    let mut tab_state = std::mem::take(&mut app.detail_tab_state);
+
     if tab_state.config_instance_id != id {
         tab_state.config_instance_id.clone_from(&id);
         tab_state.config_java_path = view.java_settings.path.clone().unwrap_or_default();
@@ -131,6 +127,7 @@ pub fn show(
     ui.add_space(app.theme.spacing.sm);
 
     if handle_actions(app, ui, &view) {
+        app.detail_tab_state = tab_state;
         return;
     }
 
@@ -143,10 +140,11 @@ pub fn show(
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
 
-    show_tab_content(app, ui, tab, tab_state, &view);
+    show_tab_content(app, ui, tab, &mut tab_state, &view);
+    app.detail_tab_state = tab_state;
 }
 
-fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> bool {
+fn handle_actions(app: &mut LauncherApp, ui: &mut egui::Ui, view: &InstanceView<'_>) -> bool {
     let mut action = None;
     ui.horizontal(|ui| {
         if ui
@@ -174,16 +172,16 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
 
     match action {
         Some("launch") => {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("Launching instance: {}", view.name),
             );
             app.status_message = format!("Launching {}...", view.name);
-            app.launch_instance(view.id);
+            app.coordinator.launch_instance(view.id);
             false
         }
         Some("open_folder") => {
-            app.log(
+            app.coordinator.log(
                 crate::log::LogLevel::Info,
                 &format!("UI: Open folder for instance '{}'", view.name),
             );
@@ -192,7 +190,7 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
         }
         Some("delete") => match app.coordinator.delete_instance(view.id) {
             Ok(()) => {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Info,
                     &format!("UI: Deleted instance '{}'", view.name),
                 );
@@ -200,7 +198,7 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
                 true
             }
             Err(e) => {
-                app.log(
+                app.coordinator.log(
                     crate::log::LogLevel::Error,
                     &format!("Failed to delete instance '{}': {e}", view.name),
                 );
@@ -213,7 +211,7 @@ fn handle_actions(app: &mut App, ui: &mut egui::Ui, view: &InstanceView<'_>) -> 
 }
 
 fn show_tab_content(
-    app: &mut App,
+    app: &mut LauncherApp,
     ui: &mut egui::Ui,
     tab: DetailTab,
     tab_state: &mut DetailTabState,
@@ -253,7 +251,7 @@ fn show_tab_content(
     }
 }
 
-fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab, is_vanilla: bool) {
+fn show_tabs(app: &mut LauncherApp, ui: &mut egui::Ui, id: &str, tab: DetailTab, is_vanilla: bool) {
     let tabs: Vec<(DetailTab, &str)> = if is_vanilla {
         vec![
             (DetailTab::Info, "Info"),
@@ -270,7 +268,7 @@ fn show_tabs(app: &mut App, ui: &mut egui::Ui, id: &str, tab: DetailTab, is_vani
     };
 
     if let Some(target_tab) = crate::widgets::tab_row(ui, &app.theme, &tab, &tabs) {
-        app.log(
+        app.coordinator.log(
             crate::log::LogLevel::Info,
             &format!("UI: Switched to {target_tab:?} tab on instance '{id}'"),
         );
