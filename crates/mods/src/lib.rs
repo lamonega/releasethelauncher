@@ -232,27 +232,42 @@ pub fn list_mods(mods_dir: &Path) -> Vec<ModEntry> {
     entries
 }
 
+fn toggle_mod_extension(
+    path: &Path,
+    expected_suffix: &str,
+    new_path: impl FnOnce(&str) -> PathBuf,
+    err_msg: &str,
+) -> Result<(), ModsError> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .ok_or_else(|| ModsError::Provider(err_msg.into()))?;
+    if name.ends_with(expected_suffix) {
+        let target = new_path(&name);
+        let final_path = if target.exists() {
+            get_unique_resource_name(&target)
+        } else {
+            target
+        };
+        std::fs::rename(path, &final_path)?;
+        Ok(())
+    } else {
+        Err(ModsError::Provider(err_msg.into()))
+    }
+}
+
 /// Enables a mod by renaming its file from `*.jar.disabled` to `*.jar`.
 ///
 /// # Errors
 ///
 /// Returns an error if the rename fails.
 pub fn enable_mod(path: &Path) -> Result<(), ModsError> {
-    if let Some(name) = path.file_name() {
-        let name_str = name.to_string_lossy();
-        if name_str.ends_with(".disabled") {
-            let new_name = name_str.trim_end_matches(".disabled");
-            let new_path = path.with_file_name(new_name);
-            if new_path.exists() {
-                let unique = get_unique_resource_name(&new_path);
-                std::fs::rename(path, &unique)?;
-            } else {
-                std::fs::rename(path, &new_path)?;
-            }
-            return Ok(());
-        }
-    }
-    Err(ModsError::Provider("File is not a disabled mod".into()))
+    toggle_mod_extension(
+        path,
+        ".disabled",
+        |n| path.with_file_name(n.trim_end_matches(".disabled")),
+        "File is not a disabled mod",
+    )
 }
 
 /// Disables a mod by renaming its file from `*.jar` to `*.jar.disabled`.
@@ -261,21 +276,12 @@ pub fn enable_mod(path: &Path) -> Result<(), ModsError> {
 ///
 /// Returns an error if the rename fails.
 pub fn disable_mod(path: &Path) -> Result<(), ModsError> {
-    if let Some(name) = path.file_name() {
-        let name_str = name.to_string_lossy();
-        if name_str.ends_with(".jar") {
-            let new_name = format!("{name_str}.disabled");
-            let new_path = path.with_file_name(&new_name);
-            if new_path.exists() {
-                let unique = get_unique_resource_name(&new_path);
-                std::fs::rename(path, &unique)?;
-            } else {
-                std::fs::rename(path, &new_path)?;
-            }
-            return Ok(());
-        }
-    }
-    Err(ModsError::Provider("File is not an enabled mod".into()))
+    toggle_mod_extension(
+        path,
+        ".jar",
+        |n| path.with_file_name(format!("{n}.disabled")),
+        "File is not an enabled mod",
+    )
 }
 
 /// Returns a unique file path by appending `.duplicate` suffixes.

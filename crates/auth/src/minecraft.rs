@@ -9,7 +9,6 @@ use release_the_launcher_constants::{defaults, urls};
 
 #[derive(Debug, Deserialize)]
 struct LauncherLoginResponse {
-    _username: Option<String>,
     access_token: Option<String>,
     error: Option<String>,
     #[serde(rename = "errorMessage")]
@@ -27,8 +26,6 @@ struct ProfileResponse {
 #[derive(Debug, Deserialize)]
 struct SkinEntry {
     url: String,
-    #[serde(rename = "variant")]
-    _variant: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,8 +42,6 @@ struct EntitlementResponse {
 #[derive(Debug, Deserialize)]
 struct EntitlementItem {
     name: String,
-    #[serde(rename = "signature")]
-    _signature: Option<String>,
 }
 
 /// # Errors
@@ -156,7 +151,7 @@ pub(crate) async fn fetch_entitlement(
     let can_play = entitlement_resp
         .items
         .iter()
-        .any(|i| i.name == "game_minecraft" || i.name == "product_minecraft");
+        .any(|i| i.name == urls::MC_ENTITLEMENT_NAME || i.name == "product_minecraft");
 
     Ok(Entitlement {
         owns_minecraft: owns,

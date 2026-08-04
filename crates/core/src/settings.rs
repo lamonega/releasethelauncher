@@ -49,6 +49,19 @@ pub enum ModLoader {
     },
 }
 
+impl ModLoader {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Vanilla => "Vanilla",
+            Self::Fabric { .. } => "Fabric",
+            Self::Quilt { .. } => "Quilt",
+            Self::Forge { .. } => "Forge",
+            Self::NeoForge { .. } => "NeoForge",
+        }
+    }
+}
+
 impl fmt::Display for ModLoader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -84,7 +97,7 @@ pub struct InstanceSettings {
 impl Default for InstanceSettings {
     fn default() -> Self {
         Self {
-            format_version: 1,
+            format_version: defaults::SETTINGS_FORMAT_VERSION,
             name: String::new(),
             minecraft_version: String::new(),
             last_launch_time: None,
@@ -110,17 +123,10 @@ impl InstanceSettings {
     #[must_use = "Creates a new InstanceSettings with default Java settings"]
     pub fn new(name: String, minecraft_version: String, loader: ModLoader) -> Self {
         Self {
-            format_version: defaults::SETTINGS_FORMAT_VERSION,
             name,
             minecraft_version,
-            last_launch_time: None,
             loader,
-            java: JavaSettings::default(),
-            pre_launch_command: String::new(),
-            post_launch_command: String::new(),
-            close_after_launch: false,
-            modpack_project_id: None,
-            modpack_version_id: None,
+            ..Default::default()
         }
     }
 
@@ -139,13 +145,7 @@ impl InstanceSettings {
 
     #[must_use = "Returns the name of the mod loader as a string"]
     pub const fn loader_name(&self) -> &str {
-        match &self.loader {
-            ModLoader::Vanilla => "Vanilla",
-            ModLoader::Fabric { .. } => "Fabric",
-            ModLoader::Quilt { .. } => "Quilt",
-            ModLoader::Forge { .. } => "Forge",
-            ModLoader::NeoForge { .. } => "NeoForge",
-        }
+        self.loader.name()
     }
 }
 

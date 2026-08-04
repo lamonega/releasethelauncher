@@ -76,8 +76,6 @@ pub mod urls {
 }
 
 pub mod auth {
-    pub const GRANT_DEVICE_CODE: &str = "urn:ietf:params:oauth:grant-type:device_code";
-    pub const GRANT_REFRESH_TOKEN: &str = "refresh_token";
     pub const XSTS_SANDBOX_ID: &str = "RETAIL";
     pub const XSTS_RELYING_PARTY: &str = "rp://api.minecraftservices.com/";
 

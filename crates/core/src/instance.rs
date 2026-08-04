@@ -115,19 +115,16 @@ impl InstanceManager {
 
         let instance_dir = self.instances_dir.join(&id);
         let minecraft_dir = instance_dir.join(paths::MINECRAFT_DIR);
-        let mods_dir = minecraft_dir.join(paths::MODS_DIR);
-        let config_dir = minecraft_dir.join(paths::CONFIG_DIR);
-        let saves_dir = minecraft_dir.join(paths::SAVES_DIR);
-        let resourcepacks_dir = minecraft_dir.join(paths::RESOURCE_PACKS_DIR);
-        let index_dir = instance_dir.join(paths::INDEX_DIR);
-        let server_resource_packs_dir = minecraft_dir.join(paths::SERVER_RESOURCE_PACKS_DIR);
-
-        fs::create_dir_all(&mods_dir)?;
-        fs::create_dir_all(&config_dir)?;
-        fs::create_dir_all(&saves_dir)?;
-        fs::create_dir_all(&resourcepacks_dir)?;
-        fs::create_dir_all(&index_dir)?;
-        fs::create_dir_all(&server_resource_packs_dir)?;
+        for sub in [
+            paths::MODS_DIR,
+            paths::CONFIG_DIR,
+            paths::SAVES_DIR,
+            paths::RESOURCE_PACKS_DIR,
+            paths::SERVER_RESOURCE_PACKS_DIR,
+        ] {
+            fs::create_dir_all(minecraft_dir.join(sub))?;
+        }
+        fs::create_dir_all(instance_dir.join(paths::INDEX_DIR))?;
 
         let instance = Instance {
             id: id.clone(),

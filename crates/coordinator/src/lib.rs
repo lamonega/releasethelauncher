@@ -168,10 +168,6 @@ impl Coordinator {
         }
     }
 
-    pub fn attach_runtime(&mut self, handle: tokio::runtime::Handle) {
-        self.tokio_handle = Some(handle);
-    }
-
     #[must_use]
     pub const fn log_buffer(&self) -> &LogBuffer {
         &self.log_buffer
@@ -446,13 +442,10 @@ impl Coordinator {
     fn run_async<F: Future<Output = ()> + Send + 'static>(
         &self,
         f: impl FnOnce(Queue) -> F + Send + 'static,
-    ) -> bool {
-        let queue = self.queue();
-        let Some(handle) = self.tokio_handle.clone() else {
-            return false;
-        };
-        handle.spawn(f(queue));
-        true
+    ) {
+        if let Some(handle) = &self.tokio_handle {
+            handle.spawn(f(self.queue()));
+        }
     }
 
     pub fn launch_instance(&self, instance_id: &str) {

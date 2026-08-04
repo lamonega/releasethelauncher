@@ -153,27 +153,26 @@ fn scan_common_java_paths(
                 }
             }
         }
-        let fallbacks = [
-            r"C:\Program Files\Java\jdk-25\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-25\bin\java.exe",
-            r"C:\Program Files\Eclipse Adoptium\jdk-25\bin\javaw.exe",
-            r"C:\Program Files\Microsoft\jdk-25\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-24\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-23\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-22\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-21\bin\javaw.exe",
-            r"C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-21\bin\java.exe",
-            r"C:\Program Files\Java\jdk-17\bin\javaw.exe",
-            r"C:\Program Files\Java\jdk-17\bin\java.exe",
-            r"C:\Program Files\Java\jre8\bin\javaw.exe",
-            r"C:\Program Files\Java\jre1.8.0\bin\javaw.exe",
-            r"C:\Program Files (x86)\Java\jre8\bin\javaw.exe",
+        let pf_roots = [
+            r"C:\Program Files\Java",
+            r"C:\Program Files\Eclipse Adoptium",
+            r"C:\Program Files\Microsoft",
+            r"C:\Program Files (x86)\Java",
         ];
-        for fallback in &fallbacks {
-            let path = PathBuf::from(fallback);
-            if let Some(valid) = check_candidate(&path) {
-                return Some(valid);
+        for root in &pf_roots {
+            let base = Path::new(root);
+            if base.exists() {
+                if let Ok(entries) = std::fs::read_dir(base) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        for exe in &["bin/javaw.exe", "bin/java.exe"] {
+                            let candidate = p.join(exe);
+                            if let Some(valid) = check_candidate(&candidate) {
+                                return Some(valid);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

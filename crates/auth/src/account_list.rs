@@ -14,13 +14,6 @@ pub struct AccountListFile {
     pub accounts: Vec<AccountData>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct AccountListFileRef<'a> {
-    pub format_version: u32,
-    pub active_index: Option<usize>,
-    pub accounts: &'a [AccountData],
-}
-
 pub struct AccountList {
     pub accounts: Vec<AccountData>,
     pub active_index: Option<usize>,
@@ -59,10 +52,10 @@ impl AccountList {
     ///
     /// Returns an error if writing the account list file to disk fails.
     pub fn save(&self) -> std::io::Result<()> {
-        let data = AccountListFileRef {
+        let data = AccountListFile {
             format_version: 1,
             active_index: self.active_index,
-            accounts: &self.accounts,
+            accounts: self.accounts.clone(),
         };
         let json = serde_json::to_string_pretty(&data)?;
         let tmp = self.file_path.with_extension("json.tmp");
@@ -70,8 +63,6 @@ impl AccountList {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         opts.mode(0o600);
-        // Restrictive ACLs are out of scope on Windows (documented limitation);
-        // the default file permissions are used there.
         let mut file = opts.open(&tmp)?;
         file.write_all(json.as_bytes())?;
         file.sync_all()?;
@@ -89,18 +80,16 @@ impl AccountList {
     pub fn remove(&mut self, index: usize) {
         if index < self.accounts.len() {
             self.accounts.remove(index);
-            match self.active_index {
-                Some(ai) if ai == index => {
+            if let Some(ai) = self.active_index {
+                if ai == index {
                     self.active_index = if self.accounts.is_empty() {
                         None
                     } else {
                         Some(0)
                     };
-                }
-                Some(ai) if ai > index => {
+                } else if ai > index {
                     self.active_index = Some(ai - 1);
                 }
-                _ => {}
             }
         }
     }

@@ -1,6 +1,6 @@
 use sha1::{Digest, Sha1};
 use std::fs::File;
-use std::io::{self, Read};
+use std::io;
 use std::path::Path;
 
 pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
@@ -13,14 +13,7 @@ pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
 pub fn compute_sha1_file(path: &Path) -> Result<String, io::Error> {
     let mut file = File::open(path)?;
     let mut hasher = Sha1::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
+    io::copy(&mut file, &mut hasher)?;
     Ok(hex::encode(hasher.finalize()))
 }
 

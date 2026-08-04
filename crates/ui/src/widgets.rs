@@ -104,9 +104,7 @@ pub fn auth_state_ui(
     if *account_type == release_the_launcher_auth::AccountType::Microsoft {
         let state_label = match auth_state {
             release_the_launcher_auth::AuthState::Online => "Online",
-            release_the_launcher_auth::AuthState::Refreshing => "Refreshing...",
             release_the_launcher_auth::AuthState::Expired => "Token Expired",
-            release_the_launcher_auth::AuthState::Disabled => "Disabled",
             release_the_launcher_auth::AuthState::Gone => "No token",
             release_the_launcher_auth::AuthState::Offline => "",
         };
@@ -115,9 +113,7 @@ pub fn auth_state_ui(
                 release_the_launcher_auth::AuthState::Online => theme.log_colors.info,
                 release_the_launcher_auth::AuthState::Expired
                 | release_the_launcher_auth::AuthState::Gone => theme.log_colors.warn,
-                release_the_launcher_auth::AuthState::Disabled => theme.log_colors.error,
-                release_the_launcher_auth::AuthState::Refreshing
-                | release_the_launcher_auth::AuthState::Offline => theme.text_secondary,
+                release_the_launcher_auth::AuthState::Offline => theme.text_secondary,
             };
             ui.horizontal(|ui| {
                 ui.add_space(32.0);

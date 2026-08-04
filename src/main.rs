@@ -4,22 +4,15 @@ use release_the_launcher_coordinator::Coordinator;
 use release_the_launcher_ui::theme::Theme;
 use release_the_launcher_ui::LauncherApp;
 
-fn main() -> Result<(), eframe::Error> {
+#[tokio::main]
+async fn main() -> Result<(), eframe::Error> {
     tracing_subscriber::fmt()
         .with_ansi(false)
         .without_time()
         .with_target(true)
         .init();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create tokio runtime");
-    let _guard = rt.enter();
-
-    // Initialize coordinator (does I/O) before entering the egui render loop.
-    let mut coordinator = Coordinator::new();
-    coordinator.attach_runtime(tokio::runtime::Handle::current());
+    let coordinator = Coordinator::new();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

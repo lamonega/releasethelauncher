@@ -18,7 +18,7 @@ pub struct CacheEntry {
 }
 
 pub struct HttpMetaCache {
-    entries: HashMap<String, HashMap<String, CacheEntry>>,
+    entries: HashMap<(String, String), CacheEntry>,
     file_path: PathBuf,
 }
 
@@ -27,9 +27,7 @@ impl HttpMetaCache {
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             if let Ok(content) = fs::read_to_string(path) {
-                if let Ok(entries) =
-                    serde_json::from_str::<HashMap<String, HashMap<String, CacheEntry>>>(&content)
-                {
+                if let Ok(entries) = serde_json::from_str(&content) {
                     return Self {
                         entries,
                         file_path: path.to_path_buf(),
@@ -48,7 +46,7 @@ impl HttpMetaCache {
     pub fn save(&self) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(&self.entries)?;
         let tmp = self.file_path.with_extension("json.tmp");
-        fs::write(&tmp, &json)?;
+        fs::write(&tmp, json)?;
         fs::rename(&tmp, &self.file_path)?;
         Ok(())
     }
@@ -56,7 +54,9 @@ impl HttpMetaCache {
     /// Resolves a cache entry for `(base, path)`. Returns `Some(CacheEntry)` if eternal or not expired.
     #[must_use]
     pub fn resolve(&mut self, base: &str, path: &str) -> Option<CacheEntry> {
-        let entry = self.entries.get_mut(base)?.get_mut(path)?;
+        let entry = self
+            .entries
+            .get_mut(&(base.to_string(), path.to_string()))?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -78,23 +78,18 @@ impl HttpMetaCache {
                 .unwrap_or_default()
                 .as_secs();
         }
-        self.entries
-            .entry(entry.base_path.clone())
-            .or_default()
-            .insert(entry.relative_path.clone(), entry);
+        self.entries.insert(
+            (entry.base_path.clone(), entry.relative_path.clone()),
+            entry,
+        );
     }
 
     pub fn remove(&mut self, base: &str, path: &str) {
-        if let Some(base_map) = self.entries.get_mut(base) {
-            base_map.remove(path);
-            if base_map.is_empty() {
-                self.entries.remove(base);
-            }
-        }
+        self.entries.remove(&(base.to_string(), path.to_string()));
     }
 
     #[must_use]
     pub fn entry(&self, base: &str, path: &str) -> Option<&CacheEntry> {
-        self.entries.get(base)?.get(path)
+        self.entries.get(&(base.to_string(), path.to_string()))
     }
 }

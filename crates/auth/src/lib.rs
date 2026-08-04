@@ -13,10 +13,11 @@ pub use msa::{AuthError, MsAuthFlow};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AccountType {
     #[serde(rename = "microsoft")]
     Microsoft,
+    #[default]
     #[serde(rename = "offline")]
     Offline,
 }
@@ -56,9 +57,7 @@ impl Token {
 pub enum AuthState {
     Offline,
     Online,
-    Refreshing,
     Expired,
-    Disabled,
     Gone,
 }
 
@@ -78,7 +77,7 @@ pub struct Entitlement {
     pub can_play_minecraft: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountData {
     #[serde(rename = "type")]
     pub account_type: AccountType,
@@ -98,23 +97,6 @@ pub struct AccountData {
     pub profile: Option<MinecraftProfile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entitlement: Option<Entitlement>,
-}
-
-impl Default for AccountData {
-    fn default() -> Self {
-        Self {
-            account_type: AccountType::Offline,
-            internal_id: String::new(),
-            active: None,
-            msa_client_id: None,
-            msa_token: None,
-            user_token: None,
-            xsts_token: None,
-            mc_token: None,
-            profile: None,
-            entitlement: None,
-        }
-    }
 }
 
 impl AccountData {
@@ -176,21 +158,11 @@ impl AccountData {
 /// `nameUUIDFromBytes` algorithm (UUID v3 with the `OfflinePlayer:` prefix).
 #[must_use]
 pub(crate) fn offline_uuid(username: &str) -> Uuid {
-    use md5::Digest as _;
+    use md5::Digest;
 
-    let input = format!("OfflinePlayer:{username}");
-    let mut hasher = md5::Md5::new();
-    hasher.update(input.as_bytes());
-    let result = hasher.finalize();
-
-    let mut bytes = [0u8; 16];
-    bytes.copy_from_slice(&result[..16]);
-
-    // Set UUID version to 3 (MD5)
+    let mut bytes: [u8; 16] = md5::Md5::digest(format!("OfflinePlayer:{username}")).into();
     bytes[6] = (bytes[6] & 0x0f) | 0x30;
-    // Set UUID variant to RFC 4122
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
     Uuid::from_bytes(bytes)
 }
 

@@ -393,19 +393,69 @@ async fn spawn_and_monitor_game(
     params: &LaunchParams,
     cmd: std::process::Command,
 ) -> Result<(), anyhow::Error> {
+    run_pre_launch(params).await?;
+
+    let mut tokio_cmd = tokio::process::Command::from(cmd);
+    tokio_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = tokio_cmd
+        .spawn()
+        .map_err(|e| fail(&params.queue, format!("Failed to run game process: {e}")))?;
+
     push_event(
         &params.queue,
-        Event::Status("Launching game...".to_string()),
+        Event::DownloadComplete("Game is running".to_string()),
+    );
+    send_log(
+        &params.queue,
+        LogLevel::Info,
+        "Game process started successfully. Streaming logs...",
     );
 
-    let queue = params.queue.clone();
-    let instance_id = params.instance_id.clone();
-    let result =
-        tokio::task::spawn_blocking(move || spawn_and_stream_output(cmd, &queue, &instance_id))
-            .await
-            .map_err(|_| fail(&params.queue, "Log streaming task failed"))?;
+    let target = format!("instance:{}", params.instance_id);
 
-    match result {
+    if let Some(stdout) = child.stdout.take() {
+        let queue = params.queue.clone();
+        let target = target.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                push_event(
+                    &queue,
+                    Event::Log(crate::log::LogEntry {
+                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        level: LogLevel::Info,
+                        message: line,
+                        target: target.clone(),
+                    }),
+                );
+            }
+        });
+    }
+
+    if let Some(stderr) = child.stderr.take() {
+        let queue = params.queue.clone();
+        let target = target.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                let level = stderr_level(&line);
+                push_event(
+                    &queue,
+                    Event::Log(crate::log::LogEntry {
+                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        level,
+                        message: line,
+                        target: target.clone(),
+                    }),
+                );
+            }
+        });
+    }
+
+    match child.wait().await {
         Ok(status) => {
             let msg = format!("Game process exited with status: {status}");
             let level = if status.success() {
@@ -430,68 +480,6 @@ async fn spawn_and_monitor_game(
         push_event(&params.queue, Event::RequestClose);
     }
     Ok(())
-}
-
-fn spawn_and_stream_output(
-    mut cmd: std::process::Command,
-    queue: &Queue,
-    instance_id: &str,
-) -> Result<std::process::ExitStatus, String> {
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-
-    push_event(
-        queue,
-        Event::DownloadComplete("Game is running".to_string()),
-    );
-    send_log(
-        queue,
-        LogLevel::Info,
-        "Game process started successfully. Streaming logs...",
-    );
-
-    let target = format!("instance:{instance_id}");
-    let mut readers = Vec::new();
-    if let Some(out) = child.stdout.take() {
-        readers.push(spawn_line_reader(out, queue.clone(), target.clone(), true));
-    }
-    if let Some(err) = child.stderr.take() {
-        readers.push(spawn_line_reader(err, queue.clone(), target, false));
-    }
-
-    let status = child.wait().map_err(|e| e.to_string())?;
-    for reader in readers {
-        let _ = reader.join();
-    }
-    Ok(status)
-}
-
-fn spawn_line_reader<R: std::io::Read + Send + 'static>(
-    stream: R,
-    queue: Queue,
-    target: String,
-    is_stdout: bool,
-) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        for line in std::io::BufReader::new(stream).lines() {
-            let Ok(line) = line else { break };
-            let level = if is_stdout {
-                LogLevel::Info
-            } else {
-                stderr_level(&line)
-            };
-            push_event(
-                &queue,
-                Event::Log(crate::log::LogEntry {
-                    timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                    level,
-                    message: line,
-                    target: target.clone(),
-                }),
-            );
-        }
-    })
 }
 
 fn stderr_level(line: &str) -> LogLevel {

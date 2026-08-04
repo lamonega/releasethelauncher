@@ -148,14 +148,10 @@ struct ComponentAccumulator {
     mc_version: String,
     mc_version_type: String,
     jvm_args: Vec<String>,
-    jvm_args_set: std::collections::HashSet<String>,
     game_args_template: String,
     all_traits: Vec<String>,
-    all_traits_set: std::collections::HashSet<String>,
     all_tweakers: Vec<String>,
-    all_tweakers_set: std::collections::HashSet<String>,
     compatible_java_majors: Vec<u32>,
-    compatible_java_majors_set: std::collections::HashSet<u32>,
     asset_index: AssetIndex,
     client_download: Option<ClientDownload>,
 }
@@ -199,22 +195,22 @@ impl ComponentAccumulator {
             }
         }
         for arg in &component.version_file.jvm_args {
-            if self.jvm_args_set.insert(arg.clone()) {
+            if !self.jvm_args.contains(arg) {
                 self.jvm_args.push(arg.clone());
             }
         }
         for t in &component.version_file.traits {
-            if self.all_traits_set.insert(t.clone()) {
+            if !self.all_traits.contains(t) {
                 self.all_traits.push(t.clone());
             }
         }
         for t in &component.version_file.tweakers {
-            if self.all_tweakers_set.insert(t.clone()) {
+            if !self.all_tweakers.contains(t) {
                 self.all_tweakers.push(t.clone());
             }
         }
         for j in &component.version_file.compatible_java_majors {
-            if self.compatible_java_majors_set.insert(*j) {
+            if !self.compatible_java_majors.contains(j) {
                 self.compatible_java_majors.push(*j);
             }
         }

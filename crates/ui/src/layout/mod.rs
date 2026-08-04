@@ -67,7 +67,14 @@ pub fn drain_ui_messages(state: &mut crate::LauncherApp) -> bool {
             | msg @ UiMessage::ModrinthInstallResult { .. }
             | msg @ UiMessage::VersionListResult(_)
             | msg @ UiMessage::LoaderVersionsResult { .. } => {
-                crate::views::new_instance::process_message(state, msg);
+                match &state.current_view {
+                    View::ModBrowser { .. } => {
+                        crate::views::mod_browser::process_message(state, msg);
+                    }
+                    _ => {
+                        crate::views::new_instance::process_message(state, msg);
+                    }
+                }
                 live = true;
             }
             msg @ UiMessage::ModUpdatesResult { .. } => {
