@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::Client;
 
-use super::modrinth_types::{ModrinthProject, ModrinthVersion, MrpackFile, MrpackIndex, SearchResponse};
+use super::modrinth_types::{
+    ModrinthProject, ModrinthVersion, MrpackFile, MrpackIndex, SearchResponse,
+};
 use crate::{
     safe_join_under, InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo,
     ProjectSummary, ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
@@ -294,8 +296,7 @@ impl ModrinthProvider {
         }
 
         let mc_dir = target_dir.join(".minecraft");
-        let (total_bytes, initial_downloaded) =
-            count_modpack_file_sizes(&index.files, &mc_dir);
+        let (total_bytes, initial_downloaded) = count_modpack_file_sizes(&index.files, &mc_dir);
 
         let total_b = Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
         let downloaded_b = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));

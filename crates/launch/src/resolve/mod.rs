@@ -45,23 +45,6 @@ impl DependencyResolver {
     }
 
     #[must_use]
-    pub(crate) fn get_version_url(&self, version_id: &str) -> Option<String> {
-        self.manifest.as_ref().and_then(|m| {
-            m.versions
-                .iter()
-                .find(|v| v.id == version_id)
-                .map(|v| v.url.clone())
-        })
-    }
-
-    #[must_use]
-    pub(crate) fn available_versions(&self) -> Vec<String> {
-        self.manifest.as_ref().map_or_else(Vec::new, |m| {
-            m.versions.iter().map(|v| v.id.clone()).collect()
-        })
-    }
-
-    #[must_use]
     pub fn available_versions_with_types(&self) -> Vec<(String, String)> {
         self.manifest.as_ref().map_or_else(Vec::new, |m| {
             m.versions

@@ -12,7 +12,6 @@ pub(crate) mod platform;
 pub mod profile;
 pub mod resolve;
 
-use std::path::PathBuf;
 use thiserror::Error;
 
 pub use command::{build_command, run_post_launch_command, run_pre_launch_command, PlayerAuth};
@@ -69,15 +68,6 @@ impl MavenCoord {
             Some(cls) => format!("{}-{}-{}.{}", self.artifact, self.version, cls, self.ext),
             None => format!("{}-{}.{}", self.artifact, self.version, self.ext),
         }
-    }
-
-    #[must_use]
-    pub(crate) fn path(&self) -> PathBuf {
-        let group_path = self.group.replace('.', "/");
-        PathBuf::from(group_path)
-            .join(&self.artifact)
-            .join(&self.version)
-            .join(self.filename())
     }
 
     #[must_use]

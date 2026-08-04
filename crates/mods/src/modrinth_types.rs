@@ -6,8 +6,8 @@ pub struct SearchResponse {
     pub hits: Vec<SearchHit>,
     pub total_hits: usize,
     #[serde(default)]
-    pub offset: usize,
-    pub limit: usize,
+    pub _offset: usize,
+    pub _limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,17 +76,17 @@ pub struct ModrinthFile {
 #[serde(rename_all = "camelCase")]
 pub struct MrpackIndex {
     #[serde(default)]
-    pub format_version: u32,
+    pub _format_version: u32,
     #[serde(default)]
-    pub game: String,
+    pub _game: String,
     #[serde(default)]
-    pub version_id: String,
+    pub _version_id: String,
     #[serde(default)]
-    pub name: String,
+    pub _name: String,
     #[serde(default)]
     pub files: Vec<MrpackFile>,
     #[serde(default)]
-    pub dependencies: HashMap<String, String>,
+    pub _dependencies: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

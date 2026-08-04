@@ -21,7 +21,7 @@ pub struct VersionJson {
     pub plus_traits: Option<Vec<String>>,
     #[serde(rename = "+tweakers")]
     pub plus_tweakers: Option<Vec<String>>,
-    pub requires: Option<Vec<RequirementJson>>,
+    pub _requires: Option<Vec<RequirementJson>>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -240,12 +240,6 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
     }
 }
 
-pub fn parse_argument_item(item: &serde_json::Value, target: &mut Vec<String>) {
-    if let Ok(arg_item) = serde_json::from_value::<ArgumentItem>(item.clone()) {
-        parse_argument_item_enum(&arg_item, target);
-    }
-}
-
 fn parse_argument_item_enum(item: &ArgumentItem, target: &mut Vec<String>) {
     match item {
         ArgumentItem::Plain(s) => target.push(s.clone()),
@@ -285,22 +279,6 @@ pub fn parse_requires(value: &serde_json::Value) -> Vec<crate::Requirement> {
             equals: r.equals,
         })
         .collect()
-}
-
-#[must_use]
-pub fn parse_rules(rules_val: &serde_json::Value) -> Vec<Rule> {
-    serde_json::from_value::<Vec<RuleJson>>(rules_val.clone())
-        .map(|list| list.iter().map(Into::into).collect())
-        .unwrap_or_default()
-}
-
-#[must_use]
-pub fn parse_extract(extract_val: &serde_json::Value) -> Option<Extract> {
-    serde_json::from_value::<ExtractJson>(extract_val.clone())
-        .ok()
-        .map(|e| Extract {
-            exclude: e.exclude.unwrap_or_default(),
-        })
 }
 
 #[must_use]

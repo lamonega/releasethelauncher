@@ -48,16 +48,7 @@ impl DownloadManager {
         }
     }
 
-    #[must_use]
-    pub(crate) fn with_client(cache_dir: PathBuf, http: Client) -> Self {
-        let libraries_dir = cache_dir.join("libraries");
-        Self {
-            http,
-            libraries_dir,
-            cache_dir,
-        }
-    }
-
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn libraries_dir(&self) -> &Path {
         &self.libraries_dir
@@ -372,8 +363,7 @@ impl DownloadManager {
                 return Ok(());
             }
 
-            let (total_bytes, initial_downloaded) =
-                count_asset_sizes(objects, &objects_dir);
+            let (total_bytes, initial_downloaded) = count_asset_sizes(objects, &objects_dir);
 
             let total_b = Arc::new(AtomicU64::new(total_bytes));
             let downloaded_b = Arc::new(AtomicU64::new(initial_downloaded));

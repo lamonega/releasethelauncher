@@ -75,6 +75,9 @@ pub fn process_messages(app: &mut App, state: &mut NewInstanceState) {
                 modpack_project_id,
                 modpack_version_id,
             } => {
+                let modpack_ids = modpack_project_id
+                    .as_deref()
+                    .zip(modpack_version_id.as_deref());
                 handle_install_result(
                     app,
                     state,
@@ -82,8 +85,7 @@ pub fn process_messages(app: &mut App, state: &mut NewInstanceState) {
                     &name,
                     &mc_version,
                     &loader,
-                    modpack_project_id,
-                    modpack_version_id,
+                    modpack_ids,
                 );
             }
             crate::UiMessage::VersionListResult(result) => match result {
@@ -137,8 +139,7 @@ pub fn handle_install_result(
     name: &str,
     mc_version: &str,
     loader_raw: &str,
-    modpack_project_id: Option<String>,
-    modpack_version_id: Option<String>,
+    modpack_ids: Option<(&str, &str)>,
 ) {
     if instance_id.is_empty() {
         return;
@@ -165,6 +166,9 @@ pub fn handle_install_result(
     } else {
         ModLoader::Vanilla
     };
+    let (modpack_project_id, modpack_version_id) = modpack_ids.map_or((None, None), |(p, v)| {
+        (Some(p.to_string()), Some(v.to_string()))
+    });
     match app.coordinator.create_instance(
         name,
         mc_version.to_string(),
