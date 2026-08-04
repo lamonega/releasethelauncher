@@ -9,7 +9,7 @@ use super::modrinth_types::{
     ModrinthProject, ModrinthVersion, MrpackFile, MrpackIndex, SearchResponse,
 };
 use crate::{
-    safe_join_under, InstalledMod, ModProvider, ModUpdate, ModVersion, ModsError, ProjectInfo,
+    safe_join_under, InstalledMod, ModUpdate, ModVersion, ModsError, ProjectInfo,
     ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
 };
 
@@ -480,14 +480,13 @@ impl ModrinthProvider {
         self.download_modpack(&version, target_dir).await?;
         Ok(())
     }
-}
 
-impl ModProvider for ModrinthProvider {
-    fn name(&self) -> &'static str {
+    #[must_use]
+    pub fn name(&self) -> &'static str {
         "Modrinth"
     }
 
-    async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError> {
+    pub async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError> {
         let query_params = Self::build_search_query(&args, "mod");
         let path = format!("{BASE_URL}/search");
 
@@ -513,7 +512,7 @@ impl ModProvider for ModrinthProvider {
         Ok(hits_to_summaries(resp))
     }
 
-    async fn get_versions(
+    pub async fn get_versions(
         &self,
         project_id: &str,
         mc_versions: &[String],
@@ -559,7 +558,7 @@ impl ModProvider for ModrinthProvider {
         Ok(versions)
     }
 
-    async fn get_project(&self, project_id: &str) -> Result<ProjectInfo, ModsError> {
+    pub async fn get_project(&self, project_id: &str) -> Result<ProjectInfo, ModsError> {
         let url = format!("{BASE_URL}/project/{project_id}");
         let mut req = self.http.get(&url);
         for (k, v) in self.build_headers() {
@@ -589,7 +588,7 @@ impl ModProvider for ModrinthProvider {
         })
     }
 
-    async fn check_updates(
+    pub async fn check_updates(
         &self,
         installed: &[InstalledMod],
         mc_versions: &[String],
@@ -641,7 +640,7 @@ impl ModProvider for ModrinthProvider {
         Ok(updates)
     }
 
-    async fn download_mod(
+    pub async fn download_mod(
         &self,
         version: &ModVersion,
         target_dir: &Path,

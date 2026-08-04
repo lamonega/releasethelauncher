@@ -156,39 +156,7 @@ pub struct ModDetails {
     pub side: Option<String>,
 }
 
-pub trait ModProvider: Send + Sync {
-    fn name(&self) -> &str;
 
-    fn search(
-        &self,
-        args: SearchArgs,
-    ) -> impl std::future::Future<Output = Result<SearchResults, ModsError>> + Send;
-
-    fn get_versions(
-        &self,
-        project_id: &str,
-        mc_versions: &[String],
-        loaders: &[String],
-    ) -> impl std::future::Future<Output = Result<Vec<ModVersion>, ModsError>> + Send;
-
-    fn get_project(
-        &self,
-        project_id: &str,
-    ) -> impl std::future::Future<Output = Result<ProjectInfo, ModsError>> + Send;
-
-    fn check_updates(
-        &self,
-        installed: &[InstalledMod],
-        mc_versions: &[String],
-        loaders: &[String],
-    ) -> impl std::future::Future<Output = Result<Vec<ModUpdate>, ModsError>> + Send;
-
-    fn download_mod(
-        &self,
-        version: &ModVersion,
-        target_dir: &Path,
-    ) -> impl std::future::Future<Output = Result<PathBuf, ModsError>> + Send;
-}
 
 /// A mod entry in a mods directory, with its enabled/disabled state.
 #[derive(Debug, Clone)]

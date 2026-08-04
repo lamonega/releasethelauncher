@@ -36,14 +36,14 @@ impl LogLevel {
     }
 }
 
-#[derive(Clone)]
-pub struct LogBuffer {
-    inner: Arc<Mutex<LogBufferInner>>,
-}
-
-pub struct LogBufferInner {
+pub struct LogBufferState {
     pub entries: VecDeque<LogEntry>,
     pub log_file: Option<File>,
+}
+
+#[derive(Clone)]
+pub struct LogBuffer {
+    inner: Arc<Mutex<LogBufferState>>,
 }
 
 impl Default for LogBuffer {
@@ -56,7 +56,7 @@ impl LogBuffer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(LogBufferInner {
+            inner: Arc::new(Mutex::new(LogBufferState {
                 entries: VecDeque::with_capacity(MAX_LOG_ENTRIES),
                 log_file: None,
             })),
@@ -73,7 +73,6 @@ impl LogBuffer {
     }
 
     pub fn push(&self, entry: LogEntry) {
-        // Print to standard output so running in terminal shows all logs live
         println!(
             "[{}] [{}/{}] {}",
             entry.timestamp,
@@ -87,9 +86,7 @@ impl LogBuffer {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        // Write to log file if open
         if let Some(ref mut file) = inner.log_file {
-            // Benign discard: a log-write failure must never break the app.
             let _ = writeln!(
                 file,
                 "[{}] [{}/{}] {}",

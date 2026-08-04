@@ -1,5 +1,3 @@
-use oauth2::basic::BasicClient;
-use oauth2::{ClientId, RefreshToken, Scope, TokenResponse, TokenUrl};
 use release_the_launcher_constants::{defaults, urls};
 use reqwest::Client;
 
@@ -44,34 +42,19 @@ pub(crate) async fn refresh_account(
         return Ok(false);
     };
 
-    let oauth_client = BasicClient::new(ClientId::new(client_id.to_string())).set_token_uri(
-        TokenUrl::new(urls::MS_TOKEN_URL.to_string())
-            .map_err(|e| AuthError::Flow(e.to_string()))?,
-    );
+    let params = [
+        ("grant_type", "refresh_token"),
+        ("client_id", client_id),
+        ("refresh_token", refresh_token.as_str()),
+        ("scope", urls::MS_SCOPES),
+    ];
 
-    let token_resp = oauth_client
-        .exchange_refresh_token(&RefreshToken::new(refresh_token.clone()))
-        .add_scope(Scope::new(urls::MS_SCOPES.to_string()))
-        .request_async(http)
-        .await
-        .map_err(|e| AuthError::Flow(e.to_string()))?;
+    let res = http.post(urls::MS_TOKEN_URL).form(&params).send().await?;
+    let text = res.text().await?;
+    let msa_tokens: MsaTokens = serde_json::from_str(&text)
+        .map_err(|_| AuthError::Flow(format!("Failed to refresh MSA token: {text}")))?;
 
-    let access_token = token_resp.access_token().secret().clone();
-    let new_refresh = token_resp
-        .refresh_token()
-        .map(|t| t.secret().clone())
-        .unwrap_or(refresh_token);
-    let expires_in = token_resp
-        .expires_in()
-        .map_or(defaults::TOKEN_TTL_1H, |d| d.as_secs());
-
-    let msa_tokens = MsaTokens {
-        access_token,
-        refresh_token: new_refresh,
-        expires_in,
-    };
-
-    account.msa_token = Some(token_from_msa_tokens(&msa_tokens, expires_in));
+    account.msa_token = Some(token_from_msa_tokens(&msa_tokens, msa_tokens.expires_in));
 
     let xbox_tokens = get_xbox_tokens(http, &msa_tokens.access_token).await?;
 

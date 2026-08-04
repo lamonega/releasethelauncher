@@ -1,14 +1,10 @@
-use oauth2::basic::BasicClient;
-use oauth2::{
-    ClientId, DeviceAuthorizationUrl, Scope, StandardDeviceAuthorizationResponse, TokenResponse,
-    TokenUrl,
-};
 use reqwest::Client;
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::Token;
 
-use release_the_launcher_constants::urls;
+use release_the_launcher_constants::{net, urls};
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -20,22 +16,32 @@ pub enum AuthError {
     Flow(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MsDeviceCode {
     pub user_code: String,
     pub verification_uri: String,
     pub device_code: String,
     pub expires_in: u64,
+    #[serde(default = "default_interval")]
     pub interval: u64,
     pub message: Option<String>,
-    pub(crate) inner: StandardDeviceAuthorizationResponse,
 }
 
-#[derive(Debug, Clone)]
+fn default_interval() -> u64 {
+    net::POLL_INTERVAL_SECS
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct MsaTokens {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MsErrorResponse {
+    error: String,
+    error_description: Option<String>,
 }
 
 pub struct MsAuthFlow {
@@ -63,72 +69,72 @@ impl MsAuthFlow {
     ///
     /// Returns an error if the OAuth device code request fails.
     pub async fn request_device_code(&self) -> Result<MsDeviceCode, AuthError> {
-        let client = BasicClient::new(ClientId::new(self.client_id.clone()))
-            .set_device_authorization_url(
-                DeviceAuthorizationUrl::new(urls::MS_DEVICE_CODE_URL.to_string())
-                    .map_err(|e| AuthError::Flow(e.to_string()))?,
-            )
-            .set_token_uri(
-                TokenUrl::new(urls::MS_TOKEN_URL.to_string())
-                    .map_err(|e| AuthError::Flow(e.to_string()))?,
-            );
+        let params = [
+            ("client_id", self.client_id.as_str()),
+            ("scope", urls::MS_SCOPES),
+        ];
 
-        let mut req = client.exchange_device_code();
+        let code_resp: MsDeviceCode = self
+            .http
+            .post(urls::MS_DEVICE_CODE_URL)
+            .form(&params)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
 
-        for scope in urls::MS_SCOPES.split_whitespace() {
-            req = req.add_scope(Scope::new(scope.to_string()));
-        }
-
-        let details: StandardDeviceAuthorizationResponse = req
-            .request_async(&self.http)
-            .await
-            .map_err(|e| AuthError::Flow(e.to_string()))?;
-
-        let interval_secs = details.interval().as_secs();
-        let interval = if interval_secs == 0 {
-            release_the_launcher_constants::net::POLL_INTERVAL_SECS
-        } else {
-            interval_secs
-        };
-
-        Ok(MsDeviceCode {
-            user_code: details.user_code().secret().clone(),
-            verification_uri: details.verification_uri().as_str().to_string(),
-            device_code: details.device_code().secret().clone(),
-            expires_in: details.expires_in().as_secs(),
-            interval,
-            message: None,
-            inner: details,
-        })
+        Ok(code_resp)
     }
 
     /// # Errors
     ///
     /// Returns an error if authorization is declined, device code expires, or network/polling fails.
     pub async fn poll_for_token(&self, code_resp: &MsDeviceCode) -> Result<MsaTokens, AuthError> {
-        let client = BasicClient::new(ClientId::new(self.client_id.clone())).set_token_uri(
-            TokenUrl::new(urls::MS_TOKEN_URL.to_string())
-                .map_err(|e| AuthError::Flow(e.to_string()))?,
-        );
+        let interval = if code_resp.interval == 0 {
+            net::POLL_INTERVAL_SECS
+        } else {
+            code_resp.interval
+        };
 
-        let token_resp = client
-            .exchange_device_access_token(&code_resp.inner)
-            .request_async(&self.http, tokio::time::sleep, None)
-            .await
-            .map_err(|e| AuthError::Flow(e.to_string()))?;
+        let params = [
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("client_id", self.client_id.as_str()),
+            ("device_code", code_resp.device_code.as_str()),
+        ];
 
-        let access_token = token_resp.access_token().secret().clone();
-        let refresh_token = token_resp
-            .refresh_token()
-            .map(|t| t.secret().clone())
-            .ok_or_else(|| AuthError::Flow("No refresh token in MSA response".to_string()))?;
-        let expires_in = token_resp.expires_in().map_or(3600, |d| d.as_secs());
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
 
-        Ok(MsaTokens {
-            access_token,
-            refresh_token,
-            expires_in,
-        })
+            let res = self
+                .http
+                .post(urls::MS_TOKEN_URL)
+                .form(&params)
+                .send()
+                .await?;
+
+            let text = res.text().await?;
+
+            if let Ok(tokens) = serde_json::from_str::<MsaTokens>(&text) {
+                return Ok(tokens);
+            }
+
+            if let Ok(err) = serde_json::from_str::<MsErrorResponse>(&text) {
+                match err.error.as_str() {
+                    "authorization_pending" => continue,
+                    "slow_down" => {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        continue;
+                    }
+                    _ => {
+                        let msg = err.error_description.unwrap_or(err.error);
+                        return Err(AuthError::Flow(msg));
+                    }
+                }
+            }
+
+            return Err(AuthError::Flow(format!("Unexpected MSA response: {text}")));
+        }
     }
 
     #[must_use]

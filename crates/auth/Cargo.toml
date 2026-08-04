@@ -12,7 +12,6 @@ serde_json = { workspace = true }
 uuid       = { version = "1", features = ["v4"] }
 tokio      = { workspace = true, features = ["time"] }
 thiserror  = { workspace = true }
-oauth2     = { version = "5", features = ["reqwest"] }
 md-5       = "0.10"
 release-the-launcher-constants = { path = "../constants" }
 release-the-launcher-net       = { path = "../net" }

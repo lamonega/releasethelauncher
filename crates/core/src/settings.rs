@@ -66,10 +66,10 @@ impl fmt::Display for ModLoader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Vanilla => write!(f, "Vanilla"),
-            Self::Fabric { loader_version } => write!(f, "Fabric {loader_version}"),
-            Self::Quilt { loader_version } => write!(f, "Quilt {loader_version}"),
-            Self::Forge { loader_version } => write!(f, "Forge {loader_version}"),
-            Self::NeoForge { loader_version } => write!(f, "NeoForge {loader_version}"),
+            Self::Fabric { loader_version }
+            | Self::Quilt { loader_version }
+            | Self::Forge { loader_version }
+            | Self::NeoForge { loader_version } => write!(f, "{} {loader_version}", self.name()),
         }
     }
 }

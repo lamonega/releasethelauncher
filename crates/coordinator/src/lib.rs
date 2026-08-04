@@ -69,10 +69,6 @@ pub enum Event {
         account: Box<release_the_launcher_auth::AccountData>,
     },
     MsLoginError(String),
-    ModsMetadataResult {
-        instance_id: String,
-        mods: Vec<release_the_launcher_mods::ModDetails>,
-    },
     /// Ask the UI to close its window (post-launch, when configured).
     RequestClose,
 }
@@ -588,35 +584,7 @@ impl Coordinator {
             .collect()
     }
 
-    pub fn request_mods_metadata(&self, instance_id: String) {
-        let Some(inst) = self.instance_manager.get(&instance_id) else {
-            return;
-        };
-        let mods_dir = inst.mods_dir();
-        let id = instance_id;
 
-        self.run_async(move |queue| async move {
-            let mods = tokio::task::spawn_blocking(move || {
-                release_the_launcher_mods::list_mods(&mods_dir)
-                    .into_iter()
-                    .filter(|e| e.enabled)
-                    .filter_map(|e| {
-                        release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok()
-                    })
-                    .collect()
-            })
-            .await
-            .unwrap_or_default();
-
-            push_event(
-                &queue,
-                Event::ModsMetadataResult {
-                    instance_id: id,
-                    mods,
-                },
-            );
-        });
-    }
 
     pub fn check_mod_updates(&self, instance_id: String) {
         let Some(summary) = self.instance_summary(&instance_id) else {
@@ -629,7 +597,6 @@ impl Coordinator {
         let loader_str = summary.loader_name;
 
         self.run_async(move |queue| async move {
-            use release_the_launcher_mods::ModProvider;
             let installed_mods: Vec<_> = release_the_launcher_mods::list_mods(&mods_dir)
                 .into_iter()
                 .filter(|e| e.enabled)

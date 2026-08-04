@@ -30,11 +30,7 @@ async fn main() -> Result<(), eframe::Error> {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let theme = Theme::apply(&cc.egui_ctx);
 
-            Box::new(LauncherApp::new(
-                coordinator,
-                theme,
-                Some(cc.egui_ctx.clone()),
-            ))
+            Box::new(LauncherApp::new(coordinator, theme))
         }),
     )
 }

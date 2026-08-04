@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use release_the_launcher_mods::{ModProvider, ModrinthProvider, SearchArgs, SortOrder};
+use release_the_launcher_mods::{ModrinthProvider, SearchArgs, SortOrder};
 
 use crate::{push_event, Event, Queue};
 

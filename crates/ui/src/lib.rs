@@ -30,7 +30,6 @@ pub struct LauncherApp {
     pub status_message: String,
     pub download_state: DownloadState,
     pub theme: Theme,
-    pub ctx: Option<egui::Context>,
     pub new_instance_state: views::new_instance::NewInstanceState,
     pub login_username: String,
     pub login_state: views::account_login::LoginState,
@@ -78,14 +77,13 @@ pub struct DownloadState {
 
 impl LauncherApp {
     #[must_use]
-    pub fn new(coordinator: Coordinator, theme: Theme, ctx: Option<egui::Context>) -> Self {
+    pub fn new(coordinator: Coordinator, theme: Theme) -> Self {
         Self {
             coordinator,
             current_view: View::InstanceList,
             status_message: String::new(),
             download_state: DownloadState::default(),
             theme,
-            ctx,
             new_instance_state: views::new_instance::NewInstanceState::default(),
             login_username: String::new(),
             login_state: views::account_login::LoginState::Idle,

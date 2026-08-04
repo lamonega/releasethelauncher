@@ -14,6 +14,13 @@ pub struct AccountListFile {
     pub accounts: Vec<AccountData>,
 }
 
+#[derive(Serialize)]
+struct AccountListSaveRef<'a> {
+    format_version: u32,
+    active_index: Option<usize>,
+    accounts: &'a [AccountData],
+}
+
 pub struct AccountList {
     pub accounts: Vec<AccountData>,
     pub active_index: Option<usize>,
@@ -52,10 +59,10 @@ impl AccountList {
     ///
     /// Returns an error if writing the account list file to disk fails.
     pub fn save(&self) -> std::io::Result<()> {
-        let data = AccountListFile {
+        let data = AccountListSaveRef {
             format_version: 1,
             active_index: self.active_index,
-            accounts: self.accounts.clone(),
+            accounts: &self.accounts,
         };
         let json = serde_json::to_string_pretty(&data)?;
         let tmp = self.file_path.with_extension("json.tmp");

@@ -9,7 +9,7 @@ use crate::{DownloadPhase, DownloadState, UiMessage, View};
 
 impl eframe::App for crate::LauncherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let live = drain_ui_messages(self);
+        let live = drain_ui_messages(self, ctx);
         if live {
             ctx.request_repaint();
         }
@@ -23,7 +23,7 @@ impl eframe::App for crate::LauncherApp {
 /// Drains coordinator events into UI state. Returns true when a live event
 /// (log, progress, status, login) was handled, so the caller can keep
 /// repainting while flows run.
-pub fn drain_ui_messages(state: &mut crate::LauncherApp) -> bool {
+pub fn drain_ui_messages(state: &mut crate::LauncherApp, ctx: &egui::Context) -> bool {
     let mut live = false;
     let messages = state.coordinator.drain_events();
     for msg in messages {
@@ -92,10 +92,6 @@ pub fn drain_ui_messages(state: &mut crate::LauncherApp) -> bool {
                 }
                 live = true;
             }
-            UiMessage::ModsMetadataResult { .. } => {
-                // handle metadata
-                live = true;
-            }
 
             UiMessage::MsDeviceCode {
                 user_code,
@@ -141,9 +137,7 @@ pub fn drain_ui_messages(state: &mut crate::LauncherApp) -> bool {
                 live = true;
             }
             UiMessage::RequestClose => {
-                if let Some(ctx) = &state.ctx {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
     }

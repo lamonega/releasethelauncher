@@ -18,8 +18,6 @@ pub enum NetError {
     Json(#[from] serde_json::Error),
     #[error("Checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
-    #[error("Cache error: {0}")]
-    Cache(String),
 }
 
 #[must_use]
