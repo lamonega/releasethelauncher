@@ -54,52 +54,58 @@ impl DownloadManager {
         &self.libraries_dir
     }
 
-    fn maven_url_for_library(lib: &Library) -> Option<String> {
-        if let Some(ref url) = lib.url {
-            if url.is_empty() {
-                return None;
-            }
-            if url.starts_with("http://") || url.starts_with("https://") {
-                if Path::new(url)
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("jar") || e.eq_ignore_ascii_case("zip"))
-                {
-                    return Some(url.clone());
-                }
-                let parts: Vec<&str> = lib.name.split(':').collect();
-                if parts.len() >= 3 {
-                    let group = parts[0].replace('.', "/");
-                    let artifact = parts[1];
-                    let version = parts[2];
-                    let filename = library_filename(lib);
-                    let path = format!("{group}/{artifact}/{version}/{filename}");
-                    return Some(format!("{}/{path}", url.trim_end_matches('/')));
-                }
-                return Some(url.clone());
-            }
-        }
-
+    fn library_maven_path(lib: &Library) -> Option<String> {
         let parts: Vec<&str> = lib.name.split(':').collect();
         if parts.len() < 3 {
             return None;
         }
-
         let group = parts[0].replace('.', "/");
         let artifact = parts[1];
         let version = parts[2];
         let filename = library_filename(lib);
+        Some(format!("{group}/{artifact}/{version}/{filename}"))
+    }
 
-        let path = format!("{group}/{artifact}/{version}/{filename}");
+    fn maven_urls_for_library(lib: &Library) -> Vec<String> {
+        let Some(path) = Self::library_maven_path(lib) else {
+            return Vec::new();
+        };
 
-        if lib.name.contains("net.minecraftforge") || lib.name.contains("cpw.mods") {
-            Some(format!("{}/{path}", urls::FORGE_MAVEN))
-        } else if lib.name.contains("net.fabricmc") {
-            Some(format!("{}/{path}", urls::FABRIC_MAVEN))
-        } else if lib.name.contains("net.neoforged") {
-            Some(format!("{}/{path}", urls::NEOFORGE_MAVEN))
-        } else {
-            Some(format!("{}/{path}", urls::MOJANG_LIBRARIES))
+        let mut urls = Vec::new();
+
+        if let Some(ref url) = lib.url {
+            if url.is_empty() {
+                return Vec::new();
+            }
+            if url.starts_with("http://") || url.starts_with("https://") {
+                let base = url.trim_end_matches('/');
+                urls.push(format!("{base}/{path}"));
+                if !urls.iter().any(|u| u.contains("bmclapi")) {
+                    urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+                }
+                return urls;
+            }
         }
+
+        let is_forge = lib.name.contains("net.minecraftforge") || lib.name.contains("cpw.mods");
+        let is_fabric = lib.name.contains("net.fabricmc");
+        let is_neoforge = lib.name.contains("net.neoforged");
+
+        if is_forge {
+            urls.push(format!("{}/{path}", urls::FORGE_MAVEN));
+            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+        } else if is_fabric {
+            urls.push(format!("{}/{path}", urls::FABRIC_MAVEN));
+            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+        } else if is_neoforge {
+            urls.push(format!("{}/{path}", urls::NEOFORGE_MAVEN));
+            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+        } else {
+            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES));
+            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+        }
+
+        urls
     }
 
     #[must_use]
@@ -212,14 +218,15 @@ impl DownloadManager {
                 .metadata()
                 .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE);
 
-        let Some(url) = Self::maven_url_for_library(lib) else {
+        let candidate_urls = Self::maven_urls_for_library(lib);
+        if candidate_urls.is_empty() {
             warn!(
                 name = %lib.name,
                 is_native = lib.is_native,
                 "Skipping library: could not resolve Maven download URL"
             );
             return;
-        };
+        }
 
         if exists_ok {
             debug!(
@@ -232,7 +239,7 @@ impl DownloadManager {
             info!(
                 name = %lib.name,
                 is_native = lib.is_native,
-                url = %url,
+                urls = ?candidate_urls,
                 "Queuing library download"
             );
         }
@@ -253,23 +260,14 @@ impl DownloadManager {
                     ))
                 })?;
 
-                let checksum = sha1
-                    .as_deref()
-                    .map(|s| (release_the_launcher_net::HashKind::Sha1, s));
-
-                release_the_launcher_net::download_to_file(
+                download_with_fallback(
                     &http,
-                    &url,
+                    &candidate_urls,
                     &full_local_path,
-                    checksum,
-                    None::<fn(u64, u64)>,
+                    sha1.as_deref(),
+                    &lib_name,
                 )
-                .await
-                .map_err(|e| {
-                    LaunchError::Launch(format!(
-                        "HTTP error downloading library '{lib_name}' from '{url}': {e}"
-                    ))
-                })?;
+                .await?;
 
                 if let Ok(meta) = full_local_path.metadata() {
                     let len = meta.len();
@@ -285,6 +283,38 @@ impl DownloadManager {
             Ok::<(), LaunchError>(())
         });
     }
+}
+
+async fn download_with_fallback(
+    http: &Client,
+    urls: &[String],
+    target: &Path,
+    sha1: Option<&str>,
+    lib_name: &str,
+) -> Result<(), LaunchError> {
+    let mut last_err = None;
+    for url in urls {
+        let checksum = sha1.map(|s| (release_the_launcher_net::HashKind::Sha1, s));
+        match release_the_launcher_net::download_to_file(
+            http,
+            url,
+            target,
+            checksum,
+            None::<fn(u64, u64)>,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                warn!(name = %lib_name, url = %url, error = %e, "Download failed, trying next mirror");
+                last_err = Some(e);
+            }
+        }
+    }
+    let fallback = urls.first().map_or("?", String::as_str);
+    Err(LaunchError::Launch(format!(
+        "HTTP error downloading library '{lib_name}' from '{fallback}': all mirrors failed ({last_err:?})"
+    )))
 }
 
 fn filter_applicable_libraries(libraries: &[Library]) -> Vec<&Library> {
@@ -591,21 +621,27 @@ mod tests {
             PathBuf::from("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar")
         );
 
-        let std_url = DownloadManager::maven_url_for_library(&std_lib).unwrap();
+        let std_urls = DownloadManager::maven_urls_for_library(&std_lib);
         assert_eq!(
-            std_url,
-            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar"
+            std_urls,
+            vec![
+                "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+                "https://bmclapi2.bangbang93.com/maven/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+            ]
         );
 
-        let native_url = DownloadManager::maven_url_for_library(&native_lib).unwrap();
+        let native_urls = DownloadManager::maven_urls_for_library(&native_lib);
         assert_eq!(
-            native_url,
-            "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar"
+            native_urls,
+            vec![
+                "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar",
+                "https://bmclapi2.bangbang93.com/maven/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar",
+            ]
         );
     }
 
     #[test]
-    fn test_maven_url_for_library_skips_empty_url() {
+    fn test_maven_urls_for_library_skips_empty_url() {
         let lib = Library {
             name: "tv.twitch:twitch-platform:6.5".to_string(),
             url: Some(String::new()),
@@ -615,7 +651,7 @@ mod tests {
             rules: vec![],
             extract: None,
         };
-        assert_eq!(DownloadManager::maven_url_for_library(&lib), None);
+        assert!(DownloadManager::maven_urls_for_library(&lib).is_empty());
     }
 
     #[tokio::test]

@@ -63,6 +63,8 @@ pub mod urls {
     pub const FORGE_MAVEN_ALT: &str = "https://maven.minecraftforge.net";
     pub const FABRIC_MAVEN: &str = "https://maven.fabricmc.net";
     pub const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
+    /// Mirror de BMCLAPI para librerías de Mojang when `libraries.minecraft.net` es inaccesible.
+    pub const MOJANG_LIBRARIES_MIRROR: &str = "https://bmclapi2.bangbang93.com/maven";
     pub const PRISM_META_BASE: &str = "https://meta.prismlauncher.org/v1";
     pub const MODRINTH_API_URL: &str = "https://api.modrinth.com/v2";
     pub const PRISM_FML_BASE: &str = "https://files.prismlauncher.org/fmllibs";
