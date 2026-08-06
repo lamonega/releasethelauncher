@@ -1,4 +1,5 @@
 use reqwest::Client;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -183,7 +184,7 @@ impl DownloadManager {
             && full_local_path
                 .metadata()
                 .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE)
-            && verify_sha1(&full_local_path, lib.sha1.as_deref());
+            && verify_cached_library(&full_local_path, lib.sha1.as_deref());
 
         let candidate_urls = Self::maven_urls_for_library(lib);
         if candidate_urls.is_empty() {
@@ -252,17 +253,28 @@ impl DownloadManager {
     }
 }
 
-fn verify_sha1(path: &Path, expected: Option<&str>) -> bool {
-    let Some(expected) = expected else {
-        return true;
+fn verify_cached_library(path: &Path, expected_sha1: Option<&str>) -> bool {
+    let Some(expected) = expected_sha1 else {
+        return is_valid_jar(path);
     };
     if expected.is_empty() {
-        return true;
+        return is_valid_jar(path);
     }
     match release_the_launcher_core::compute_sha1_file(path) {
         Ok(hash) => hash == expected,
         Err(_) => false,
     }
+}
+
+fn is_valid_jar(path: &Path) -> bool {
+    let mut buf = [0u8; 4];
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let Ok(()) = f.read_exact(&mut buf) else {
+        return false;
+    };
+    &buf == b"PK\x03\x04"
 }
 
 async fn download_with_fallback(
@@ -625,11 +637,13 @@ mod tests {
             extract: None,
         };
 
-        // Create pre-cached library file >= 1000 bytes
+        // Create pre-cached library file >= 1000 bytes with valid ZIP magic bytes
         let local_rel = DownloadManager::local_path_for_library(&native_lib).unwrap();
         let cached_path = dm.libraries_dir().join(local_rel);
         std::fs::create_dir_all(cached_path.parent().unwrap()).unwrap();
-        std::fs::write(&cached_path, vec![0u8; 1200]).unwrap();
+        let mut data = vec![0u8; 1200];
+        data[..4].copy_from_slice(b"PK\x03\x04");
+        std::fs::write(&cached_path, data).unwrap();
 
         let progress_called = Arc::new(AtomicU64::new(0));
         let progress_called_clone = progress_called.clone();
