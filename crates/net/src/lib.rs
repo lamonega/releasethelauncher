@@ -1,20 +1,7 @@
 //! HTTP layer shared by the backend: a default [`reqwest::Client`]
 //! ([`default_client`]), streaming downloads with checksum validation
 //! ([`download_to_file`]) and the metadata HTTP cache ([`cache`]).
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::module_name_repetitions,
-    clippy::struct_excessive_bools,
-    clippy::too_many_lines,
-    clippy::doc_markdown,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::unused_async
-)]
+
 pub mod cache;
 
 use futures::StreamExt;

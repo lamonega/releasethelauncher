@@ -28,6 +28,9 @@ fn read_zip_file<R: std::io::Read + std::io::Seek>(
     Some(buf)
 }
 
+/// # Errors
+///
+/// Returns [`ModsError`] if the ZIP cannot be opened or metadata parsing fails.
 pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, ModsError> {
     let file = std::fs::File::open(jar_path)?;
     let mut archive = zip::ZipArchive::new(file)?;

@@ -32,12 +32,11 @@ pub(crate) fn show_modrinth(app: &LauncherApp, ui: &mut egui::Ui, state: &mut Ne
         state.modrinth_status = "Searching...".to_string();
         state.modrinth_results = Vec::new();
         let loader = match state.loader_filter {
-            LoaderType::Any => String::new(),
             LoaderType::Fabric => "fabric".to_string(),
             LoaderType::Forge => "forge".to_string(),
             LoaderType::NeoForge => "neoforge".to_string(),
             LoaderType::Quilt => "quilt".to_string(),
-            LoaderType::Vanilla => String::new(),
+            LoaderType::Any | LoaderType::Vanilla => String::new(),
         };
         app.coordinator.search_modpacks(
             state.modrinth_query.clone(),

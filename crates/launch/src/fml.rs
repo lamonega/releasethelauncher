@@ -41,7 +41,7 @@ pub async fn ensure_fml_deobfuscation_data(
     })
     .await
     .unwrap_or(None)
-    .or_else(|| seed.map(|s| s.to_string()));
+    .or_else(|| seed.map(ToString::to_string));
     let Some(expected) = expected else {
         return Ok(());
     };

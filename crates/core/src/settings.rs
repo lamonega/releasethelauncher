@@ -1,4 +1,4 @@
-use crate::instance::CoreError;
+use crate::error::CoreError;
 use release_the_launcher_constants::defaults;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt;
@@ -121,6 +121,9 @@ impl InstanceSettings {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`CoreError::Io`] if reading the file fails, or [`CoreError::Parse`] if TOML deserialization fails.
     pub fn load(path: &Path) -> Result<Self, CoreError> {
         load_toml(path)
     }
@@ -169,6 +172,9 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
+    /// # Errors
+    ///
+    /// Returns [`CoreError::Io`] if reading the file fails, or [`CoreError::Parse`] if TOML deserialization fails.
     pub fn load(path: &Path) -> Result<Self, CoreError> {
         load_toml(path)
     }

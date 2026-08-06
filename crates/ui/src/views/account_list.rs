@@ -63,7 +63,6 @@ fn show_accounts(app: &mut LauncherApp, ui: &mut egui::Ui, accounts: &[AccountSu
                 remove_idx = Some(i);
             }
         });
-
     }
     if let Some(i) = select_idx {
         let name = accounts[i].name.clone();

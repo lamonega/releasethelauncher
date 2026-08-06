@@ -60,11 +60,11 @@ pub fn drain_ui_messages(state: &mut crate::LauncherApp, ctx: &egui::Context) ->
             }
             // View-specific async results: forward to the dedicated UI channel
             // so views can drain them independently without creating a re-enqueue loop.
-            msg @ UiMessage::ModrinthSearchResult(_)
-            | msg @ UiMessage::ModrinthVersionsResult { .. }
-            | msg @ UiMessage::ModrinthInstallResult { .. }
-            | msg @ UiMessage::VersionListResult(_)
-            | msg @ UiMessage::LoaderVersionsResult { .. } => {
+            msg @ (UiMessage::ModrinthSearchResult(_)
+            | UiMessage::ModrinthVersionsResult { .. }
+            | UiMessage::ModrinthInstallResult { .. }
+            | UiMessage::VersionListResult(_)
+            | UiMessage::LoaderVersionsResult { .. }) => {
                 match &state.current_view {
                     View::ModBrowser { .. } => {
                         crate::views::mod_browser::process_message(state, msg);

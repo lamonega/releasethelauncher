@@ -1,25 +1,6 @@
 //! Account model and authentication: account persistence ([`account_list`])
 //! and offline UUID generation.
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::module_name_repetitions,
-    clippy::struct_excessive_bools,
-    clippy::too_many_lines,
-    clippy::doc_markdown,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::unused_async,
-    clippy::redundant_closure_for_method_calls,
-    clippy::map_unwrap_or,
-    clippy::new_without_default,
-    clippy::double_must_use,
-    clippy::manual_let_else,
-    clippy::single_match_else
-)]
+
 pub mod account_list;
 
 pub use account_list::AccountList;
@@ -53,7 +34,11 @@ pub struct AccountData {
     #[serde(default)]
     pub uuid: String,
     // Retained for JSON round-trip compatibility with old saves; always None in practice.
-    #[serde(rename = "yggdrasil_token", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "yggdrasil_token",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub mc_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub refresh_token: Option<String>,

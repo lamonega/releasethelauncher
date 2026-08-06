@@ -61,6 +61,9 @@ where
     Ok(extracted)
 }
 
+/// # Errors
+///
+/// Returns [`ArchiveError`] if the ZIP cannot be opened or the entry is not found.
 pub fn read_zip_entry_bytes(zip_path: &Path, entry_name: &str) -> Result<Vec<u8>, ArchiveError> {
     let file = fs::File::open(zip_path)?;
     let mut archive = ZipArchive::new(file)?;

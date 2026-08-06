@@ -20,6 +20,7 @@ pub struct AccountData {
 }
 
 impl AccountData {
+    #[must_use]
     pub fn from_auth(account: &release_the_launcher_auth::AccountData) -> Self {
         Self {
             name: account.display_name().to_string(),
@@ -106,9 +107,7 @@ pub async fn do_launch(mut params: LaunchParams) {
     }
 }
 
-
 async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
-
     // 2. Validate account data
     let account = params.account_data.as_ref().ok_or_else(|| {
         fail(

@@ -28,7 +28,9 @@ pub struct AccountList {
 }
 
 impl AccountList {
-    #[must_use]
+    /// # Errors
+    ///
+    /// Returns an error if reading or parsing the account list file fails.
     pub fn load(path: &Path) -> std::io::Result<Self> {
         if path.exists() {
             let content = fs::read_to_string(path)?;
@@ -47,6 +49,7 @@ impl AccountList {
         })
     }
 
+    #[must_use]
     pub fn load_or_default(path: &Path) -> Self {
         Self::load(path).unwrap_or_else(|_| Self {
             accounts: Vec::new(),

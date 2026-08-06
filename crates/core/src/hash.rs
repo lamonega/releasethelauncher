@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
+#[must_use]
 pub fn compute_sha1_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha1::digest(bytes))
 }

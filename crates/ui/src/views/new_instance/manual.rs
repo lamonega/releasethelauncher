@@ -5,114 +5,66 @@ use crate::View;
 pub(crate) fn show_manual(app: &mut LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     ui.label("Name:");
     ui.text_edit_singleline(&mut state.name);
-
     ui.add_space(app.theme.spacing.sm);
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Filter Minecraft Versions:").strong());
-        if ui
-            .checkbox(&mut state.manual_show_types[0], "Releases")
-            .changed()
-        {
-            app.coordinator.log(
-                crate::log::LogLevel::Info,
-                &format!(
-                    "UI: MC version filter - Releases: {}",
-                    state.manual_show_types[0]
-                ),
-            );
-        }
-        if ui
-            .checkbox(&mut state.manual_show_types[1], "Snapshots")
-            .changed()
-        {
-            app.coordinator.log(
-                crate::log::LogLevel::Info,
-                &format!(
-                    "UI: MC version filter - Snapshots: {}",
-                    state.manual_show_types[1]
-                ),
-            );
-        }
-        if ui
-            .checkbox(&mut state.manual_show_types[2], "Old Betas")
-            .changed()
-        {
-            app.coordinator.log(
-                crate::log::LogLevel::Info,
-                &format!(
-                    "UI: MC version filter - Betas: {}",
-                    state.manual_show_types[2]
-                ),
-            );
-        }
-        if ui
-            .checkbox(&mut state.manual_show_types[3], "Old Alphas")
-            .changed()
-        {
-            app.coordinator.log(
-                crate::log::LogLevel::Info,
-                &format!(
-                    "UI: MC version filter - Alphas: {}",
-                    state.manual_show_types[3]
-                ),
-            );
-        }
-    });
+    show_version_type_filters(app, ui, state);
     ui.add_space(app.theme.spacing.xs);
-
     show_manual_version(app, ui, state);
-
     ui.add_space(app.theme.spacing.sm);
 
     ui.label("Loader:");
     egui::ComboBox::from_label("Mod Loader")
         .selected_text(state.loader_type.as_str())
         .show_ui(ui, |ui| {
-            if ui
-                .selectable_value(&mut state.loader_type, LoaderType::Vanilla, "Vanilla")
-                .changed()
-            {
-                app.coordinator
-                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Vanilla");
-            }
-            if ui
-                .selectable_value(&mut state.loader_type, LoaderType::Fabric, "Fabric")
-                .changed()
-            {
-                app.coordinator
-                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Fabric");
-            }
-            if ui
-                .selectable_value(&mut state.loader_type, LoaderType::Forge, "Forge")
-                .changed()
-            {
-                app.coordinator
-                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Forge");
-            }
-            if ui
-                .selectable_value(&mut state.loader_type, LoaderType::NeoForge, "NeoForge")
-                .changed()
-            {
-                app.coordinator
-                    .log(crate::log::LogLevel::Info, "UI: Loader changed to NeoForge");
-            }
-            if ui
-                .selectable_value(&mut state.loader_type, LoaderType::Quilt, "Quilt")
-                .changed()
-            {
-                app.coordinator
-                    .log(crate::log::LogLevel::Info, "UI: Loader changed to Quilt");
+            for (label, variant) in [
+                ("Vanilla", LoaderType::Vanilla),
+                ("Fabric", LoaderType::Fabric),
+                ("Forge", LoaderType::Forge),
+                ("NeoForge", LoaderType::NeoForge),
+                ("Quilt", LoaderType::Quilt),
+            ] {
+                if ui
+                    .selectable_value(&mut state.loader_type, variant, label)
+                    .changed()
+                {
+                    app.coordinator.log(
+                        crate::log::LogLevel::Info,
+                        &format!("UI: Loader changed to {label}"),
+                    );
+                }
             }
         });
 
     show_manual_loader(app, ui, state);
-
     ui.add_space(app.theme.spacing.sm);
     ui.separator();
     ui.add_space(app.theme.spacing.sm);
-
     show_manual_create(app, ui, state);
+}
+
+fn show_version_type_filters(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Filter Minecraft Versions:").strong());
+        for (label, idx) in [
+            ("Releases", 0),
+            ("Snapshots", 1),
+            ("Old Betas", 2),
+            ("Old Alphas", 3),
+        ] {
+            if ui
+                .checkbox(&mut state.manual_show_types[idx], label)
+                .changed()
+            {
+                app.coordinator.log(
+                    crate::log::LogLevel::Info,
+                    &format!(
+                        "UI: MC version filter - {label}: {}",
+                        state.manual_show_types[idx]
+                    ),
+                );
+            }
+        }
+    });
 }
 
 fn show_manual_version(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {

@@ -1,20 +1,6 @@
 //! Centralized constants for the whole workspace: filesystem paths
 //! ([`paths`]), remote endpoints and user-agent ([`urls`], [`net`]), default
 //! values ([`defaults`]).
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::module_name_repetitions,
-    clippy::struct_excessive_bools,
-    clippy::too_many_lines,
-    clippy::doc_markdown,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::unused_async
-)]
 
 pub mod defaults {
     pub const DEFAULT_MEMORY_MIN: &str = "1024M";

@@ -93,4 +93,3 @@ pub fn settings_field(ui: &mut egui::Ui, label: &str, value: &mut String) -> boo
     ui.label(label);
     ui.text_edit_singleline(value).changed()
 }
-

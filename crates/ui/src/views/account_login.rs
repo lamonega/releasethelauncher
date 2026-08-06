@@ -13,10 +13,7 @@ pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
 
     ui.add_space(app.theme.spacing.sm);
     if ui
-        .add(
-            widgets::icon_button(crate::icons::ADD, "Add Offline Account")
-                .fill(app.theme.accent),
-        )
+        .add(widgets::icon_button(crate::icons::ADD, "Add Offline Account").fill(app.theme.accent))
         .clicked()
         && !login_username.is_empty()
     {

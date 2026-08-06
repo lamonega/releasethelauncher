@@ -57,11 +57,10 @@ pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component,
             .await?
             .json()
             .await?;
-        index
-            .versions
-            .first()
-            .map(|v| v.version.clone())
-            .unwrap_or_else(|| params.default_fallback_version.to_string())
+        index.versions.first().map_or_else(
+            || params.default_fallback_version.to_string(),
+            |v| v.version.clone(),
+        )
     };
 
     let loader_url = format!("{}/{chosen_loader_version}.json", params.base_url);

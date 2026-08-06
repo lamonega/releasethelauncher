@@ -18,26 +18,6 @@ pub struct DownloadManager {
     cache_dir: PathBuf,
 }
 
-#[allow(dead_code)]
-#[must_use]
-pub(crate) fn library_filename(lib: &Library) -> String {
-    if let Some(mut coord) = crate::MavenCoord::parse(&lib.name) {
-        if coord.ext == "jar" {
-            if let Some(ref url) = lib.url {
-                if Path::new(url)
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-                {
-                    coord.ext = "zip".to_string();
-                }
-            }
-        }
-        coord.filename()
-    } else {
-        format!("{}.jar", lib.name)
-    }
-}
-
 impl DownloadManager {
     #[must_use]
     pub fn new(cache_dir: PathBuf) -> Self {

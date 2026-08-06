@@ -1,24 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use thiserror::Error;
 
+use crate::error::CoreError;
 use crate::settings::{InstanceSettings, JavaSettings};
 use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
-
-#[derive(Error, Debug)]
-pub enum CoreError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("TOML parse error: {0}")]
-    Parse(#[from] toml::de::Error),
-    #[error("Instance '{0}' not found")]
-    InstanceNotFound(String),
-    #[error("Instance '{0}' already exists")]
-    InstanceAlreadyExists(String),
-}
 
 pub struct Instance {
     pub id: InstanceId,

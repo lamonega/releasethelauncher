@@ -5,7 +5,9 @@ pub fn progress_ratio(completed: u64, total: u64) -> f32 {
     if total == 0 {
         return 0.0;
     }
-    (completed as f32 / total as f32).clamp(0.0, 1.0)
+    let scaled = completed.saturating_mul(10_000) / total;
+    let capped = u16::try_from(scaled.min(10_000)).unwrap_or(10_000);
+    f32::from(capped) / 10_000.0
 }
 
 pub fn show(app: &crate::LauncherApp, ctx: &egui::Context) {
