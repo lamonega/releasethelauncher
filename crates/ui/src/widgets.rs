@@ -94,31 +94,3 @@ pub fn settings_field(ui: &mut egui::Ui, label: &str, value: &mut String) -> boo
     ui.text_edit_singleline(value).changed()
 }
 
-/// Renders the authentication state badge for Microsoft accounts.
-pub fn auth_state_ui(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    account_type: &release_the_launcher_auth::AccountType,
-    auth_state: release_the_launcher_auth::AuthState,
-) {
-    if *account_type == release_the_launcher_auth::AccountType::Microsoft {
-        let state_label = match auth_state {
-            release_the_launcher_auth::AuthState::Online => "Online",
-            release_the_launcher_auth::AuthState::Expired => "Token Expired",
-            release_the_launcher_auth::AuthState::Gone => "No token",
-            release_the_launcher_auth::AuthState::Offline => "",
-        };
-        if !state_label.is_empty() {
-            let state_color = match auth_state {
-                release_the_launcher_auth::AuthState::Online => theme.log_colors.info,
-                release_the_launcher_auth::AuthState::Expired
-                | release_the_launcher_auth::AuthState::Gone => theme.log_colors.warn,
-                release_the_launcher_auth::AuthState::Offline => theme.text_secondary,
-            };
-            ui.horizontal(|ui| {
-                ui.add_space(32.0);
-                ui.colored_label(state_color, state_label);
-            });
-        }
-    }
-}

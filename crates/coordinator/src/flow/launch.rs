@@ -32,7 +32,6 @@ impl AccountData {
 pub struct LaunchParams {
     pub queue: Queue,
     pub account_data: Option<AccountData>,
-    pub active_auth_account: Option<release_the_launcher_auth::AccountData>,
     pub http_client: reqwest::Client,
     pub instance_id: String,
     pub instance_root: std::path::PathBuf,
@@ -107,50 +106,8 @@ pub async fn do_launch(mut params: LaunchParams) {
     }
 }
 
-async fn refresh_if_needed(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
-    let Some(ref mut auth_account) = params.active_auth_account else {
-        return Ok(());
-    };
-    if !release_the_launcher_auth::refresh::needs_refresh(auth_account) {
-        return Ok(());
-    }
-    send_log(
-        &params.queue,
-        LogLevel::Info,
-        "Refreshing Microsoft account session before launch...",
-    );
-    let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
-    match release_the_launcher_auth::refresh::try_refresh_if_needed(
-        auth_account,
-        &params.http_client,
-        client_id,
-    )
-    .await
-    {
-        Ok(Some(refreshed)) => {
-            params.account_data = Some(AccountData::from_auth(&refreshed));
-            push_event(
-                &params.queue,
-                Event::MsLoginSuccess {
-                    account: Box::new(refreshed),
-                },
-            );
-            push_event(
-                &params.queue,
-                Event::Status("Account refreshed".to_string()),
-            );
-            Ok(())
-        }
-        Ok(None) => Ok(()),
-        Err(e) => Err(fail(
-            &params.queue,
-            format!("Session expired: re-login required ({e})"),
-        )),
-    }
-}
 
 async fn do_launch_pipeline(params: &mut LaunchParams) -> Result<(), anyhow::Error> {
-    refresh_if_needed(params).await?;
 
     // 2. Validate account data
     let account = params.account_data.as_ref().ok_or_else(|| {

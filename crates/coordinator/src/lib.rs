@@ -80,15 +80,7 @@ pub enum Event {
         mc_version: String,
         result: Result<Vec<String>, String>,
     },
-    MsDeviceCode {
-        user_code: String,
-        verification_uri: String,
-        message: String,
-    },
-    MsLoginSuccess {
-        account: Box<release_the_launcher_auth::AccountData>,
-    },
-    MsLoginError(String),
+
     /// Ask the UI to close its window (post-launch, when configured).
     RequestClose,
 }
@@ -491,7 +483,6 @@ impl Coordinator {
         let params = LaunchParams {
             queue: self.queue(),
             account_data: extract_account_data(&self.account_list),
-            active_auth_account: self.account_list.active().cloned(),
             http_client: self.http_provider.clone(),
             instance_id: instance_id.to_string(),
             instance_root: inst.root.clone(),
@@ -570,40 +561,7 @@ impl Coordinator {
         });
     }
 
-    pub fn start_ms_login(&self) {
-        self.run_async(flow::msa::start_login);
-    }
 
-    pub fn refresh_active_account(&self) {
-        let mut active = self.account_list.active().cloned();
-        let http = self.http_provider.clone();
-        self.run_async(move |queue| async move {
-            if let Some(ref mut account) = active {
-                if release_the_launcher_auth::refresh::needs_refresh(account) {
-                    let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
-                    match release_the_launcher_auth::refresh::try_refresh_if_needed(
-                        account, &http, client_id,
-                    )
-                    .await
-                    {
-                        Ok(Some(refreshed)) => {
-                            push_event(
-                                &queue,
-                                Event::MsLoginSuccess {
-                                    account: Box::new(refreshed),
-                                },
-                            );
-                            push_event(&queue, Event::Status("Account refreshed".to_string()));
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            push_event(&queue, Event::MsLoginError(e.to_string()));
-                        }
-                    }
-                }
-            }
-        });
-    }
 
     #[must_use]
     pub fn mods_metadata(&self, instance_id: &str) -> Vec<release_the_launcher_mods::ModDetails> {

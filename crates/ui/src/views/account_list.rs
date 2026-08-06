@@ -48,11 +48,7 @@ fn show_accounts(app: &mut LauncherApp, ui: &mut egui::Ui, accounts: &[AccountSu
             {
                 select_idx = Some(i);
             }
-            let type_label = match account.account_type {
-                release_the_launcher_auth::AccountType::Offline => "Offline Account",
-                release_the_launcher_auth::AccountType::Microsoft => "Microsoft Account",
-            };
-            ui.colored_label(app.theme.text_secondary, type_label);
+            ui.colored_label(app.theme.text_secondary, "Offline Account");
             if let Some(skin_url) = &account.skin_url {
                 ui.add(
                     egui::Image::new(skin_url.as_str())
@@ -68,7 +64,6 @@ fn show_accounts(app: &mut LauncherApp, ui: &mut egui::Ui, accounts: &[AccountSu
             }
         });
 
-        widgets::auth_state_ui(ui, &app.theme, &account.account_type, account.auth_state);
     }
     if let Some(i) = select_idx {
         let name = accounts[i].name.clone();

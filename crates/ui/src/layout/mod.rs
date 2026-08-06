@@ -3,8 +3,6 @@ pub mod sidebar;
 pub mod status_bar;
 pub mod toolbar;
 
-use crate::log::LogLevel;
-use crate::views::account_login::LoginState;
 use crate::{DownloadPhase, DownloadState, UiMessage, View};
 
 impl eframe::App for crate::LauncherApp {
@@ -93,49 +91,6 @@ pub fn drain_ui_messages(state: &mut crate::LauncherApp, ctx: &egui::Context) ->
                 live = true;
             }
 
-            UiMessage::MsDeviceCode {
-                user_code,
-                verification_uri,
-                message,
-            } => {
-                state.login_state = LoginState::MicrosoftDeviceCode {
-                    user_code,
-                    verification_uri,
-                    message,
-                };
-                live = true;
-            }
-            UiMessage::MsLoginSuccess { account } => {
-                let name = account.display_name().to_string();
-                state.coordinator.log(
-                    LogLevel::Info,
-                    &format!("UI: Microsoft Login successful, logged in as '{name}'"),
-                );
-                state.login_state = LoginState::Idle;
-                let display_name = name;
-                match state.coordinator.add_account(*account) {
-                    Ok(()) => {
-                        state.status_message = format!("Logged in as {display_name}");
-                    }
-                    Err(err) => {
-                        state.coordinator.log(
-                            LogLevel::Error,
-                            &format!("Failed to add Microsoft account '{display_name}': {err}"),
-                        );
-                        state.status_message = format!("Failed to add account: {err}");
-                    }
-                }
-                state.current_view = View::AccountList;
-                live = true;
-            }
-            UiMessage::MsLoginError(err) => {
-                state.coordinator.log(
-                    LogLevel::Error,
-                    &format!("UI: Microsoft Login failed: {err}"),
-                );
-                state.login_state = LoginState::MicrosoftError(err);
-                live = true;
-            }
             UiMessage::RequestClose => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }

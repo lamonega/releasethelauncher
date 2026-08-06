@@ -1,6 +1,5 @@
-//! Account model and authentication flows: account persistence
-//! ([`account_list`]), Microsoft device-code OAuth ([`msa`]), Xbox/Minecraft
-//! token exchange ([`xbox`], [`minecraft`]) and refresh handling ([`refresh`]).
+//! Account model and authentication: account persistence ([`account_list`])
+//! and offline UUID generation.
 #![allow(
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
@@ -22,32 +21,25 @@
     clippy::single_match_else
 )]
 pub mod account_list;
-pub mod minecraft;
-pub mod msa;
-pub mod refresh;
-pub mod xbox;
 
 pub use account_list::AccountList;
-pub use msa::AuthError;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AccountType {
-    #[serde(rename = "microsoft")]
-    Microsoft,
     #[default]
     #[serde(rename = "offline")]
     Offline,
+    /// Legacy Microsoft accounts persisted in older saves — treated as offline.
+    #[serde(rename = "microsoft", other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthState {
     Offline,
-    Online,
-    Expired,
-    Gone,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,11 +52,8 @@ pub struct AccountData {
     pub username: String,
     #[serde(default)]
     pub uuid: String,
-    #[serde(
-        rename = "yggdrasil_token",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
+    // Retained for JSON round-trip compatibility with old saves; always None in practice.
+    #[serde(rename = "yggdrasil_token", skip_serializing_if = "Option::is_none", default)]
     pub mc_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub refresh_token: Option<String>,
@@ -94,23 +83,12 @@ impl AccountData {
 
     #[must_use]
     pub fn auth_state(&self) -> AuthState {
-        match self.account_type {
-            AccountType::Offline => AuthState::Offline,
-            AccountType::Microsoft => {
-                if self.mc_token.is_some() {
-                    AuthState::Online
-                } else if self.refresh_token.is_some() {
-                    AuthState::Expired
-                } else {
-                    AuthState::Gone
-                }
-            }
-        }
+        AuthState::Offline
     }
 
     #[must_use]
     pub fn skin_texture_url(&self) -> Option<String> {
-        self.skin_url.clone()
+        None
     }
 }
 

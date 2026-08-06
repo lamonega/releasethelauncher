@@ -3671,13 +3671,8 @@ name = "release-the-launcher-auth"
 version = "0.8.0"
 dependencies = [
  "md-5",
- "release-the-launcher-constants",
- "release-the-launcher-net",
- "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.19",
- "tokio",
  "uuid",
 ]
 
