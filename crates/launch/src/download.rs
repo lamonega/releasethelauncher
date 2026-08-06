@@ -50,7 +50,11 @@ impl DownloadManager {
             }
             if url.starts_with("http://") || url.starts_with("https://") {
                 let base = url.trim_end_matches('/');
-                urls.push(format!("{base}/{path}"));
+                if base.ends_with(".jar") || base.ends_with(".zip") {
+                    urls.push(base.to_string());
+                } else {
+                    urls.push(format!("{base}/{path}"));
+                }
                 if !urls.iter().any(|u| u.contains("bmclapi")) {
                     urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
                 }

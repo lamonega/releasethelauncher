@@ -43,6 +43,15 @@ pub struct AccountData {
 
 impl AccountData {
     #[must_use]
+    pub fn effective_uuid(&self) -> String {
+        if self.uuid.is_empty() {
+            offline_uuid(&self.username).to_string()
+        } else {
+            self.uuid.clone()
+        }
+    }
+
+    #[must_use]
     pub fn offline(username: &str) -> Self {
         let uuid = offline_uuid(username).to_string();
         Self {

@@ -30,7 +30,7 @@ impl AccountData {
     pub fn from_auth(account: &release_the_launcher_auth::AccountData) -> Self {
         Self {
             name: account.username.clone(),
-            uuid: account.uuid.clone(),
+            uuid: account.effective_uuid(),
             token: account.mc_token.clone().unwrap_or_default(),
         }
     }
