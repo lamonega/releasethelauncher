@@ -333,14 +333,10 @@ pub async fn fetch_forge_loader_versions(
                 let prefix = format!("{mc_version}-");
                 let mc_suffix = format!("-{mc_version}");
                 for v in meta.versioning.versions.version {
-                    if let Some(rest) = v.strip_prefix(&prefix) {
-                        let mut ver = rest;
-                        if let Some(clean) = ver.strip_suffix(&mc_suffix) {
-                            ver = clean;
-                        }
-                        if !ver.is_empty() && !versions.contains(&ver.to_string()) {
-                            versions.push(ver.to_string());
-                        }
+                    let rest = v.strip_prefix(&prefix).unwrap_or(&v);
+                    let ver = rest.strip_suffix(&mc_suffix).unwrap_or(rest);
+                    if !ver.is_empty() && !versions.contains(&ver.to_string()) {
+                        versions.push(ver.to_string());
                     }
                 }
             }

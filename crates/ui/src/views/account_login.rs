@@ -36,9 +36,3 @@ pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
 
     app.login_username = login_username;
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum LoginState {
-    #[default]
-    Idle,
-}

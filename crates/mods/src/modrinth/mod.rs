@@ -68,12 +68,6 @@ impl From<&ModrinthVersion> for ModVersion {
     }
 }
 
-impl From<ModrinthVersion> for ModVersion {
-    fn from(v: ModrinthVersion) -> Self {
-        Self::from(&v)
-    }
-}
-
 impl ModVersion {
     fn checksum(&self) -> Option<(HashKind, &str)> {
         match (&self.hash_type, &self.hash) {
@@ -148,6 +142,13 @@ impl ModrinthProvider {
         headers
     }
 
+    fn apply_headers(&self, mut req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        for (k, v) in self.build_headers() {
+            req = req.header(k, v);
+        }
+        req
+    }
+
     fn cache_get(&self, cache_key: &str) -> Option<String> {
         if let Ok(cache_guard) = self.cache.lock() {
             if let Some(entry) = cache_guard.resolve(BASE_URL, cache_key) {
@@ -162,8 +163,6 @@ impl ModrinthProvider {
             let entry = release_the_launcher_net::cache::CacheEntry {
                 base_path: BASE_URL.to_string(),
                 relative_path: cache_key.to_string(),
-                etag: None,
-                last_modified: None,
                 data: Some(json.to_string()),
                 max_age: 900,
                 last_accessed: 0,
@@ -218,22 +217,6 @@ impl ModrinthProvider {
         facets.push(vec![format!("project_type:{project_type}")]);
 
         serde_json::to_string(&facets).unwrap_or_else(|_| "[]".to_string())
-    }
-
-    /// Search for modpacks on Modrinth.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the HTTP request or JSON parsing fails.
-    pub async fn search_modpacks(&self, args: &SearchArgs) -> Result<SearchResults, ModsError> {
-        let query_params = Self::build_search_query(args, "modpack");
-        let url = format!("{BASE_URL}/search");
-        let mut req = self.http.get(&url).query(&query_params);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
-        let resp: SearchResponse = req.send().await?.json().await?;
-        Ok(hits_to_summaries(resp))
     }
 
     /// Download and extract a .mrpack modpack into the target instance directory.
@@ -418,8 +401,12 @@ impl ModrinthProvider {
     /// # Errors
     ///
     /// Returns an error if the HTTP request or JSON parsing fails.
-    pub async fn search(&self, args: SearchArgs) -> Result<SearchResults, ModsError> {
-        let query_params = Self::build_search_query(&args, "mod");
+    pub async fn search(
+        &self,
+        args: SearchArgs,
+        project_type: Option<&str>,
+    ) -> Result<SearchResults, ModsError> {
+        let query_params = Self::build_search_query(&args, project_type.unwrap_or("mod"));
         let path = format!("{BASE_URL}/search");
 
         let cache_key = format!(
@@ -432,10 +419,7 @@ impl ModrinthProvider {
             }
         }
 
-        let mut req = self.http.get(&path).query(&query_params);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
+        let req = self.apply_headers(self.http.get(&path).query(&query_params));
         let json_text = req.send().await?.text().await?;
         let resp: SearchResponse = serde_json::from_str(&json_text)?;
 
@@ -475,21 +459,18 @@ impl ModrinthProvider {
 
         if let Some(json) = self.cache_get(&cache_key) {
             if let Ok(resp) = serde_json::from_str::<Vec<ModrinthVersion>>(&json) {
-                let versions = resp.into_iter().map(Into::into).collect();
+                let versions = resp.into_iter().map(|v| ModVersion::from(&v)).collect();
                 return Ok(versions);
             }
         }
 
-        let mut req = self.http.get(&path).query(&query_params);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
+        let req = self.apply_headers(self.http.get(&path).query(&query_params));
         let json_text = req.send().await?.text().await?;
         let resp: Vec<ModrinthVersion> = serde_json::from_str(&json_text)?;
 
         self.cache_put(&cache_key, &json_text);
 
-        let versions = resp.into_iter().map(Into::into).collect();
+        let versions = resp.into_iter().map(|v| ModVersion::from(&v)).collect();
         Ok(versions)
     }
 
@@ -498,10 +479,7 @@ impl ModrinthProvider {
     /// Returns an error if the HTTP request or JSON parsing fails.
     pub async fn get_project(&self, project_id: &str) -> Result<ProjectInfo, ModsError> {
         let url = format!("{BASE_URL}/project/{project_id}");
-        let mut req = self.http.get(&url);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
+        let req = self.apply_headers(self.http.get(&url));
         let resp: ModrinthProject = req.send().await?.json().await?;
 
         let authors = match resp.team {
@@ -552,10 +530,7 @@ impl ModrinthProvider {
             "game_versions": mc_versions,
         });
 
-        let mut req = self.http.post(&url).json(&body);
-        for (k, v) in self.build_headers() {
-            req = req.header(k, v);
-        }
+        let req = self.apply_headers(self.http.post(&url).json(&body));
 
         let resp = req.send().await?;
         if !resp.status().is_success() {
@@ -568,7 +543,7 @@ impl ModrinthProvider {
         for installed_mod in installed {
             let lower_hash = installed_mod.hash.to_lowercase();
             if let Some(version) = update_map.get(&lower_hash) {
-                let latest: ModVersion = version.into();
+                let latest: ModVersion = ModVersion::from(version);
                 if latest.hash.as_deref() != Some(&lower_hash) {
                     updates.push(ModUpdate {
                         installed: installed_mod.clone(),

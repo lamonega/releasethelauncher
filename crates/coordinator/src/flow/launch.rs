@@ -12,6 +12,12 @@ use release_the_launcher_launch::{
 use crate::log::LogLevel;
 use crate::{push_event, Event, Queue};
 
+pub(crate) fn timestamp() -> String {
+    chrono::Local::now()
+        .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
+        .to_string()
+}
+
 #[derive(Clone, Debug)]
 pub struct AccountData {
     pub name: String,
@@ -23,7 +29,7 @@ impl AccountData {
     #[must_use]
     pub fn from_auth(account: &release_the_launcher_auth::AccountData) -> Self {
         Self {
-            name: account.display_name().to_string(),
+            name: account.username.clone(),
             uuid: account.uuid.clone(),
             token: account.mc_token.clone().unwrap_or_default(),
         }
@@ -70,24 +76,13 @@ fn emit_progress(queue: &Queue, message: String, done: u64, total: u64) {
 }
 
 pub fn send_log(queue: &Queue, level: LogLevel, message: impl Into<String>) {
-    send_log_with_target(queue, level, message, "launcher");
-}
-
-pub fn send_log_with_target(
-    queue: &Queue,
-    level: LogLevel,
-    message: impl Into<String>,
-    target: impl Into<String>,
-) {
     push_event(
         queue,
         Event::Log(crate::log::LogEntry {
-            timestamp: chrono::Local::now()
-                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
-                .to_string(),
+            timestamp: timestamp(),
             level,
             message: message.into(),
-            target: target.into(),
+            target: "launcher".into(),
         }),
     );
 }
@@ -346,8 +341,6 @@ async fn spawn_and_monitor_game(
     params: &LaunchParams,
     cmd: std::process::Command,
 ) -> Result<(), anyhow::Error> {
-    run_pre_launch(params).await?;
-
     let mut tokio_cmd = tokio::process::Command::from(cmd);
     tokio_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -368,44 +361,14 @@ async fn spawn_and_monitor_game(
     let target = format!("instance:{}", params.instance_id);
 
     if let Some(stdout) = child.stdout.take() {
-        let queue = params.queue.clone();
-        let target = target.clone();
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                push_event(
-                    &queue,
-                    Event::Log(crate::log::LogEntry {
-                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                        level: LogLevel::Info,
-                        message: line,
-                        target: target.clone(),
-                    }),
-                );
-            }
-        });
+        let q = params.queue.clone();
+        let t = target.clone();
+        spawn_stream_reader(stdout, q, t, |_| LogLevel::Info);
     }
-
     if let Some(stderr) = child.stderr.take() {
-        let queue = params.queue.clone();
-        let target = target.clone();
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let mut reader = tokio::io::BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let level = stderr_level(&line);
-                push_event(
-                    &queue,
-                    Event::Log(crate::log::LogEntry {
-                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                        level,
-                        message: line,
-                        target: target.clone(),
-                    }),
-                );
-            }
-        });
+        let q = params.queue.clone();
+        let t = target.clone();
+        spawn_stream_reader(stderr, q, t, stderr_level);
     }
 
     match child.wait().await {
@@ -433,6 +396,29 @@ async fn spawn_and_monitor_game(
         push_event(&params.queue, Event::RequestClose);
     }
     Ok(())
+}
+
+fn spawn_stream_reader(
+    stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    queue: Queue,
+    target: String,
+    level_fn: impl Fn(&str) -> LogLevel + Send + Sync + 'static,
+) {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let mut reader = tokio::io::BufReader::new(stream).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            push_event(
+                &queue,
+                Event::Log(crate::log::LogEntry {
+                    timestamp: timestamp(),
+                    level: level_fn(&line),
+                    message: line,
+                    target: target.clone(),
+                }),
+            );
+        }
+    });
 }
 
 fn stderr_level(line: &str) -> LogLevel {
@@ -665,13 +651,6 @@ fn extract_natives_files(
             profile.native_libraries.len()
         ),
     );
-    for lib in &profile.native_libraries {
-        send_log(
-            queue,
-            LogLevel::Info,
-            format!("  native: {} url={:?}", lib.name, lib.url),
-        );
-    }
 
     if let Err(e) = release_the_launcher_launch::natives::extract_natives(
         &profile.native_libraries,

@@ -8,8 +8,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct CacheEntry {
     pub base_path: String,
     pub relative_path: String,
-    pub etag: Option<String>,
-    pub last_modified: Option<String>,
     pub data: Option<String>,
     pub max_age: u64,
     #[serde(default, alias = "current_age")]
@@ -85,10 +83,5 @@ impl HttpMetaCache {
 
     pub fn remove(&mut self, base: &str, path: &str) {
         self.entries.remove(&cache_key(base, path));
-    }
-
-    #[must_use]
-    pub fn entry(&self, base: &str, path: &str) -> Option<&CacheEntry> {
-        self.entries.get(&cache_key(base, path))
     }
 }

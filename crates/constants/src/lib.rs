@@ -11,12 +11,8 @@ pub mod defaults {
 }
 
 pub mod net {
-    pub const DOWNLOAD_BUFFER_SIZE: usize = 64 * 1024;
     pub const DEFAULT_MAX_CONCURRENT_DOWNLOADS: usize = 10;
-    pub const DEFAULT_MAX_RETRIES: u32 = 3;
-    pub const POLL_INTERVAL_SECS: u64 = 5;
     pub const USER_AGENT: &str = concat!("release-the-launcher/", env!("CARGO_PKG_VERSION"));
-    pub const NET_TIMEOUT_SECS: u64 = 30;
 }
 
 pub mod paths {
@@ -27,8 +23,6 @@ pub mod paths {
     pub const LOG_FILE_NAME: &str = "launcher.log";
     /// The instance configuration file. Previously incorrectly named `instance.json`.
     pub const INSTANCE_CONFIG_FILE_NAME: &str = "instance.toml";
-    pub const MMC_PACK_FILE_NAME: &str = "mmc-pack.json";
-    pub const PACK_TOML_FILE_NAME: &str = "pack.toml";
     pub const MODRINTH_INDEX_FILE: &str = "modrinth.index.json";
     pub const MINECRAFT_DIR: &str = ".minecraft";
     pub const MODS_DIR: &str = "mods";

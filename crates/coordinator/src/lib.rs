@@ -130,9 +130,7 @@ impl Coordinator {
         let log_buffer = LogBuffer::new();
         log_buffer.set_log_file_path(log_file.clone());
         log_buffer.push(log::LogEntry {
-            timestamp: chrono::Local::now()
-                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
-                .to_string(),
+            timestamp: flow::launch::timestamp(),
             level: log::LogLevel::Info,
             message: format!(
                 "Release The Launcher started. Log file: {}",
@@ -192,9 +190,7 @@ impl Coordinator {
 
     pub fn log(&self, level: log::LogLevel, message: &str) {
         let entry = log::LogEntry {
-            timestamp: chrono::Local::now()
-                .format(release_the_launcher_constants::defaults::TIMESTAMP_FORMAT)
-                .to_string(),
+            timestamp: flow::launch::timestamp(),
             level,
             message: message.to_string(),
             target: String::new(),
@@ -295,19 +291,18 @@ impl Coordinator {
             .iter()
             .enumerate()
             .map(|(i, account)| AccountSummary {
-                name: account.display_name().to_string(),
+                name: account.username.clone(),
                 account_type: account.account_type.clone(),
-                auth_state: account.auth_state(),
-                skin_url: account.skin_texture_url(),
+                skin_url: account.skin_url.clone(),
                 is_active: Some(i) == self.account_list.active_index,
             })
             .collect()
     }
 
-    /// Returns a clone of the current global settings.
+    /// Returns a reference to the current global settings.
     #[must_use]
-    pub fn settings(&self) -> GlobalSettings {
-        self.global_settings.clone()
+    pub fn settings(&self) -> &GlobalSettings {
+        &self.global_settings
     }
 
     /// Deletes the instance with the given id, removing it from disk.

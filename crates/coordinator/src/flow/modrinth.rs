@@ -29,7 +29,7 @@ pub async fn search_modpacks(
         categories: vec![],
         sort: SortOrder::Downloads,
     };
-    let result = match provider.search_modpacks(&args).await {
+    let result = match provider.search(args, Some("modpack")).await {
         Ok(results) => Event::ModrinthSearchResult(Ok(results)),
         Err(e) => Event::ModrinthSearchResult(Err(e.to_string())),
     };
@@ -69,7 +69,7 @@ pub async fn search_mods(
         categories: vec![],
         sort: SortOrder::Downloads,
     };
-    let result = match provider.search(args).await {
+    let result = match provider.search(args, None).await {
         Ok(results) => Event::ModrinthSearchResult(Ok(results)),
         Err(e) => Event::ModrinthSearchResult(Err(e.to_string())),
     };

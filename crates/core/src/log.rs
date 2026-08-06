@@ -36,9 +36,9 @@ impl LogLevel {
     }
 }
 
-pub struct LogBufferState {
-    pub entries: VecDeque<LogEntry>,
-    pub log_file: Option<File>,
+struct LogBufferState {
+    entries: VecDeque<LogEntry>,
+    log_file: Option<File>,
 }
 
 #[derive(Clone)]
@@ -109,8 +109,7 @@ impl LogBuffer {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entries
-            .iter()
-            .cloned()
-            .collect()
+            .clone()
+            .into()
     }
 }

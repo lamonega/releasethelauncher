@@ -4,7 +4,6 @@
 
 pub mod cache;
 
-use futures::StreamExt;
 use sha2::digest::DynDigest;
 use std::path::Path;
 use thiserror::Error;
@@ -62,7 +61,7 @@ pub async fn download_to_file(
     checksum: Option<(HashKind, &str)>,
     progress: Option<&(dyn Fn(u64, u64) + Send + Sync)>,
 ) -> Result<(), NetError> {
-    let res = client.get(url).send().await?.error_for_status()?;
+    let mut res = client.get(url).send().await?.error_for_status()?;
     let total = res.content_length().unwrap_or(0);
 
     if let Some(parent) = dest.parent() {
@@ -77,10 +76,8 @@ pub async fn download_to_file(
 
     let mut hasher = checksum.map(|(kind, _)| kind.create_hasher());
     let mut downloaded: u64 = 0;
-    let mut stream = res.bytes_stream();
 
-    while let Some(chunk_res) = stream.next().await {
-        let chunk = chunk_res?;
+    while let Some(chunk) = res.chunk().await? {
         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
 
         if let Some(ref mut h) = hasher {

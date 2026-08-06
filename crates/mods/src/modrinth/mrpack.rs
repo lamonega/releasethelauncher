@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::ModsError;
 use crate::fs::safe_join_under;
-use crate::providers::modrinth::types::{MrpackFile, MrpackIndex};
+use crate::modrinth::types::{MrpackFile, MrpackIndex};
 
 use release_the_launcher_net::HashKind;
 

@@ -63,38 +63,45 @@ fn resolve_arg(
     let assets_dir = instance_dir.join("assets").display().to_string();
     let natives_dir = instance_dir.join("natives").display().to_string();
 
-    raw.replace("${auth_player_name}", &player.name)
-        .replace("{auth_player_name}", &player.name)
-        .replace("${auth_uuid}", &player.uuid)
-        .replace("{auth_uuid}", &player.uuid)
-        .replace("${auth_access_token}", token)
-        .replace("{auth_access_token}", token)
-        .replace("${auth_session}", token)
-        .replace("{auth_session}", token)
-        .replace("${auth_session_id}", token)
-        .replace("{auth_session_id}", token)
-        .replace("${user_type}", user_type)
-        .replace("{user_type}", user_type)
-        .replace("${version_name}", &profile.mc_version)
-        .replace("{version_name}", &profile.mc_version)
-        .replace("${version_type}", &profile.mc_version_type)
-        .replace("{version_type}", &profile.mc_version_type)
-        .replace("${game_directory}", &mc_dir)
-        .replace("{game_directory}", &mc_dir)
-        .replace("${assets_root}", &assets_dir)
-        .replace("{assets_root}", &assets_dir)
-        .replace("${game_assets}", &assets_dir)
-        .replace("{game_assets}", &assets_dir)
-        .replace("${assets_index_name}", &profile.asset_index.id)
-        .replace("{assets_index_name}", &profile.asset_index.id)
-        .replace("${natives_directory}", &natives_dir)
-        .replace("{natives_directory}", &natives_dir)
-        .replace("${classpath}", cp_str)
-        .replace("{classpath}", cp_str)
-        .replace("${user_properties}", "{}")
-        .replace("{user_properties}", "{}")
-        .replace("${client_id}", "")
-        .replace("{client_id}", "")
+    let replacements: &[(&str, &str)] = &[
+        ("${auth_player_name}", &player.name),
+        ("{auth_player_name}", &player.name),
+        ("${auth_uuid}", &player.uuid),
+        ("{auth_uuid}", &player.uuid),
+        ("${auth_access_token}", token),
+        ("{auth_access_token}", token),
+        ("${auth_session}", token),
+        ("{auth_session}", token),
+        ("${auth_session_id}", token),
+        ("{auth_session_id}", token),
+        ("${user_type}", user_type),
+        ("{user_type}", user_type),
+        ("${version_name}", &profile.mc_version),
+        ("{version_name}", &profile.mc_version),
+        ("${version_type}", &profile.mc_version_type),
+        ("{version_type}", &profile.mc_version_type),
+        ("${game_directory}", &mc_dir),
+        ("{game_directory}", &mc_dir),
+        ("${assets_root}", &assets_dir),
+        ("{assets_root}", &assets_dir),
+        ("${game_assets}", &assets_dir),
+        ("{game_assets}", &assets_dir),
+        ("${assets_index_name}", &profile.asset_index.id),
+        ("{assets_index_name}", &profile.asset_index.id),
+        ("${natives_directory}", &natives_dir),
+        ("{natives_directory}", &natives_dir),
+        ("${classpath}", cp_str),
+        ("{classpath}", cp_str),
+        ("${user_properties}", "{}"),
+        ("{user_properties}", "{}"),
+        ("${client_id}", ""),
+        ("{client_id}", ""),
+    ];
+    let mut s = raw.to_string();
+    for (pat, val) in replacements {
+        s = s.replace(pat, val);
+    }
+    s
 }
 
 pub(crate) const DEFAULT_WINDOW_WIDTH: &str = "854";

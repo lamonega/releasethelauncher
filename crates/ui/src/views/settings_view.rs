@@ -2,7 +2,7 @@ use crate::{widgets, LauncherApp, View};
 use release_the_launcher_core::GlobalSettings;
 
 pub fn show(app: &mut LauncherApp, ui: &mut egui::Ui) {
-    let mut settings = local_settings(ui).unwrap_or_else(|| app.coordinator.settings());
+    let mut settings = local_settings(ui).unwrap_or_else(|| app.coordinator.settings().clone());
 
     show_header(app, ui, &mut settings);
     ui.add_space(app.theme.spacing.md);

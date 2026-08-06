@@ -21,10 +21,7 @@ pub fn list_mods(mods_dir: &Path) -> Vec<ModEntry> {
                     name: mod_name,
                     enabled: false,
                 });
-            } else if std::path::Path::new(&name)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
-            {
+            } else if name.ends_with(".jar") {
                 entries.push(ModEntry {
                     path,
                     name,

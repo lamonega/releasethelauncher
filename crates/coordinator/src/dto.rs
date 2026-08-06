@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use release_the_launcher_auth::{AccountType, AuthState};
+use release_the_launcher_auth::AccountType;
 use release_the_launcher_core::JavaSettings;
 use release_the_launcher_mods::ModDetails;
 
@@ -31,7 +31,6 @@ pub struct InstalledModEntry {
 pub struct AccountSummary {
     pub name: String,
     pub account_type: AccountType,
-    pub auth_state: AuthState,
     pub skin_url: Option<String>,
     pub is_active: bool,
 }

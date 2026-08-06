@@ -62,21 +62,19 @@ impl DownloadManager {
         let is_fabric = lib.name.contains("net.fabricmc");
         let is_neoforge = lib.name.contains("net.neoforged");
 
-        if is_forge {
-            urls.push(format!("{}/{path}", urls::FORGE_MAVEN));
-            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+        let primary = if is_forge {
+            urls::FORGE_MAVEN
         } else if is_fabric {
-            urls.push(format!("{}/{path}", urls::FABRIC_MAVEN));
-            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+            urls::FABRIC_MAVEN
         } else if is_neoforge {
-            urls.push(format!("{}/{path}", urls::NEOFORGE_MAVEN));
-            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
+            urls::NEOFORGE_MAVEN
         } else {
-            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES));
-            urls.push(format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR));
-        }
-
-        urls
+            urls::MOJANG_LIBRARIES
+        };
+        vec![
+            format!("{}/{path}", primary),
+            format!("{}/{path}", urls::MOJANG_LIBRARIES_MIRROR),
+        ]
     }
 
     #[must_use]
@@ -141,13 +139,10 @@ impl DownloadManager {
         for lib in applicable {
             if let Some(ref p) = Self::local_path_for_library(lib) {
                 let full_path = self.libraries_dir.join(p);
-                if full_path.exists()
-                    && full_path
-                        .metadata()
-                        .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE)
-                {
-                    let size = full_path.metadata().map_or(0, |m| m.len());
-                    initial_downloaded += size;
+                if let Ok(meta) = full_path.metadata() {
+                    if meta.len() >= defaults::MIN_VALID_CACHE_SIZE {
+                        initial_downloaded += meta.len();
+                    }
                 }
             }
         }

@@ -61,19 +61,14 @@ pub async fn fetch_neoforge_loader_versions(
         release_the_launcher_constants::urls::NEOFORGE_MAVEN
     );
     let resp = client.get(url).send().await?.text().await?;
-    let neoforge_prefix = mc_version.strip_prefix("1.").map_or_else(
-        || mc_version.to_string(),
-        |stripped| {
-            let parts: Vec<&str> = stripped.split('.').collect();
-            if parts.len() >= 2 {
-                format!("{}.{}.", parts[0], parts[1])
-            } else if parts.len() == 1 {
-                format!("{}.0.", parts[0])
-            } else {
-                mc_version.to_string()
-            }
-        },
-    );
+    let parts: Vec<&str> = mc_version.split('.').collect();
+    let neoforge_prefix = if parts.len() >= 3 {
+        format!("{}.{}.", parts[1], parts[2])
+    } else if parts.len() == 2 {
+        format!("{}.0.", parts[1])
+    } else {
+        mc_version.to_string()
+    };
 
     let mut versions = Vec::new();
     if let Ok(meta) = quick_xml::de::from_str::<MavenMetadata>(&resp) {

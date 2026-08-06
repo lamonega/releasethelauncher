@@ -35,6 +35,11 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, ModsError> {
     let file = std::fs::File::open(jar_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
+    let stem = jar_path.file_stem().map_or_else(
+        || "unknown".to_string(),
+        |s| s.to_string_lossy().to_string(),
+    );
+
     if let Some(buf) = read_zip_file(&mut archive, "fabric.mod.json") {
         return parse_fabric_mod_json(&buf);
     }
@@ -55,18 +60,10 @@ pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, ModsError> {
 
     if let Some(buf) = read_zip_file(&mut archive, "META-INF/MANIFEST.MF") {
         if let Some(version) = extract_manifest_version(&buf) {
-            let stem = jar_path.file_stem().map_or_else(
-                || "unknown".to_string(),
-                |s| s.to_string_lossy().to_string(),
-            );
             return Ok(fallback_details(&stem, &version));
         }
     }
 
-    let stem = jar_path.file_stem().map_or_else(
-        || "unknown".to_string(),
-        |s| s.to_string_lossy().to_string(),
-    );
     Ok(fallback_details(&stem, "unknown"))
 }
 
@@ -348,10 +345,8 @@ fn parse_mcmod_info(content: &str) -> Result<ModDetails, ModsError> {
 }
 
 fn extract_manifest_version(content: &str) -> Option<String> {
-    for line in content.lines() {
-        if let Some(val) = line.strip_prefix("Implementation-Version: ") {
-            return Some(val.trim().to_string());
-        }
-    }
-    None
+    content
+        .lines()
+        .find_map(|l| l.strip_prefix("Implementation-Version: "))
+        .map(|v| v.trim().to_string())
 }

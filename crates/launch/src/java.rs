@@ -42,19 +42,17 @@ pub fn resolve_java(
         return Ok(path);
     }
 
-    last_incompatible_err.map_or_else(
-        || {
-            let req_info = if compatible_java_majors.is_empty() {
-                String::new()
-            } else {
-                format!(" Required versions: {compatible_java_majors:?}.")
-            };
-            Err(LaunchError::JavaNotFound(format!(
-                "No suitable Java installation found.{req_info} Set JAVA_HOME, install the required JDK, or add Java to PATH."
-            )))
-        },
-        Err,
-    )
+    if let Some(e) = last_incompatible_err {
+        return Err(e);
+    }
+    let req_info = if compatible_java_majors.is_empty() {
+        String::new()
+    } else {
+        format!(" Required versions: {compatible_java_majors:?}.")
+    };
+    Err(LaunchError::JavaNotFound(format!(
+        "No suitable Java installation found.{req_info} Set JAVA_HOME, install the required JDK, or add Java to PATH."
+    )))
 }
 
 fn find_system_java(
@@ -77,10 +75,10 @@ fn find_system_java(
 
     if let Ok(java_home) = std::env::var("JAVA_HOME") {
         let home_path = PathBuf::from(&java_home);
-        let executables = if cfg!(windows) {
-            vec!["javaw.exe", "java.exe"]
+        let executables: &[&str] = if cfg!(windows) {
+            &["javaw.exe", "java.exe"]
         } else {
-            vec!["java"]
+            &["java"]
         };
         for exe in executables {
             let path = home_path.join("bin").join(exe);

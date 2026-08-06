@@ -217,13 +217,13 @@ pub fn parse_version_json(vj: &VersionJson) -> VersionFile {
 
     let mut traits = Vec::new();
     if let Some(tr) = &vj.traits {
-        traits.extend(tr.clone());
+        traits.extend(tr.iter().cloned());
     }
     if let Some(tr) = &vj.plus_traits {
-        traits.extend(tr.clone());
+        traits.extend(tr.iter().cloned());
     }
     if let Some(tw) = &vj.plus_tweakers {
-        tweakers.extend(tw.clone());
+        tweakers.extend(tw.iter().cloned());
     }
 
     VersionFile {

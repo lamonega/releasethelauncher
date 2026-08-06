@@ -83,14 +83,6 @@ fn show_header(
     });
 }
 
-fn trigger_search(app: &LauncherApp, query_str: &str, mc_version: &str, loader_name: &str) {
-    app.coordinator.search_mods(
-        query_str.to_string(),
-        mc_version.to_string(),
-        loader_name.to_string(),
-    );
-}
-
 fn show_search(
     app: &LauncherApp,
     ui: &mut egui::Ui,
@@ -107,7 +99,8 @@ fn show_search(
         state.status = "Searching compatible mods...".to_string();
         state.results = Vec::new();
         let query = state.query.clone();
-        trigger_search(app, &query, mc_version, loader_name);
+        app.coordinator
+            .search_mods(query, mc_version.to_string(), loader_name.to_string());
     }
 }
 

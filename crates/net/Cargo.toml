@@ -6,11 +6,10 @@ description = "HTTP downloads, caching, checksum validation"
 license.workspace = true
 
 [dependencies]
-reqwest    = { workspace = true, features = ["stream"] }
+reqwest    = { workspace = true }
 sha2       = "0.10"
 sha1       = "0.10"
-tokio      = { workspace = true, features = ["fs", "io-util", "rt", "sync", "time"] }
-futures    = "0.3"
+tokio      = { workspace = true, features = ["fs", "io-util"] }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 thiserror  = { workspace = true }

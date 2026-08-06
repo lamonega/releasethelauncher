@@ -10,8 +10,9 @@ pub(crate) fn is_native_binary(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {
-            let ext_lower = ext.to_lowercase();
-            ext_lower == "dll" || ext_lower == "so" || ext_lower == "dylib"
+            ext.eq_ignore_ascii_case("dll")
+                || ext.eq_ignore_ascii_case("so")
+                || ext.eq_ignore_ascii_case("dylib")
         })
 }
 

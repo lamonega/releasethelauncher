@@ -18,11 +18,6 @@ pub enum AccountType {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AuthState {
-    Offline,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountData {
     #[serde(rename = "type", default)]
@@ -59,21 +54,6 @@ impl AccountData {
             refresh_token: None,
             skin_url: None,
         }
-    }
-
-    #[must_use]
-    pub fn display_name(&self) -> &str {
-        &self.username
-    }
-
-    #[must_use]
-    pub fn auth_state(&self) -> AuthState {
-        AuthState::Offline
-    }
-
-    #[must_use]
-    pub fn skin_texture_url(&self) -> Option<String> {
-        None
     }
 }
 

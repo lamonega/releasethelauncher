@@ -85,11 +85,9 @@ pub async fn ensure_fml_deobfuscation_data(
         }
     };
 
-    let lib_dir_clone = lib_dir.clone();
-    let target_clone2 = target.clone();
     tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
-        std::fs::create_dir_all(&lib_dir_clone)?;
-        std::fs::write(&target_clone2, &bytes)?;
+        std::fs::create_dir_all(&lib_dir)?;
+        std::fs::write(&target, &bytes)?;
         Ok(())
     })
     .await

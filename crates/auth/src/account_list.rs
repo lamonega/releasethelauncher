@@ -8,66 +8,54 @@ use std::path::{Path, PathBuf};
 use crate::AccountData;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AccountListFile {
-    pub format_version: u32,
-    pub active_index: Option<usize>,
-    pub accounts: Vec<AccountData>,
-}
-
-#[derive(Serialize)]
-struct AccountListSaveRef<'a> {
-    format_version: u32,
-    active_index: Option<usize>,
-    accounts: &'a [AccountData],
-}
-
 pub struct AccountList {
+    #[serde(default = "default_format_version")]
+    format_version: u32,
     pub accounts: Vec<AccountData>,
     pub active_index: Option<usize>,
+    #[serde(skip)]
     file_path: PathBuf,
 }
 
+fn default_format_version() -> u32 {
+    1
+}
+
 impl AccountList {
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            format_version: 1,
+            accounts: Vec::new(),
+            active_index: None,
+            file_path: path,
+        }
+    }
+
     /// # Errors
     ///
     /// Returns an error if reading or parsing the account list file fails.
     pub fn load(path: &Path) -> std::io::Result<Self> {
         if path.exists() {
             let content = fs::read_to_string(path)?;
-            let data: AccountListFile = serde_json::from_str(&content)
+            let mut data: Self = serde_json::from_str(&content)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            return Ok(Self {
-                accounts: data.accounts,
-                active_index: data.active_index,
-                file_path: path.to_path_buf(),
-            });
+            data.file_path = path.to_path_buf();
+            return Ok(data);
         }
-        Ok(Self {
-            accounts: Vec::new(),
-            active_index: None,
-            file_path: path.to_path_buf(),
-        })
+        Ok(Self::new(path.to_path_buf()))
     }
 
     #[must_use]
     pub fn load_or_default(path: &Path) -> Self {
-        Self::load(path).unwrap_or_else(|_| Self {
-            accounts: Vec::new(),
-            active_index: None,
-            file_path: path.to_path_buf(),
-        })
+        Self::load(path).unwrap_or_else(|_| Self::new(path.to_path_buf()))
     }
 
     /// # Errors
     ///
     /// Returns an error if writing the account list file to disk fails.
     pub fn save(&self) -> std::io::Result<()> {
-        let data = AccountListSaveRef {
-            format_version: 1,
-            active_index: self.active_index,
-            accounts: &self.accounts,
-        };
-        let json = serde_json::to_string_pretty(&data)?;
+        let json = serde_json::to_string_pretty(self)?;
         let tmp = self.file_path.with_extension("json.tmp");
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true);

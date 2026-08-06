@@ -140,28 +140,8 @@ pub fn handle_install_result(
     if instance_id.is_empty() {
         return;
     }
-    let loader = if loader_raw.starts_with("Fabric") {
-        ModLoader::Fabric {
-            loader_version: loader_raw.strip_prefix("Fabric:").unwrap_or("").to_string(),
-        }
-    } else if loader_raw.starts_with("Forge") {
-        ModLoader::Forge {
-            loader_version: loader_raw.strip_prefix("Forge:").unwrap_or("").to_string(),
-        }
-    } else if loader_raw.starts_with("NeoForge") {
-        ModLoader::NeoForge {
-            loader_version: loader_raw
-                .strip_prefix("NeoForge:")
-                .unwrap_or("")
-                .to_string(),
-        }
-    } else if loader_raw.starts_with("Quilt") {
-        ModLoader::Quilt {
-            loader_version: loader_raw.strip_prefix("Quilt:").unwrap_or("").to_string(),
-        }
-    } else {
-        ModLoader::Vanilla
-    };
+    let (loader_type, loader_version) = LoaderType::from_raw_loader_str(loader_raw);
+    let loader = loader_type.into_mod_loader(loader_version);
     let (modpack_project_id, modpack_version_id) = modpack_ids.map_or((None, None), |(p, v)| {
         (Some(p.to_string()), Some(v.to_string()))
     });
@@ -304,5 +284,19 @@ impl LoaderType {
                 loader_version: version,
             },
         }
+    }
+
+    /// Parses a raw loader string like `"Fabric:0.14.0"` or `"Fabric"`.
+    #[must_use]
+    pub fn from_raw_loader_str(raw: &str) -> (Self, String) {
+        let (name, version) = raw.split_once(':').unwrap_or((raw, ""));
+        let ty = match name {
+            "Fabric" => Self::Fabric,
+            "Forge" => Self::Forge,
+            "NeoForge" => Self::NeoForge,
+            "Quilt" => Self::Quilt,
+            _ => Self::Vanilla,
+        };
+        (ty, version.to_string())
     }
 }
