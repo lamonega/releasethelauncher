@@ -1,4 +1,4 @@
-use super::parsers::parse_library;
+use super::parsers::{parse_library, VersionJson};
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
@@ -20,13 +20,10 @@ pub async fn fetch_neoforge_component(
     neoforge_version: &str,
 ) -> Result<Component, LaunchError> {
     let url = format!("{}/{neoforge_version}.json", neoforge_prism_meta_url());
-    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
+    let vj: VersionJson = client.get(&url).send().await?.json().await?;
     let mut libraries = Vec::new();
-    let main_class = resp
-        .get("mainClass")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string);
-    if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
+    let main_class = vj.main_class.clone();
+    if let Some(libs) = &vj.libraries {
         for lib in libs {
             libraries.extend(parse_library(lib));
         }
@@ -35,17 +32,11 @@ pub async fn fetch_neoforge_component(
     Ok(Component {
         uid: "net.neoforged".to_string(),
         version: neoforge_version.to_string(),
-        is_locked: true,
         dependencies: vec![Requirement {
             uid: "net.minecraft".to_string(),
             suggests: Some(mc_version.to_string()),
             equals: Some(mc_version.to_string()),
         }],
-        conflicts: vec![
-            "net.minecraftforge".into(),
-            "net.fabricmc.fabric-loader".into(),
-            "org.quiltmc".into(),
-        ],
         version_file: VersionFile {
             main_class,
             libraries,

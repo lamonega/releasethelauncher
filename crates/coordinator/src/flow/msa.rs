@@ -1,9 +1,10 @@
 use crate::{push_event, Event, Queue};
 
 async fn run_msa_login(queue: &Queue) -> Result<release_the_launcher_auth::AccountData, String> {
-    let flow = release_the_launcher_auth::MsAuthFlow::new_default();
-    let code_resp = flow
-        .request_device_code()
+    let http = release_the_launcher_net::default_client();
+    let client_id = release_the_launcher_constants::urls::DEFAULT_MSA_CLIENT_ID;
+
+    let code_resp = release_the_launcher_auth::msa::request_device_code(&http, client_id)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -19,12 +20,9 @@ async fn run_msa_login(queue: &Queue) -> Result<release_the_launcher_auth::Accou
         },
     );
 
-    let msa_tokens = flow
-        .poll_for_token(&code_resp)
+    let msa_tokens = release_the_launcher_auth::msa::poll_for_token(&http, client_id, &code_resp)
         .await
         .map_err(|e| e.to_string())?;
-    let http = flow.http().clone();
-    let client_id = flow.client_id().to_owned();
 
     let xbox_tokens =
         release_the_launcher_auth::xbox::get_xbox_tokens(&http, &msa_tokens.access_token)
@@ -33,7 +31,6 @@ async fn run_msa_login(queue: &Queue) -> Result<release_the_launcher_auth::Accou
 
     let account = release_the_launcher_auth::minecraft::complete_microsoft_auth(
         &http,
-        &client_id,
         &xbox_tokens,
         &msa_tokens,
     )

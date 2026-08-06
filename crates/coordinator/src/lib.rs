@@ -6,6 +6,26 @@
 //! itself. **The UI must not reach past this crate into `core`/`auth`/`mods`/
 //! `launch`/`net` for logic — only for data types.** This crate also defines the
 //! [`Event`] queue that async flows publish to and the [`dto`] view snapshots.
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async,
+    clippy::redundant_closure_for_method_calls,
+    clippy::map_unwrap_or,
+    clippy::new_without_default,
+    clippy::double_must_use,
+    clippy::manual_let_else,
+    clippy::single_match_else
+)]
 pub mod dto;
 pub mod flow;
 
@@ -89,6 +109,8 @@ pub struct Coordinator {
     queue: Queue,
     rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
     tokio_handle: Option<tokio::runtime::Handle>,
+    #[allow(dead_code)]
+    runtime_guard: Option<tokio::runtime::Runtime>,
 }
 
 impl Default for Coordinator {
@@ -149,7 +171,18 @@ impl Coordinator {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let tokio_handle = tokio::runtime::Handle::try_current().ok();
+        let (tokio_handle, runtime_guard) =
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                (Some(handle), None)
+            } else if let Ok(rt) = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                let handle = rt.handle().clone();
+                (Some(handle), Some(rt))
+            } else {
+                (None, None)
+            };
 
         Self {
             instance_manager,
@@ -161,6 +194,7 @@ impl Coordinator {
             queue: tx,
             rx,
             tokio_handle,
+            runtime_guard,
         }
     }
 
@@ -583,8 +617,6 @@ impl Coordinator {
             .filter_map(|e| release_the_launcher_mods::parser::parse_mod_metadata(&e.path).ok())
             .collect()
     }
-
-
 
     pub fn check_mod_updates(&self, instance_id: String) {
         let Some(summary) = self.instance_summary(&instance_id) else {

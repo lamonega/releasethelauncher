@@ -1,4 +1,4 @@
-use super::parsers::parse_library;
+use super::parsers::{parse_library, VersionJson};
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 
@@ -52,17 +52,11 @@ pub async fn fetch_forge_component(
     Ok(Component {
         uid: "net.minecraftforge".to_string(),
         version: forge_version.to_string(),
-        is_locked: true,
         dependencies: vec![Requirement {
             uid: "net.minecraft".to_string(),
             suggests: Some(mc_version.to_string()),
             equals: Some(mc_version.to_string()),
         }],
-        conflicts: vec![
-            "net.neoforged".into(),
-            "net.fabricmc.fabric-loader".into(),
-            "org.quiltmc".into(),
-        ],
         version_file: VersionFile {
             main_class,
             libraries,
@@ -97,50 +91,33 @@ async fn fetch_forge_metadata(
     for url in meta_urls {
         if let Ok(resp_res) = client.get(&url).send().await {
             if resp_res.status().is_success() {
-                if let Ok(resp) = resp_res.json::<serde_json::Value>().await {
-                    if let Some(main) = resp.get("mainClass").and_then(|v| v.as_str()) {
-                        *main_class = Some(main.to_string());
-                    } else if let Some(data) = resp.get("data") {
-                        if let Some(mc_main) = data
-                            .get("MINECRAFT_MAIN_CLASS")
-                            .and_then(|v| v.get("client"))
-                        {
-                            if let Some(s) = mc_main.as_str() {
-                                *main_class = Some(s.to_string());
-                            }
-                        }
+                if let Ok(vj) = resp_res.json::<VersionJson>().await {
+                    if let Some(main) = &vj.main_class {
+                        *main_class = Some(main.clone());
                     }
 
-                    if let Some(libs) = resp
-                        .get("libraries")
-                        .or_else(|| resp.get("versionInfo").and_then(|v| v.get("libraries")))
-                        .and_then(|v| v.as_array())
-                    {
+                    if let Some(libs) = &vj.libraries {
                         for lib in libs {
                             libraries.extend(parse_library(lib));
                         }
                     }
 
-                    if let Some(jar_mods) = resp.get("jarMods").and_then(|v| v.as_array()) {
+                    if let Some(jar_mods) = &vj.jar_mods {
                         for jm in jar_mods {
                             libraries.extend(parse_library(jm));
                         }
                     }
 
-                    if let Some(tweaks) = resp.get("+tweakers").and_then(|v| v.as_array()) {
+                    if let Some(tweaks) = &vj.plus_tweakers {
                         for tw in tweaks {
-                            if let Some(s) = tw.as_str() {
-                                tweakers.push(s.to_string());
-                            }
+                            tweakers.push(tw.clone());
                         }
                     }
 
-                    if let Some(tr_arr) = resp.get("+traits").and_then(|v| v.as_array()) {
+                    if let Some(tr_arr) = &vj.plus_traits {
                         for tr in tr_arr {
-                            if let Some(s) = tr.as_str() {
-                                if !traits.contains(&s.to_string()) {
-                                    traits.push(s.to_string());
-                                }
+                            if !traits.contains(tr) {
+                                traits.push(tr.clone());
                             }
                         }
                     }
@@ -207,39 +184,31 @@ async fn fetch_legacy_installer_metadata(
         if std::io::Read::read_to_string(&mut entry, &mut content).is_err() {
             continue;
         }
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            parse_installer_version_info(&json, main_class, libraries, tweakers);
+        if let Ok(vj) = serde_json::from_str::<VersionJson>(&content) {
+            parse_installer_version_info(&vj, main_class, libraries, tweakers);
         }
         return;
     }
 }
 
 fn parse_installer_version_info(
-    json: &serde_json::Value,
+    vj: &VersionJson,
     main_class: &mut Option<String>,
     libraries: &mut Vec<crate::Library>,
     tweakers: &mut Vec<String>,
 ) {
-    let info = json.get("versionInfo").unwrap_or(json);
-
     if main_class.is_none() {
-        if let Some(mc) = info.get("mainClass").and_then(|v| v.as_str()) {
-            *main_class = Some(mc.to_string());
+        if let Some(mc) = &vj.main_class {
+            *main_class = Some(mc.clone());
         }
     }
 
-    if let Some(libs) = info.get("libraries").and_then(|v| v.as_array()) {
+    if let Some(libs) = &vj.libraries {
         for lib in libs {
             for parsed in parse_library(lib) {
-                // "net.minecraftforge:minecraftforge" is the old universal-jar
-                // artifact name, 404 on today's maven; ensure_forge_compatibility adds
-                // the modern universal.zip for it instead.
                 if parsed.name.starts_with("net.minecraftforge:minecraftforge") {
                     continue;
                 }
-                // Legacy installers pin lwjgl 2.9.0 (dead on today's CDN) and
-                // per-OS variants; the net.minecraft component owns
-                // lwjgl/jinput/jutils, so keep the vanilla's copies only.
                 if parsed.name.starts_with("org.lwjgl.lwjgl:")
                     || parsed.name.starts_with("net.java.jinput:")
                     || parsed.name.starts_with("net.java.jutils:")
@@ -253,7 +222,7 @@ fn parse_installer_version_info(
         }
     }
 
-    if let Some(args) = info.get("minecraftArguments").and_then(|v| v.as_str()) {
+    if let Some(args) = &vj.minecraft_arguments {
         let mut parts = args.split_whitespace();
         while let Some(arg) = parts.next() {
             if arg == "--tweakClass" {
@@ -281,12 +250,11 @@ fn ensure_forge_compatibility(
         && !mc_version.starts_with("1.4")
         && !mc_version.starts_with("1.5");
 
-    let is_launchwrapper = is_mc_1_6_or_newer
+    let is_launchwrapper = (is_mc_1_6_or_newer || traits.iter().any(|t| t == "legacyFML"))
         && (main_class
             .as_deref()
             .unwrap_or("net.minecraft.launchwrapper.Launch")
-            == "net.minecraft.launchwrapper.Launch"
-            || traits.iter().any(|t| t == "legacyFML"));
+            == "net.minecraft.launchwrapper.Launch");
 
     if is_launchwrapper {
         if main_class.is_none() {
@@ -459,12 +427,9 @@ mod tests {
         }];
         let mut tweakers = Vec::new();
 
-        parse_installer_version_info(
-            &sample_install_profile(),
-            &mut main_class,
-            &mut libraries,
-            &mut tweakers,
-        );
+        let vj: VersionJson =
+            serde_json::from_value(sample_install_profile()["versionInfo"].clone()).unwrap();
+        parse_installer_version_info(&vj, &mut main_class, &mut libraries, &mut tweakers);
 
         assert_eq!(
             main_class.as_deref(),

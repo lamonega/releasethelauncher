@@ -2,7 +2,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::AuthError;
-use crate::Token;
+use release_the_launcher_constants::{auth, urls};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -37,12 +37,9 @@ struct XstsErrorResponse {
 
 #[derive(Debug, Clone)]
 pub struct XboxTokens {
-    pub user_token: Token,
-    pub xsts_token: Token,
+    pub xsts_token: String,
     pub uhs: String,
 }
-
-use release_the_launcher_constants::{auth, defaults, urls};
 
 /// # Errors
 ///
@@ -77,12 +74,10 @@ pub async fn get_xbox_tokens(
         .and_then(|x| x.uhs.clone())
         .ok_or_else(|| AuthError::Flow("Missing UHS in XBL response".into()))?;
 
-    let user_token = Token::new_no_expiry(body.token);
-
     let xsts_payload = serde_json::json!({
         "Properties": {
             "SandboxId": auth::XSTS_SANDBOX_ID,
-            "UserTokens": [user_token.token],
+            "UserTokens": [body.token],
         },
         "RelyingParty": auth::XSTS_RELYING_PARTY,
         "TokenType": "JWT",
@@ -100,41 +95,24 @@ pub async fn get_xbox_tokens(
     if !status.is_success() {
         if let Ok(err_resp) = serde_json::from_str::<XstsErrorResponse>(&body_text) {
             let code = err_resp.xerr.unwrap_or(0);
-            let msg = err_resp.message.unwrap_or_default();
-            match code {
+            let msg = match code {
                 auth::XERR_NO_PROFILE => {
-                    return Err(AuthError::Flow(
-                        "No Xbox Live profile found. Please create one at xbox.com".into(),
-                    ))
+                    "No Xbox Live profile found. Please create one at xbox.com"
                 }
-                auth::XERR_BLOCKED_REGION => {
-                    return Err(AuthError::Flow(
-                        "This account is blocked in your region".into(),
-                    ))
+                auth::XERR_BLOCKED_REGION => "This account is blocked in your region",
+                auth::XERR_UNDER_AGE => "This account is under age and cannot sign in",
+                auth::XERR_AGE_PROOF => "This account requires age proof",
+                auth::XERR_BANNED => "This account has been banned",
+                auth::XERR_RESTRICTED => "This account is restricted by a guardian",
+                auth::XERR_TOS => "You must accept the Xbox Terms of Service",
+                _ => {
+                    return Err(AuthError::Flow(format!(
+                        "XSTS error {code}: {}",
+                        err_resp.message.unwrap_or_default()
+                    )))
                 }
-                auth::XERR_UNDER_AGE => {
-                    return Err(AuthError::Flow(
-                        "This account is under age and cannot sign in".into(),
-                    ))
-                }
-                auth::XERR_AGE_PROOF => {
-                    return Err(AuthError::Flow("This account requires age proof".into()))
-                }
-                auth::XERR_BANNED => {
-                    return Err(AuthError::Flow("This account has been banned".into()))
-                }
-                auth::XERR_RESTRICTED => {
-                    return Err(AuthError::Flow(
-                        "This account is restricted by a guardian".into(),
-                    ))
-                }
-                auth::XERR_TOS => {
-                    return Err(AuthError::Flow(
-                        "You must accept the Xbox Terms of Service".into(),
-                    ))
-                }
-                _ => return Err(AuthError::Flow(format!("XSTS error {code}: {msg}"))),
-            }
+            };
+            return Err(AuthError::Flow(msg.to_string()));
         }
         return Err(AuthError::Flow(format!(
             "XSTS auth failed with status {status}"
@@ -142,11 +120,9 @@ pub async fn get_xbox_tokens(
     }
 
     let xsts: XstsAuthResponse = serde_json::from_str(&body_text)?;
-    let xsts_token = Token::new(xsts.token, None, defaults::TOKEN_TTL_24H);
 
     Ok(XboxTokens {
-        user_token,
-        xsts_token,
+        xsts_token: xsts.token,
         uhs,
     })
 }

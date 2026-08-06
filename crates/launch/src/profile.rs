@@ -227,9 +227,7 @@ mod tests {
         let vanilla = Component {
             uid: "net.minecraft".to_string(),
             version: "26.1.2".to_string(),
-            is_locked: true,
             dependencies: vec![],
-            conflicts: vec![],
             version_file: VersionFile {
                 main_class: Some("net.minecraft.client.main.Main".to_string()),
                 compatible_java_majors: vec![25],
@@ -240,9 +238,7 @@ mod tests {
         let fabric = Component {
             uid: "net.fabricmc.fabric-loader".to_string(),
             version: "0.19.3".to_string(),
-            is_locked: true,
             dependencies: vec![],
-            conflicts: vec![],
             version_file: VersionFile {
                 main_class: Some("net.fabricmc.loader.impl.launch.knot.KnotClient".to_string()),
                 ..VersionFile::default()

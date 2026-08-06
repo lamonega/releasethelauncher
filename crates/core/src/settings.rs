@@ -1,20 +1,11 @@
+use crate::instance::CoreError;
 use release_the_launcher_constants::defaults;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt;
 use std::fs;
-use std::io;
 use std::path::Path;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum SettingsError {
-    #[error("IO error reading settings: {0}")]
-    Io(#[from] io::Error),
-    #[error("TOML parse error: {0}")]
-    Parse(#[from] toml::de::Error),
-}
-
-fn load_toml<T: DeserializeOwned + Default>(path: &Path) -> Result<T, SettingsError> {
+fn load_toml<T: DeserializeOwned + Default>(path: &Path) -> Result<T, CoreError> {
     if !path.exists() {
         return Ok(T::default());
     }
@@ -130,7 +121,7 @@ impl InstanceSettings {
         }
     }
 
-    pub fn load(path: &Path) -> Result<Self, SettingsError> {
+    pub fn load(path: &Path) -> Result<Self, CoreError> {
         load_toml(path)
     }
 
@@ -178,7 +169,7 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
-    pub fn load(path: &Path) -> Result<Self, SettingsError> {
+    pub fn load(path: &Path) -> Result<Self, CoreError> {
         load_toml(path)
     }
 

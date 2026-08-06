@@ -8,8 +8,8 @@ pub struct VersionJson {
     pub main_class: Option<String>,
     pub minecraft_arguments: Option<String>,
     pub arguments: Option<ArgumentsJson>,
-    pub libraries: Option<Vec<serde_json::Value>>,
-    pub jar_mods: Option<Vec<serde_json::Value>>,
+    pub libraries: Option<Vec<LibraryJson>>,
+    pub jar_mods: Option<Vec<LibraryJson>>,
     pub java_version: Option<JavaVersionJson>,
     pub asset_index: Option<AssetIndexJson>,
     pub downloads: Option<DownloadsJson>,
@@ -21,7 +21,9 @@ pub struct VersionJson {
     pub plus_traits: Option<Vec<String>>,
     #[serde(rename = "+tweakers")]
     pub plus_tweakers: Option<Vec<String>>,
-    pub _requires: Option<Vec<RequirementJson>>,
+    pub requires: Option<Vec<RequirementJson>>,
+    #[serde(rename = "_requires")]
+    pub underscore_requires: Option<Vec<RequirementJson>>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -72,14 +74,14 @@ pub struct MainJarJson {
     pub downloads: Option<DownloadsJson>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct RequirementJson {
     pub uid: String,
     pub suggests: Option<String>,
     pub equals: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct LibraryJson {
     pub name: Option<String>,
     pub url: Option<String>,
@@ -92,33 +94,33 @@ pub struct LibraryJson {
     pub tweaker_class: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct LibraryDownloadsJson {
     pub artifact: Option<ArtifactJson>,
     pub classifiers: Option<HashMap<String, ArtifactJson>>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct ArtifactJson {
     pub url: Option<String>,
     pub sha1: Option<String>,
     pub size: Option<u64>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct RuleJson {
     pub action: Option<String>,
     pub os: Option<RuleOsJson>,
     pub features: Option<HashMap<String, bool>>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct RuleOsJson {
     pub name: Option<String>,
     pub arch: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct ExtractJson {
     pub exclude: Option<Vec<String>>,
 }
@@ -137,22 +139,18 @@ impl From<&RuleJson> for Rule {
 }
 
 #[must_use]
-pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
-    let vj: VersionJson = serde_json::from_value(value.clone()).unwrap_or_default();
-
+pub fn parse_version_json(vj: &VersionJson) -> VersionFile {
     let mut libraries = Vec::new();
     let mut tweakers = Vec::new();
     let mut jvm_args = Vec::new();
     let mut game_args = Vec::new();
 
     if let Some(libs) = &vj.libraries {
-        for lib_val in libs {
-            if let Ok(lib_json) = serde_json::from_value::<LibraryJson>(lib_val.clone()) {
-                if let Some(t) = lib_json.tweaker_class {
-                    tweakers.push(t);
-                }
+        for lib_json in libs {
+            if let Some(t) = &lib_json.tweaker_class {
+                tweakers.push(t.clone());
             }
-            libraries.extend(parse_library(lib_val));
+            libraries.extend(parse_library(lib_json));
         }
     }
 
@@ -187,20 +185,22 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         Some(game_args.join(" "))
     };
 
-    let asset_index = vj.asset_index.map(|ai| AssetIndex {
-        id: ai.id.unwrap_or_default(),
-        url: ai.url.unwrap_or_default(),
-        sha1: ai.sha1,
+    let asset_index = vj.asset_index.as_ref().map(|ai| AssetIndex {
+        id: ai.id.clone().unwrap_or_default(),
+        url: ai.url.clone().unwrap_or_default(),
+        sha1: ai.sha1.clone(),
         size: ai.size.unwrap_or(0),
     });
 
     let client_download = vj
         .downloads
-        .and_then(|d| d.client.or(d.artifact))
+        .as_ref()
+        .and_then(|d| d.client.clone().or_else(|| d.artifact.clone()))
         .or_else(|| {
             vj.main_jar
-                .and_then(|mj| mj.downloads)
-                .and_then(|d| d.client.or(d.artifact))
+                .as_ref()
+                .and_then(|mj| mj.downloads.as_ref())
+                .and_then(|d| d.client.clone().or_else(|| d.artifact.clone()))
         })
         .map(|c| ClientDownload {
             url: c.url.unwrap_or_default(),
@@ -210,23 +210,24 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
 
     let compatible_java_majors = vj
         .java_version
+        .as_ref()
         .and_then(|jv| jv.major_version)
         .map(|v| vec![u32::try_from(v).unwrap_or(8)])
         .unwrap_or_default();
 
     let mut traits = Vec::new();
-    if let Some(tr) = vj.traits {
-        traits.extend(tr);
+    if let Some(tr) = &vj.traits {
+        traits.extend(tr.clone());
     }
-    if let Some(tr) = vj.plus_traits {
-        traits.extend(tr);
+    if let Some(tr) = &vj.plus_traits {
+        traits.extend(tr.clone());
     }
-    if let Some(tw) = vj.plus_tweakers {
-        tweakers.extend(tw);
+    if let Some(tw) = &vj.plus_tweakers {
+        tweakers.extend(tw.clone());
     }
 
     VersionFile {
-        main_class: vj.main_class,
+        main_class: vj.main_class.clone(),
         minecraft_args,
         jvm_args,
         libraries,
@@ -235,7 +236,7 @@ pub fn parse_version_json(value: &serde_json::Value) -> VersionFile {
         tweakers,
         asset_index,
         client_download,
-        version_type: vj.version_type,
+        version_type: vj.version_type.clone(),
         ..VersionFile::default()
     }
 }
@@ -261,16 +262,9 @@ fn parse_argument_item_enum(item: &ArgumentItem, target: &mut Vec<String>) {
 }
 
 #[must_use]
-pub fn parse_requires(value: &serde_json::Value) -> Vec<crate::Requirement> {
-    let req_list = if value.is_array() {
-        serde_json::from_value::<Vec<RequirementJson>>(value.clone()).ok()
-    } else {
-        value
-            .get("requires")
-            .and_then(|v| serde_json::from_value::<Vec<RequirementJson>>(v.clone()).ok())
-    };
-
-    req_list
+pub fn parse_requires(vj: &VersionJson) -> Vec<crate::Requirement> {
+    let reqs = vj.requires.as_ref().or(vj.underscore_requires.as_ref());
+    reqs.cloned()
         .unwrap_or_default()
         .into_iter()
         .map(|r| crate::Requirement {
@@ -282,24 +276,19 @@ pub fn parse_requires(value: &serde_json::Value) -> Vec<crate::Requirement> {
 }
 
 #[must_use]
-pub fn parse_library(lib_val: &serde_json::Value) -> Vec<Library> {
-    let Ok(lib) = serde_json::from_value::<LibraryJson>(lib_val.clone()) else {
-        return Vec::new();
-    };
-
-    let name = lib.name.unwrap_or_default();
+pub fn parse_library(lib: &LibraryJson) -> Vec<Library> {
+    let name = lib.name.clone().unwrap_or_default();
     let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref());
 
     let url = lib
         .url
+        .clone()
         .or_else(|| artifact.and_then(|a| a.url.clone()))
-        .or_else(|| {
-            // "downloads" declared without a main artifact URL (e.g. the twitch-*
-            // libs on Prism Meta): the artifact is gone upstream, skip the
-            // download instead of guessing a Mojang URL from the coordinates.
-            (lib.downloads.is_some() && artifact.is_none()).then(String::new)
-        });
-    let sha1 = lib.sha1.or_else(|| artifact.and_then(|a| a.sha1.clone()));
+        .or_else(|| (lib.downloads.is_some() && artifact.is_none()).then(String::new));
+    let sha1 = lib
+        .sha1
+        .clone()
+        .or_else(|| artifact.and_then(|a| a.sha1.clone()));
     let size = lib.size.or_else(|| artifact.and_then(|a| a.size));
 
     let rules: Vec<Rule> = lib
@@ -309,8 +298,8 @@ pub fn parse_library(lib_val: &serde_json::Value) -> Vec<Library> {
         .iter()
         .map(Into::into)
         .collect();
-    let extract = lib.extract.map(|e| Extract {
-        exclude: e.exclude.unwrap_or_default(),
+    let extract = lib.extract.as_ref().map(|e| Extract {
+        exclude: e.exclude.clone().unwrap_or_default(),
     });
 
     let parts: Vec<&str> = name.split(':').collect();

@@ -40,7 +40,7 @@ pub(crate) fn set_game_env(
     cmd.env("NO_COLOR", "1");
 }
 
-fn replace_placeholders(
+fn resolve_arg(
     raw: &str,
     profile: &LaunchProfile,
     instance_dir: &Path,
@@ -50,45 +50,51 @@ fn replace_placeholders(
     if !raw.contains('{') {
         return raw.to_string();
     }
-    let mc_dir = instance_dir.join(".minecraft");
-    let assets_dir = instance_dir.join("assets");
-    let natives_dir = instance_dir.join("natives");
-    let mc_dir_str = mc_dir.display().to_string();
-    let assets_dir_str = assets_dir.display().to_string();
-    let natives_dir_str = natives_dir.display().to_string();
-    let is_offline = player.access_token.is_empty()
+    let token = if player.access_token.is_empty()
         || player.access_token == "0"
-        || player.access_token == "offline";
-    let token = if is_offline {
+        || player.access_token == "offline"
+    {
         "0"
     } else {
         &player.access_token
     };
-    let user_type = if is_offline { "legacy" } else { "msa" };
+    let user_type = if token == "0" { "legacy" } else { "msa" };
+    let mc_dir = instance_dir.join(".minecraft").display().to_string();
+    let assets_dir = instance_dir.join("assets").display().to_string();
+    let natives_dir = instance_dir.join("natives").display().to_string();
 
-    let mut res = raw.to_string();
-    for (key, val) in [
-        ("auth_player_name", player.name.as_str()),
-        ("auth_uuid", player.uuid.as_str()),
-        ("auth_access_token", token),
-        ("auth_session_id", token),
-        ("auth_session", token), // legacy: used in minecraftArguments (pre-1.13)
-        ("user_type", user_type),
-        ("version_name", profile.mc_version.as_str()),
-        ("version_type", profile.mc_version_type.as_str()),
-        ("game_directory", mc_dir_str.as_str()),
-        ("assets_root", assets_dir_str.as_str()),
-        ("game_assets", assets_dir_str.as_str()),
-        ("assets_index_name", profile.asset_index.id.as_str()),
-        ("natives_directory", natives_dir_str.as_str()),
-        ("classpath", cp_str),
-        ("user_properties", "{}"),
-        ("client_id", ""),
-    ] {
-        res = res.replace(&format!("${{{key}}}"), val);
-        res = res.replace(&format!("{{{key}}}"), val);
-    }
-    res
+    raw.replace("${auth_player_name}", &player.name)
+        .replace("{auth_player_name}", &player.name)
+        .replace("${auth_uuid}", &player.uuid)
+        .replace("{auth_uuid}", &player.uuid)
+        .replace("${auth_access_token}", token)
+        .replace("{auth_access_token}", token)
+        .replace("${auth_session}", token)
+        .replace("{auth_session}", token)
+        .replace("${auth_session_id}", token)
+        .replace("{auth_session_id}", token)
+        .replace("${user_type}", user_type)
+        .replace("{user_type}", user_type)
+        .replace("${version_name}", &profile.mc_version)
+        .replace("{version_name}", &profile.mc_version)
+        .replace("${version_type}", &profile.mc_version_type)
+        .replace("{version_type}", &profile.mc_version_type)
+        .replace("${game_directory}", &mc_dir)
+        .replace("{game_directory}", &mc_dir)
+        .replace("${assets_root}", &assets_dir)
+        .replace("{assets_root}", &assets_dir)
+        .replace("${game_assets}", &assets_dir)
+        .replace("{game_assets}", &assets_dir)
+        .replace("${assets_index_name}", &profile.asset_index.id)
+        .replace("{assets_index_name}", &profile.asset_index.id)
+        .replace("${natives_directory}", &natives_dir)
+        .replace("{natives_directory}", &natives_dir)
+        .replace("${classpath}", cp_str)
+        .replace("{classpath}", cp_str)
+        .replace("${user_properties}", "{}")
+        .replace("{user_properties}", "{}")
+        .replace("${client_id}", "")
+        .replace("{client_id}", "")
 }
 
 pub(crate) const DEFAULT_WINDOW_WIDTH: &str = "854";
@@ -117,7 +123,7 @@ pub(crate) fn jvm_args(
         if arg.starts_with("-Xmx") {
             has_max_mem = true;
         }
-        let processed = replace_placeholders(arg, profile, instance_dir, player, cp_str);
+        let processed = resolve_arg(arg, profile, instance_dir, player, cp_str);
         if processed.starts_with("-Djava.library.path=") {
             has_java_lib_path = true;
         }
@@ -180,7 +186,7 @@ pub(crate) fn game_args(
     let mut has_tweak_class = game_args_raw.contains("--tweakClass");
 
     for arg in game_args_raw.split_whitespace() {
-        let processed = replace_placeholders(arg, profile, instance_dir, player, cp_str);
+        let processed = resolve_arg(arg, profile, instance_dir, player, cp_str);
         if processed == "--demo"
             || processed.starts_with("--quickPlay")
             || processed.contains("${quickPlay")
@@ -285,12 +291,7 @@ fn build_classpath(profile: &LaunchProfile, instance_dir: &Path) -> Vec<String> 
             if !seen.insert(lib.name.clone()) {
                 continue;
             }
-            let filename = crate::download::library_filename(lib);
-            let jar_path = libraries_dir
-                .join(coord.group.replace('.', "/"))
-                .join(&coord.artifact)
-                .join(&coord.version)
-                .join(filename);
+            let jar_path = libraries_dir.join(coord.rel_path());
 
             let is_jarmod = coord.is_zip_artifact()
                 || lib.name.contains("net.minecraftforge:forge")

@@ -23,11 +23,8 @@ impl AccountData {
     pub fn from_auth(account: &release_the_launcher_auth::AccountData) -> Self {
         Self {
             name: account.display_name().to_string(),
-            uuid: account.internal_id.clone(),
-            token: account
-                .mc_token
-                .as_ref()
-                .map_or_else(String::new, |t| t.token.clone()),
+            uuid: account.uuid.clone(),
+            token: account.mc_token.clone().unwrap_or_default(),
         }
     }
 }

@@ -1,15 +1,28 @@
 //! Centralized constants for the whole workspace: filesystem paths
 //! ([`paths`]), remote endpoints and user-agent ([`urls`], [`net`]), default
 //! values ([`defaults`]) and OAuth/Xbox error codes ([`auth`]).
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async
+)]
+
 pub mod defaults {
     pub const DEFAULT_MEMORY_MIN: &str = "1024M";
     pub const DEFAULT_MEMORY_MAX: &str = "4096M";
     pub const TIMESTAMP_FORMAT: &str = "%H:%M:%S";
     pub const SETTINGS_FORMAT_VERSION: u32 = 1;
     pub const TOKEN_TTL_24H: u64 = 86_400;
-    pub const TOKEN_TTL_1H: u64 = 3_600;
     pub const TOKEN_EXPIRY_BUFFER: u64 = 43_200;
-    pub const SLOW_DOWN_DELAY_SECS: u64 = 5;
     pub const MIN_VALID_CACHE_SIZE: u64 = 1_000;
 }
 
@@ -20,7 +33,6 @@ pub mod net {
     pub const POLL_INTERVAL_SECS: u64 = 5;
     pub const USER_AGENT: &str = concat!("release-the-launcher/", env!("CARGO_PKG_VERSION"));
     pub const NET_TIMEOUT_SECS: u64 = 30;
-    pub const TEMP_FILE_EXT: &str = "tmp";
 }
 
 pub mod paths {
@@ -87,3 +99,9 @@ pub mod auth {
     pub const XERR_RESTRICTED: u64 = 2_148_916_229;
     pub const XERR_TOS: u64 = 2_148_916_234;
 }
+
+pub use auth::*;
+pub use defaults::*;
+pub use net::*;
+pub use paths::*;
+pub use urls::*;

@@ -18,57 +18,40 @@ fn fallback_details(stem: &str, version: &str) -> ModDetails {
     }
 }
 
+fn read_zip_file<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Option<String> {
+    let mut file = archive.by_name(name).ok()?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf).ok()?;
+    Some(buf)
+}
+
 pub fn parse_mod_metadata(jar_path: &Path) -> Result<ModDetails, ModsError> {
     let file = std::fs::File::open(jar_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
-    let mut fabric_json = None;
-    let mut mods_toml = None;
-    let mut quilt_json = None;
-    let mut mcmod_info = None;
-    let mut manifest_mf = None;
-
-    for i in 0..archive.len() {
-        if let Ok(mut file) = archive.by_index(i) {
-            let name = file.name();
-            if name == "fabric.mod.json" {
-                let mut buf = String::new();
-                let _ = file.read_to_string(&mut buf);
-                fabric_json = Some(buf);
-            } else if name == "META-INF/mods.toml" || name == "META-INF/neoforge.mods.toml" {
-                let mut buf = String::new();
-                let _ = file.read_to_string(&mut buf);
-                mods_toml = Some(buf);
-            } else if name == "quilt.mod.json" {
-                let mut buf = String::new();
-                let _ = file.read_to_string(&mut buf);
-                quilt_json = Some(buf);
-            } else if name == "mcmod.info" {
-                let mut buf = String::new();
-                let _ = file.read_to_string(&mut buf);
-                mcmod_info = Some(buf);
-            } else if name == "META-INF/MANIFEST.MF" {
-                let mut buf = String::new();
-                let _ = file.read_to_string(&mut buf);
-                manifest_mf = Some(buf);
-            }
-        }
+    if let Some(buf) = read_zip_file(&mut archive, "fabric.mod.json") {
+        return parse_fabric_mod_json(&buf);
     }
 
-    if let Some(content) = fabric_json {
-        return parse_fabric_mod_json(&content);
+    if let Some(buf) = read_zip_file(&mut archive, "META-INF/mods.toml")
+        .or_else(|| read_zip_file(&mut archive, "META-INF/neoforge.mods.toml"))
+    {
+        return parse_mods_toml(&buf);
     }
-    if let Some(content) = mods_toml {
-        return parse_mods_toml(&content);
+
+    if let Some(buf) = read_zip_file(&mut archive, "quilt.mod.json") {
+        return parse_quilt_mod_json(&buf);
     }
-    if let Some(content) = quilt_json {
-        return parse_quilt_mod_json(&content);
+
+    if let Some(buf) = read_zip_file(&mut archive, "mcmod.info") {
+        return parse_mcmod_info(&buf);
     }
-    if let Some(content) = mcmod_info {
-        return parse_mcmod_info(&content);
-    }
-    if let Some(content) = manifest_mf {
-        if let Some(version) = extract_manifest_version(&content) {
+
+    if let Some(buf) = read_zip_file(&mut archive, "META-INF/MANIFEST.MF") {
+        if let Some(version) = extract_manifest_version(&buf) {
             let stem = jar_path.file_stem().map_or_else(
                 || "unknown".to_string(),
                 |s| s.to_string_lossy().to_string(),

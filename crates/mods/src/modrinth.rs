@@ -9,8 +9,8 @@ use super::modrinth_types::{
     ModrinthProject, ModrinthVersion, MrpackFile, MrpackIndex, SearchResponse,
 };
 use crate::{
-    safe_join_under, InstalledMod, ModUpdate, ModVersion, ModsError, ProjectInfo,
-    ReleaseType, SearchArgs, SearchResults, Side, SortOrder,
+    safe_join_under, InstalledMod, ModUpdate, ModVersion, ModsError, ProjectInfo, ReleaseType,
+    SearchArgs, SearchResults, Side, SortOrder,
 };
 
 use release_the_launcher_constants::urls;
@@ -146,7 +146,7 @@ impl ModrinthProvider {
     }
 
     fn cache_get(&self, cache_key: &str) -> Option<String> {
-        if let Ok(mut cache_guard) = self.cache.lock() {
+        if let Ok(cache_guard) = self.cache.lock() {
             if let Some(entry) = cache_guard.resolve(BASE_URL, cache_key) {
                 return entry.data;
             }
@@ -333,76 +333,67 @@ impl ModrinthProvider {
         let mc_dir = target_dir.join(".minecraft");
         let (total_bytes, initial_downloaded) = count_modpack_file_sizes(&index.files, &mc_dir);
 
-        let total_b = Arc::new(std::sync::atomic::AtomicU64::new(total_bytes));
         let downloaded_b = Arc::new(std::sync::atomic::AtomicU64::new(initial_downloaded));
-        let sem = Arc::new(tokio::sync::Semaphore::new(
-            release_the_launcher_constants::net::DEFAULT_MAX_CONCURRENT_DOWNLOADS,
-        ));
         let progress_cb = Arc::new(progress);
-        let mut tasks = Vec::new();
         let client = self.http.clone();
+        let concurrency = release_the_launcher_constants::net::DEFAULT_MAX_CONCURRENT_DOWNLOADS;
+
+        let mut join_set = tokio::task::JoinSet::new();
 
         for file_obj in index.files {
-            if let Some(url) = file_obj.downloads.first().cloned() {
-                let path_str = file_obj.path.clone();
-                let Ok(dest) =
-                    safe_join_under(&target_dir.join(".minecraft"), Path::new(&path_str))
-                else {
-                    log::warn!("Skipping modpack file outside target dir: {path_str}");
-                    continue;
-                };
-                let display_name = Path::new(&path_str)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or(path_str);
+            let Some(url) = file_obj.downloads.first().cloned() else {
+                continue;
+            };
+            let path_str = file_obj.path.clone();
+            let Ok(dest) = safe_join_under(&mc_dir, Path::new(&path_str)) else {
+                log::warn!("Skipping modpack file outside target dir: {path_str}");
+                continue;
+            };
+            let display_name = Path::new(&path_str)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or(path_str);
 
-                let sem = sem.clone();
-                let client = client.clone();
-                let downloaded_cnt = downloaded_b.clone();
-                let total_cnt = total_b.clone();
-                let progress_ref = progress_cb.clone();
-                let size = file_obj.file_size;
+            let client = client.clone();
+            let downloaded_cnt = downloaded_b.clone();
+            let progress_ref = progress_cb.clone();
+            let size = file_obj.file_size;
 
-                let checksum = file_obj
-                    .hashes
-                    .get("sha512")
-                    .map(|h| (HashKind::Sha512, h.clone()))
-                    .or_else(|| {
-                        file_obj
-                            .hashes
-                            .get("sha1")
-                            .map(|h| (HashKind::Sha1, h.clone()))
-                    });
+            let checksum = file_obj
+                .hashes
+                .get("sha512")
+                .map(|h| (HashKind::Sha512, h.clone()))
+                .or_else(|| {
+                    file_obj
+                        .hashes
+                        .get("sha1")
+                        .map(|h| (HashKind::Sha1, h.clone()))
+                });
 
-                tasks.push(tokio::spawn(async move {
-                    if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
-                        let Ok(_permit) = sem.acquire().await else {
-                            return;
-                        };
-                        let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
-                        if download_to_file(&client, &url, &dest, checksum_ref, None)
-                            .await
-                            .is_ok()
-                        {
-                            downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
-                        } else {
-                            log::warn!("Failed to download mod file {display_name}");
-                        }
-                    } else {
+            if join_set.len() >= concurrency {
+                join_set.join_next().await;
+            }
+
+            join_set.spawn(async move {
+                if !dest.exists() || dest.metadata().map_or(true, |m| m.len() == 0) {
+                    let checksum_ref = checksum.as_ref().map(|(k, h)| (*k, h.as_str()));
+                    if download_to_file(&client, &url, &dest, checksum_ref, None)
+                        .await
+                        .is_ok()
+                    {
                         downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+                    } else {
+                        log::warn!("Failed to download mod file {display_name}");
                     }
-                    let cur = downloaded_cnt.load(std::sync::atomic::Ordering::SeqCst);
-                    let tot = total_cnt.load(std::sync::atomic::Ordering::SeqCst);
-                    progress_ref(cur, tot.max(cur), &display_name);
-                }));
-            }
+                } else {
+                    downloaded_cnt.fetch_add(size, std::sync::atomic::Ordering::SeqCst);
+                }
+                let cur = downloaded_cnt.load(std::sync::atomic::Ordering::SeqCst);
+                progress_ref(cur, total_bytes.max(cur), &display_name);
+            });
         }
 
-        for task in tasks {
-            if let Err(e) = task.await {
-                log::warn!("A download task panicked: {e}");
-            }
-        }
+        while join_set.join_next().await.is_some() {}
 
         Ok(())
     }

@@ -1,6 +1,26 @@
 //! Game launch pipeline: version resolution and dependency graphs
 //! ([`resolve`]), asset/native/library downloads ([`download`], [`assets`],
 //! [`natives`]), Java discovery ([`java`]) and command assembly ([`command`]).
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async,
+    clippy::redundant_closure_for_method_calls,
+    clippy::map_unwrap_or,
+    clippy::new_without_default,
+    clippy::double_must_use,
+    clippy::manual_let_else,
+    clippy::single_match_else
+)]
 pub mod assets;
 pub mod command;
 pub mod download;
@@ -71,6 +91,14 @@ impl MavenCoord {
     }
 
     #[must_use]
+    pub(crate) fn rel_path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(self.group.replace('.', "/"))
+            .join(&self.artifact)
+            .join(&self.version)
+            .join(self.filename())
+    }
+
+    #[must_use]
     pub(crate) fn is_zip_artifact(&self) -> bool {
         self.ext.eq_ignore_ascii_case("zip")
     }
@@ -80,9 +108,7 @@ impl MavenCoord {
 pub struct Component {
     pub uid: String,
     pub version: String,
-    pub is_locked: bool,
     pub dependencies: Vec<Requirement>,
-    pub conflicts: Vec<String>,
     pub version_file: VersionFile,
 }
 
@@ -105,8 +131,6 @@ pub enum LaunchError {
     Zip(#[from] zip::result::ZipError),
     #[error("Version not found: {0}")]
     VersionNotFound(String),
-    #[error("Dependency conflict: component {component} conflicts with {conflict}")]
-    DependencyConflict { component: String, conflict: String },
     #[error("Launch error: {0}")]
     Launch(String),
     #[error("Java not found: {0}")]

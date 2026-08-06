@@ -17,8 +17,12 @@ pub struct CacheEntry {
     pub is_eternal: bool,
 }
 
+fn cache_key(base: &str, path: &str) -> String {
+    format!("{base}:{path}")
+}
+
 pub struct HttpMetaCache {
-    entries: HashMap<(String, String), CacheEntry>,
+    entries: HashMap<String, CacheEntry>,
     file_path: PathBuf,
 }
 
@@ -53,10 +57,8 @@ impl HttpMetaCache {
 
     /// Resolves a cache entry for `(base, path)`. Returns `Some(CacheEntry)` if eternal or not expired.
     #[must_use]
-    pub fn resolve(&mut self, base: &str, path: &str) -> Option<CacheEntry> {
-        let entry = self
-            .entries
-            .get_mut(&(base.to_string(), path.to_string()))?;
+    pub fn resolve(&self, base: &str, path: &str) -> Option<CacheEntry> {
+        let entry = self.entries.get(&cache_key(base, path))?;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -64,7 +66,6 @@ impl HttpMetaCache {
             .as_secs();
 
         if entry.is_eternal || (now.saturating_sub(entry.last_accessed) <= entry.max_age) {
-            entry.last_accessed = now;
             Some(entry.clone())
         } else {
             None
@@ -78,18 +79,16 @@ impl HttpMetaCache {
                 .unwrap_or_default()
                 .as_secs();
         }
-        self.entries.insert(
-            (entry.base_path.clone(), entry.relative_path.clone()),
-            entry,
-        );
+        let key = cache_key(&entry.base_path, &entry.relative_path);
+        self.entries.insert(key, entry);
     }
 
     pub fn remove(&mut self, base: &str, path: &str) {
-        self.entries.remove(&(base.to_string(), path.to_string()));
+        self.entries.remove(&cache_key(base, path));
     }
 
     #[must_use]
     pub fn entry(&self, base: &str, path: &str) -> Option<&CacheEntry> {
-        self.entries.get(&(base.to_string(), path.to_string()))
+        self.entries.get(&cache_key(base, path))
     }
 }

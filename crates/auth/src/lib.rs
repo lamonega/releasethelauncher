@@ -1,6 +1,26 @@
 //! Account model and authentication flows: account persistence
 //! ([`account_list`]), Microsoft device-code OAuth ([`msa`]), Xbox/Minecraft
 //! token exchange ([`xbox`], [`minecraft`]) and refresh handling ([`refresh`]).
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async,
+    clippy::redundant_closure_for_method_calls,
+    clippy::map_unwrap_or,
+    clippy::new_without_default,
+    clippy::double_must_use,
+    clippy::manual_let_else,
+    clippy::single_match_else
+)]
 pub mod account_list;
 pub mod minecraft;
 pub mod msa;
@@ -8,7 +28,7 @@ pub mod refresh;
 pub mod xbox;
 
 pub use account_list::AccountList;
-pub use msa::{AuthError, MsAuthFlow};
+pub use msa::AuthError;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -22,37 +42,6 @@ pub enum AccountType {
     Offline,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Token {
-    pub issue_instant: u64,
-    pub not_after: Option<u64>,
-    pub token: String,
-    pub refresh_token: Option<String>,
-}
-
-impl Token {
-    #[must_use]
-    pub(crate) fn new(token: String, refresh_token: Option<String>, expires_in: u64) -> Self {
-        let now = msa::now_unix();
-        Self {
-            issue_instant: now,
-            not_after: Some(now + expires_in),
-            token,
-            refresh_token,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn new_no_expiry(token: String) -> Self {
-        Self {
-            issue_instant: msa::now_unix(),
-            not_after: None,
-            token,
-            refresh_token: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthState {
     Offline,
@@ -61,70 +50,46 @@ pub enum AuthState {
     Gone,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MinecraftProfile {
-    pub id: String,
-    pub name: String,
-    pub skin_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub skin_data: Option<String>,
-    pub cape_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Entitlement {
-    pub owns_minecraft: bool,
-    pub can_play_minecraft: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountData {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub account_type: AccountType,
-    pub internal_id: String,
-    pub active: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub msa_client_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub msa_token: Option<Token>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_token: Option<Token>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub xsts_token: Option<Token>,
-    #[serde(rename = "yggdrasil_token", skip_serializing_if = "Option::is_none")]
-    pub mc_token: Option<Token>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub profile: Option<MinecraftProfile>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entitlement: Option<Entitlement>,
+    #[serde(alias = "internal_id", default)]
+    pub id: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub uuid: String,
+    #[serde(
+        rename = "yggdrasil_token",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub mc_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub refresh_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub skin_url: Option<String>,
 }
 
 impl AccountData {
     #[must_use]
     pub fn offline(username: &str) -> Self {
-        let uuid = offline_uuid(username);
-        let id = uuid.simple().to_string();
+        let uuid = offline_uuid(username).to_string();
         Self {
             account_type: AccountType::Offline,
-            internal_id: id.clone(),
-            profile: Some(MinecraftProfile {
-                id,
-                name: username.to_string(),
-                skin_url: None,
-                skin_data: None,
-                cape_url: None,
-            }),
-            entitlement: Some(Entitlement {
-                owns_minecraft: true,
-                can_play_minecraft: true,
-            }),
-            ..Default::default()
+            id: uuid.clone(),
+            username: username.to_string(),
+            uuid,
+            mc_token: None,
+            refresh_token: None,
+            skin_url: None,
         }
     }
 
     #[must_use]
     pub fn display_name(&self) -> &str {
-        self.profile.as_ref().map_or("Unknown", |p| p.name.as_str())
+        &self.username
     }
 
     #[must_use]
@@ -132,14 +97,9 @@ impl AccountData {
         match self.account_type {
             AccountType::Offline => AuthState::Offline,
             AccountType::Microsoft => {
-                if self.mc_token.is_some() && self.profile.is_some() {
+                if self.mc_token.is_some() {
                     AuthState::Online
-                } else if self
-                    .msa_token
-                    .as_ref()
-                    .and_then(|t| t.refresh_token.as_ref())
-                    .is_some()
-                {
+                } else if self.refresh_token.is_some() {
                     AuthState::Expired
                 } else {
                     AuthState::Gone
@@ -150,7 +110,7 @@ impl AccountData {
 
     #[must_use]
     pub fn skin_texture_url(&self) -> Option<String> {
-        self.profile.as_ref().and_then(|p| p.skin_url.clone())
+        self.skin_url.clone()
     }
 }
 

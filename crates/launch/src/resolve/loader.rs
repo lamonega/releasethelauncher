@@ -1,4 +1,4 @@
-use super::parsers::parse_library;
+use super::parsers::{parse_library, VersionJson};
 use crate::{Component, LaunchError, Requirement, VersionFile};
 use reqwest::Client;
 use serde::Deserialize;
@@ -19,13 +19,23 @@ pub struct Versions {
     pub version: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PrismIndex {
+    #[serde(default)]
+    pub versions: Vec<PrismVersionEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrismVersionEntry {
+    pub version: String,
+}
+
 pub struct LoaderParams<'a> {
     pub client: &'a Client,
     pub base_url: &'a str,
     pub uid: &'a str,
     pub mc_version: &'a str,
     pub loader_version: Option<&'a str>,
-    pub conflict_uids: Vec<&'a str>,
     pub intermediary_uid: &'a str,
     pub default_fallback_version: &'a str,
 }
@@ -40,43 +50,34 @@ pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component,
     {
         lv.to_string()
     } else {
-        let index_resp: serde_json::Value = params
+        let index: PrismIndex = params
             .client
             .get(format!("{}/index.json", params.base_url))
             .send()
             .await?
             .json()
             .await?;
-        index_resp
-            .get("versions")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|v| v.get("version"))
-            .and_then(|v| v.as_str())
-            .unwrap_or(params.default_fallback_version)
-            .to_string()
+        index
+            .versions
+            .first()
+            .map(|v| v.version.clone())
+            .unwrap_or_else(|| params.default_fallback_version.to_string())
     };
 
     let loader_url = format!("{}/{chosen_loader_version}.json", params.base_url);
-    let resp: serde_json::Value = params.client.get(&loader_url).send().await?.json().await?;
+    let vj: VersionJson = params.client.get(&loader_url).send().await?.json().await?;
     let mut libraries = Vec::new();
-    let mut main_class = None;
 
-    if let Some(libs) = resp.get("libraries").and_then(|v| v.as_array()) {
+    if let Some(libs) = &vj.libraries {
         for lib in libs {
             libraries.extend(parse_library(lib));
         }
     }
-    if let Some(mc) = resp.get("mainClass").and_then(|v| v.as_str()) {
-        main_class = Some(mc.to_string());
-    }
-
-    let loader_ver = &chosen_loader_version;
+    let main_class = vj.main_class.clone();
 
     Ok(Component {
         uid: params.uid.to_string(),
-        version: loader_ver.clone(),
-        is_locked: true,
+        version: chosen_loader_version,
         dependencies: vec![
             Requirement {
                 uid: "net.minecraft".to_string(),
@@ -89,11 +90,6 @@ pub async fn fetch_meta_component(params: LoaderParams<'_>) -> Result<Component,
                 equals: None,
             },
         ],
-        conflicts: params
-            .conflict_uids
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect(),
         version_file: VersionFile {
             main_class,
             libraries,
@@ -112,15 +108,11 @@ pub async fn fetch_meta_loader_versions(
     base_url: &str,
 ) -> Result<Vec<String>, LaunchError> {
     let url = format!("{base_url}/index.json");
-    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
+    let index: PrismIndex = client.get(&url).send().await?.json().await?;
     let mut versions = Vec::new();
-    if let Some(arr) = resp.get("versions").and_then(|v| v.as_array()) {
-        for v in arr {
-            if let Some(ver) = v.get("version").and_then(|s| s.as_str()) {
-                if !versions.contains(&ver.to_string()) {
-                    versions.push(ver.to_string());
-                }
-            }
+    for v in index.versions {
+        if !versions.contains(&v.version) {
+            versions.push(v.version);
         }
     }
     Ok(versions)

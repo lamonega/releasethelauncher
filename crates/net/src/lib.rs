@@ -1,10 +1,24 @@
 //! HTTP layer shared by the backend: a default [`reqwest::Client`]
 //! ([`default_client`]), streaming downloads with checksum validation
 //! ([`download_to_file`]) and the metadata HTTP cache ([`cache`]).
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async
+)]
 pub mod cache;
 
 use futures::StreamExt;
-use sha1::Digest as _;
+use sha2::digest::DynDigest;
 use std::path::Path;
 use thiserror::Error;
 
@@ -36,34 +50,13 @@ pub enum HashKind {
     Sha512,
 }
 
-enum Hasher {
-    Sha1(sha1::Sha1),
-    Sha256(sha2::Sha256),
-    Sha512(sha2::Sha512),
-}
-
-impl Hasher {
-    fn new(kind: HashKind) -> Self {
-        match kind {
-            HashKind::Sha1 => Self::Sha1(sha1::Sha1::new()),
-            HashKind::Sha256 => Self::Sha256(sha2::Sha256::new()),
-            HashKind::Sha512 => Self::Sha512(sha2::Sha512::new()),
-        }
-    }
-
-    fn update(&mut self, data: &[u8]) {
+impl HashKind {
+    #[must_use]
+    pub fn create_hasher(self) -> Box<dyn DynDigest + Send> {
         match self {
-            Self::Sha1(h) => h.update(data),
-            Self::Sha256(h) => h.update(data),
-            Self::Sha512(h) => h.update(data),
-        }
-    }
-
-    fn finalize(self) -> String {
-        match self {
-            Self::Sha1(h) => hex::encode(h.finalize()),
-            Self::Sha256(h) => hex::encode(h.finalize()),
-            Self::Sha512(h) => hex::encode(h.finalize()),
+            Self::Sha1 => Box::new(sha1::Sha1::default()),
+            Self::Sha256 => Box::new(sha2::Sha256::default()),
+            Self::Sha512 => Box::new(sha2::Sha512::default()),
         }
     }
 }
@@ -95,7 +88,7 @@ pub async fn download_to_file(
     ));
     let mut file = tokio::fs::File::create(&tmp_dest).await?;
 
-    let mut hasher = checksum.map(|(kind, _)| Hasher::new(kind));
+    let mut hasher = checksum.map(|(kind, _)| kind.create_hasher());
     let mut downloaded: u64 = 0;
     let mut stream = res.bytes_stream();
 
@@ -117,8 +110,8 @@ pub async fn download_to_file(
     drop(file);
 
     if let Some((_, expected_hash)) = checksum {
-        if let Some(h) = hasher {
-            let actual = h.finalize();
+        if let Some(mut h) = hasher {
+            let actual = hex::encode(h.finalize_reset());
             if !actual.eq_ignore_ascii_case(expected_hash) {
                 if let Err(e) = tokio::fs::remove_file(&tmp_dest).await {
                     tracing::warn!("Failed to remove temp file {}: {e}", tmp_dest.display());

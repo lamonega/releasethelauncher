@@ -1,6 +1,28 @@
 //! egui-based user interface: layout, theme, widgets and the views. The views
 //! only render and forward user intent; all stateful/IO work goes through
 //! [`Coordinator`] (re-exported facade), never directly into the backend crates.
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::unused_async,
+    clippy::redundant_closure_for_method_calls,
+    clippy::map_unwrap_or,
+    clippy::new_without_default,
+    clippy::double_must_use,
+    clippy::manual_let_else,
+    clippy::single_match_else,
+    clippy::unnested_or_patterns,
+    clippy::match_same_arms
+)]
 pub mod layout;
 pub mod theme;
 pub mod views;

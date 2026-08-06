@@ -1,4 +1,5 @@
-use super::parsers::parse_version_json;
+use super::loader::PrismIndex;
+use super::parsers::{parse_version_json, VersionJson};
 use crate::{Component, LaunchError, VersionFile};
 use reqwest::Client;
 
@@ -23,22 +24,17 @@ pub struct VersionManifest {
 /// Returns [`LaunchError`] if the HTTP request or JSON parsing fails.
 pub async fn fetch_manifest(client: &Client) -> Result<VersionManifest, LaunchError> {
     let index_url = format!("{}/net.minecraft/index.json", urls::PRISM_META_BASE);
-    let resp: serde_json::Value = client.get(&index_url).send().await?.json().await?;
+    let index: PrismIndex = client.get(&index_url).send().await?.json().await?;
 
-    let versions: Vec<VersionManifestEntry> = resp["versions"].as_array().map_or(vec![], |arr| {
-        arr.iter()
-            .filter_map(|v| {
-                let id = v["version"].as_str()?.to_string();
-                let version_type = v["type"].as_str().unwrap_or("release").to_string();
-                let url = format!("{}/net.minecraft/{id}.json", urls::PRISM_META_BASE);
-                Some(VersionManifestEntry {
-                    id,
-                    url,
-                    version_type,
-                })
-            })
-            .collect()
-    });
+    let versions = index
+        .versions
+        .into_iter()
+        .map(|v| VersionManifestEntry {
+            url: format!("{}/net.minecraft/{}.json", urls::PRISM_META_BASE, v.version),
+            id: v.version,
+            version_type: "release".to_string(),
+        })
+        .collect();
 
     Ok(VersionManifest { versions })
 }
@@ -61,8 +57,8 @@ pub async fn fetch_version_metadata(
         )
     };
 
-    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
-    Ok(parse_version_json(&resp))
+    let vj: VersionJson = client.get(&url).send().await?.json().await?;
+    Ok(parse_version_json(&vj))
 }
 
 /// Fetches the vanilla component for a given Minecraft version exclusively from Prism Meta.
@@ -84,16 +80,14 @@ pub async fn fetch_vanilla_component(
         })
         .unwrap_or_else(|| format!("{}/net.minecraft/{version_id}.json", urls::PRISM_META_BASE));
 
-    let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
-    let version_file = parse_version_json(&resp);
-    let dependencies = super::parsers::parse_requires(&resp);
+    let vj: VersionJson = client.get(&url).send().await?.json().await?;
+    let version_file = parse_version_json(&vj);
+    let dependencies = super::parsers::parse_requires(&vj);
 
     Ok(Component {
         uid: "net.minecraft".to_string(),
         version: version_id.to_string(),
-        is_locked: true,
         dependencies,
-        conflicts: Vec::new(),
         version_file,
     })
 }

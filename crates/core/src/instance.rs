@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::settings::{InstanceSettings, JavaSettings, SettingsError};
+use crate::settings::{InstanceSettings, JavaSettings};
 use release_the_launcher_constants::paths;
 
 pub type InstanceId = String;
@@ -12,12 +12,12 @@ pub type InstanceId = String;
 pub enum CoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("TOML parse error: {0}")]
+    Parse(#[from] toml::de::Error),
     #[error("Instance '{0}' not found")]
     InstanceNotFound(String),
     #[error("Instance '{0}' already exists")]
     InstanceAlreadyExists(String),
-    #[error("Settings error: {0}")]
-    Settings(#[from] SettingsError),
 }
 
 pub struct Instance {

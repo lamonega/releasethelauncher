@@ -157,7 +157,7 @@ fn show_manual_version(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInst
 
 fn show_manual_loader(app: &LauncherApp, ui: &mut egui::Ui, state: &mut NewInstanceState) {
     if state.loader_type != LoaderType::Vanilla && !state.mc_version.is_empty() {
-        let current_key = (state.loader_type.clone(), state.mc_version.clone());
+        let current_key = (state.loader_type, state.mc_version.clone());
         if state.last_fetched_loader_key.as_ref() != Some(&current_key) {
             state.loader_versions_loading = true;
             state.loader_versions_error = None;

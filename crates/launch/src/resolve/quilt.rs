@@ -25,11 +25,6 @@ pub async fn fetch_quilt_component(
         uid: "org.quiltmc.quilt-loader",
         mc_version,
         loader_version,
-        conflict_uids: vec![
-            "net.neoforged",
-            "net.minecraftforge",
-            "net.fabricmc.fabric-loader",
-        ],
         intermediary_uid: "org.quiltmc.quilt-intermediary",
         default_fallback_version: "0.26.13",
     })

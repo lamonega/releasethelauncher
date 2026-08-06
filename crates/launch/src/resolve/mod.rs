@@ -6,7 +6,7 @@ pub(crate) mod parsers;
 pub(crate) mod prism;
 pub(crate) mod quilt;
 
-use crate::{Component, LaunchError, Requirement, VersionFile};
+use crate::{Component, LaunchError, VersionFile};
 use reqwest::Client;
 
 use release_the_launcher_constants::urls;
@@ -120,91 +120,85 @@ impl DependencyResolver {
     }
 }
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 /// # Errors
-/// Returns an error if a dependency fetch fails or a conflict is detected.
+/// Returns an error if a dependency fetch fails.
 pub async fn resolve_dependencies(
     resolver: &mut DependencyResolver,
     components: Vec<Component>,
 ) -> Result<Vec<Component>, LaunchError> {
     let mut resolved_deps: HashMap<String, Component> = HashMap::new();
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: VecDeque<Requirement> = VecDeque::new();
+    let mut order = Vec::new();
 
     for component in components {
-        visited.insert(component.uid.clone());
-        for req in &component.dependencies {
-            queue.push_back(req.clone());
+        if !resolved_deps.contains_key(&component.uid) {
+            order.push(component.uid.clone());
+            resolved_deps.insert(component.uid.clone(), component);
         }
-        resolved_deps.insert(component.uid.clone(), component);
     }
 
-    while let Some(req) = queue.pop_front() {
-        if visited.contains(&req.uid) || resolved_deps.contains_key(&req.uid) {
-            continue;
-        }
-        visited.insert(req.uid.clone());
+    let mut i = 0;
+    while i < order.len() {
+        let uid = order[i].clone();
+        i += 1;
+        if let Some(comp) = resolved_deps.get(&uid).cloned() {
+            for req in &comp.dependencies {
+                if !resolved_deps.contains_key(&req.uid) {
+                    let version = req
+                        .equals
+                        .clone()
+                        .or_else(|| req.suggests.clone())
+                        .unwrap_or_default();
 
-        let version = req
-            .equals
-            .clone()
-            .or_else(|| req.suggests.clone())
-            .unwrap_or_default();
+                    let url = if version.is_empty() {
+                        format!("{}/{}/index.json", urls::PRISM_META_BASE, req.uid)
+                    } else {
+                        format!("{}/{}/{version}.json", urls::PRISM_META_BASE, req.uid)
+                    };
 
-        let url = if version.is_empty() {
-            format!("{}/{}/index.json", urls::PRISM_META_BASE, req.uid)
-        } else {
-            format!("{}/{}/{version}.json", urls::PRISM_META_BASE, req.uid)
-        };
+                    if let Ok(vj) = resolver
+                        .http
+                        .get(&url)
+                        .send()
+                        .await?
+                        .json::<parsers::VersionJson>()
+                        .await
+                    {
+                        let version_file = parsers::parse_version_json(&vj);
+                        let dependencies = parsers::parse_requires(&vj);
+                        let actual_version = if version.is_empty() {
+                            req.uid.clone()
+                        } else {
+                            version
+                        };
 
-        let resp: serde_json::Value = resolver.http.get(&url).send().await?.json().await?;
-        let version_file = parsers::parse_version_json(&resp);
-        let dependencies = parsers::parse_requires(&resp);
-        let actual_version = resp
-            .get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&version)
-            .to_string();
+                        let dep_comp = Component {
+                            uid: req.uid.clone(),
+                            version: actual_version,
+                            dependencies,
+                            version_file,
+                        };
 
-        let comp = Component {
-            uid: req.uid.clone(),
-            version: actual_version,
-            is_locked: false,
-            dependencies: dependencies.clone(),
-            conflicts: Vec::new(),
-            version_file,
-        };
-
-        if !comp.is_locked {
-            for dep in &dependencies {
-                queue.push_back(dep.clone());
-            }
-        }
-
-        resolved_deps.insert(req.uid.clone(), comp);
-    }
-
-    for comp in resolved_deps.values() {
-        for conflict in &comp.conflicts {
-            if resolved_deps
-                .keys()
-                .any(|other_uid| other_uid == conflict || other_uid.starts_with(conflict))
-            {
-                return Err(LaunchError::DependencyConflict {
-                    component: comp.uid.clone(),
-                    conflict: conflict.clone(),
-                });
+                        order.push(req.uid.clone());
+                        resolved_deps.insert(req.uid.clone(), dep_comp);
+                    }
+                }
             }
         }
     }
 
-    Ok(resolved_deps.into_values().collect())
+    Ok(order
+        .into_iter()
+        .filter_map(|k| resolved_deps.remove(&k))
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parsers::{default_java_major_for_version, parse_library, parse_version_json};
+    use super::parsers::{
+        default_java_major_for_version, parse_library, parse_version_json, LibraryJson, VersionJson,
+    };
     use super::*;
     use crate::profile::assemble_launch_profile;
     use crate::{Component, Library, Rule, RuleOs, VersionFile};
@@ -224,7 +218,8 @@ mod tests {
             "rules": [{"action": "allow", "os": {"name": "windows"}}]
         });
 
-        let result = parse_library(&json);
+        let lib_json: LibraryJson = serde_json::from_value(json).unwrap();
+        let result = parse_library(&lib_json);
         assert_eq!(result.len(), 1);
         assert!(result[0].is_native);
         assert_eq!(result[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
@@ -245,7 +240,8 @@ mod tests {
             "name": "org.lwjgl:lwjgl:3.3.3"
         });
 
-        let result = parse_library(&json);
+        let lib_json: LibraryJson = serde_json::from_value(json).unwrap();
+        let result = parse_library(&lib_json);
         assert_eq!(result.len(), 1);
         assert!(!result[0].is_native);
     }
@@ -265,7 +261,8 @@ mod tests {
             }
         });
 
-        let vf = parse_version_json(&json);
+        let vj: VersionJson = serde_json::from_value(json).unwrap();
+        let vf = parse_version_json(&vj);
         let dl = vf
             .client_download
             .expect("client jar from mainJar.downloads.artifact");
@@ -305,7 +302,8 @@ mod tests {
             ]
         });
 
-        let vf = parse_version_json(&json);
+        let vj: VersionJson = serde_json::from_value(json).unwrap();
+        let vf = parse_version_json(&vj);
         let natives: Vec<&Library> = vf.libraries.iter().filter(|l| l.is_native).collect();
         assert_eq!(natives.len(), 1);
         assert_eq!(natives[0].name, "org.lwjgl:lwjgl:3.3.3:natives-windows");
@@ -348,9 +346,7 @@ mod tests {
         let component = Component {
             uid: "net.minecraft".to_string(),
             version: "1.20.6".to_string(),
-            is_locked: true,
             dependencies: vec![],
-            conflicts: vec![],
             version_file: vf,
         };
         let profile = assemble_launch_profile(&[component]).unwrap();
@@ -379,7 +375,8 @@ mod tests {
             }
         });
 
-        let result = parse_library(&json);
+        let lib_json: LibraryJson = serde_json::from_value(json).unwrap();
+        let result = parse_library(&lib_json);
         assert_eq!(result.len(), 2);
         assert!(!result[0].is_native);
         assert!(result[1].is_native);
@@ -444,7 +441,8 @@ mod tests {
             }
         });
 
-        let result = parse_library(&json);
+        let lib_json: LibraryJson = serde_json::from_value(json).unwrap();
+        let result = parse_library(&lib_json);
         assert_eq!(result.len(), 2);
         assert!(!result[0].is_native);
         assert_eq!(result[0].url.as_deref(), Some(""));
@@ -469,9 +467,6 @@ mod tests {
             .unwrap();
         let profile = assemble_launch_profile(&merged).unwrap();
         assert_eq!(profile.main_class, "net.minecraft.launchwrapper.Launch");
-        // Prism Meta serves 1.5.2 as a requires-only component; the org.lwjgl
-        // component must be resolved and beat the dead 2.9.0 from the legacy
-        // Forge installer.
         assert!(profile
             .libraries
             .iter()

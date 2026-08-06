@@ -1,11 +1,11 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::msa::{token_from_msa_tokens, MsaTokens};
+use crate::msa::MsaTokens;
 use crate::xbox::XboxTokens;
 use crate::AuthError;
-use crate::{AccountData, AccountType, Entitlement, MinecraftProfile, Token};
-use release_the_launcher_constants::{defaults, urls};
+use crate::{AccountData, AccountType};
+use release_the_launcher_constants::urls;
 
 #[derive(Debug, Deserialize)]
 struct LauncherLoginResponse {
@@ -20,28 +20,11 @@ struct ProfileResponse {
     id: String,
     name: String,
     skins: Option<Vec<SkinEntry>>,
-    capes: Option<Vec<CapeEntry>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SkinEntry {
     url: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct CapeEntry {
-    url: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct EntitlementResponse {
-    #[serde(default)]
-    items: Vec<EntitlementItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EntitlementItem {
-    name: String,
 }
 
 /// # Errors
@@ -50,9 +33,9 @@ struct EntitlementItem {
 pub(crate) async fn launcher_login(
     http: &Client,
     xbox_tokens: &XboxTokens,
-) -> Result<(String, Token), AuthError> {
+) -> Result<String, AuthError> {
     let body = serde_json::json!({
-        "xtoken": format!("XBL3.0 x={};{}", xbox_tokens.uhs, xbox_tokens.xsts_token.token),
+        "xtoken": format!("XBL3.0 x={};{}", xbox_tokens.uhs, xbox_tokens.xsts_token),
         "platform": "PC_LAUNCHER"
     });
 
@@ -73,13 +56,9 @@ pub(crate) async fn launcher_login(
         return Err(AuthError::Flow(format!("Launcher login failed: {msg}")));
     }
 
-    let access_token = login_resp
+    login_resp
         .access_token
-        .ok_or_else(|| AuthError::Flow("No access token in launcher login response".into()))?;
-
-    let mc_token = Token::new(access_token.clone(), None, defaults::TOKEN_TTL_24H);
-
-    Ok((access_token, mc_token))
+        .ok_or_else(|| AuthError::Flow("No access token in launcher login response".into()))
 }
 
 /// # Errors
@@ -88,7 +67,7 @@ pub(crate) async fn launcher_login(
 pub(crate) async fn fetch_profile(
     http: &Client,
     mc_token: &str,
-) -> Result<Option<MinecraftProfile>, AuthError> {
+) -> Result<Option<(String, String, Option<String>)>, AuthError> {
     let resp = http
         .get(urls::MC_PROFILE_URL)
         .bearer_auth(mc_token)
@@ -114,49 +93,7 @@ pub(crate) async fn fetch_profile(
         }
     });
 
-    let cape_url = profile
-        .capes
-        .as_ref()
-        .and_then(|c| c.first())
-        .map(|c| c.url.clone());
-
-    Ok(Some(MinecraftProfile {
-        id: profile.id,
-        name: profile.name,
-        skin_url,
-        skin_data: None,
-        cape_url,
-    }))
-}
-
-/// # Errors
-///
-/// Returns an error if the HTTP request fails or the response cannot be deserialized.
-pub(crate) async fn fetch_entitlement(
-    http: &Client,
-    mc_token: &str,
-) -> Result<Entitlement, AuthError> {
-    let resp = http
-        .get(urls::MC_ENTITLEMENT_URL)
-        .bearer_auth(mc_token)
-        .send()
-        .await?;
-
-    let entitlement_resp: EntitlementResponse = resp.error_for_status()?.json().await?;
-
-    let owns = entitlement_resp
-        .items
-        .iter()
-        .any(|i| i.name == "product_minecraft");
-    let can_play = entitlement_resp
-        .items
-        .iter()
-        .any(|i| i.name == urls::MC_ENTITLEMENT_NAME || i.name == "product_minecraft");
-
-    Ok(Entitlement {
-        owns_minecraft: owns,
-        can_play_minecraft: can_play,
-    })
+    Ok(Some((profile.id, profile.name, skin_url)))
 }
 
 /// # Errors
@@ -164,30 +101,26 @@ pub(crate) async fn fetch_entitlement(
 /// Returns an error if any step of the Microsoft authentication flow fails.
 pub async fn complete_microsoft_auth(
     http: &Client,
-    client_id: &str,
     xbox_tokens: &XboxTokens,
     msa_tokens: &MsaTokens,
 ) -> Result<AccountData, AuthError> {
-    let (access_token, mc_token) = launcher_login(http, xbox_tokens).await?;
+    let mc_token = launcher_login(http, xbox_tokens).await?;
+    let profile = fetch_profile(http, &mc_token).await?;
 
-    let profile = fetch_profile(http, &access_token).await?;
-    let entitlement = fetch_entitlement(http, &access_token).await?;
-
-    let internal_id = profile.as_ref().map_or_else(
-        || uuid::Uuid::new_v4().simple().to_string(),
-        |p| p.id.clone(),
-    );
+    let (id, username, skin_url) = if let Some((pid, pname, pskin)) = profile {
+        (pid, pname, pskin)
+    } else {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        (id.clone(), id, None)
+    };
 
     Ok(AccountData {
         account_type: AccountType::Microsoft,
-        internal_id,
-        active: None,
-        msa_client_id: Some(client_id.to_string()),
-        msa_token: Some(token_from_msa_tokens(msa_tokens, msa_tokens.expires_in)),
-        user_token: Some(xbox_tokens.user_token.clone()),
-        xsts_token: Some(xbox_tokens.xsts_token.clone()),
+        id: id.clone(),
+        username,
+        uuid: id,
         mc_token: Some(mc_token),
-        profile,
-        entitlement: Some(entitlement),
+        refresh_token: Some(msa_tokens.refresh_token.clone()),
+        skin_url,
     })
 }
