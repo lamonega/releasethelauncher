@@ -182,7 +182,8 @@ impl DownloadManager {
         let exists_ok = full_local_path.exists()
             && full_local_path
                 .metadata()
-                .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE);
+                .is_ok_and(|m| m.len() >= defaults::MIN_VALID_CACHE_SIZE)
+            && verify_sha1(&full_local_path, lib.sha1.as_deref());
 
         let candidate_urls = Self::maven_urls_for_library(lib);
         if candidate_urls.is_empty() {
@@ -248,6 +249,19 @@ impl DownloadManager {
 
             Ok::<(), LaunchError>(())
         });
+    }
+}
+
+fn verify_sha1(path: &Path, expected: Option<&str>) -> bool {
+    let Some(expected) = expected else {
+        return true;
+    };
+    if expected.is_empty() {
+        return true;
+    }
+    match release_the_launcher_core::compute_sha1_file(path) {
+        Ok(hash) => hash == expected,
+        Err(_) => false,
     }
 }
 
